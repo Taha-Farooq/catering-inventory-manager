@@ -41,7 +41,7 @@ See `backend/README.md` for setup and run steps.
 
 For easiest Windows reliability, use:
 
-- `backend/windows/install-autostart.ps1`
+- `backend/windows/ONE-CLICK-SETUP.cmd`
 
 This installs and auto-starts the backend reset service on login.
 

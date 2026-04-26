@@ -35,7 +35,25 @@ npm run create-link
 
 This prints a one-time reset link payload (time-limited JWT) to send privately.
 
-## Windows Auto-Start (Recommended for low-tech reliability)
+## Windows One-Click Setup (Best for low-tech reliability)
+
+Double-click:
+
+- `backend\windows\ONE-CLICK-SETUP.cmd`
+
+This requires no preinstalled tools and will:
+- download portable Node runtime into `backend\runtime\node`
+- create `.env` if missing
+- install dependencies
+- register/start Windows auto-start task for backend service
+
+After first run, edit `backend\.env` and set:
+- `ADMIN_RESET_JWT_SECRET`
+
+Then test:
+- `backend\windows\health-check.ps1`
+
+## Windows Auto-Start (PowerShell alternative)
 
 From PowerShell in `backend/windows`:
 
