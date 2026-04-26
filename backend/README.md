@@ -44,11 +44,10 @@ Double-click:
 This requires no preinstalled tools and will:
 - download portable Node runtime into `backend\runtime\node`
 - create `.env` if missing
+- auto-generate `ADMIN_RESET_JWT_SECRET` if missing/placeholder
 - install dependencies
 - register/start Windows auto-start task for backend service
-
-After first run, edit `backend\.env` and set:
-- `ADMIN_RESET_JWT_SECRET`
+- run backend health check automatically
 
 Then test:
 - `backend\windows\health-check.ps1`

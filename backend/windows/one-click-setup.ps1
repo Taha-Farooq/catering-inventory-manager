@@ -9,6 +9,7 @@ $portableNpmCmd = Join-Path $portableNodeDir "npm.cmd"
 $envFile = Join-Path $backendDir ".env"
 $exampleEnv = Join-Path $backendDir ".env.example"
 $startScript = Join-Path $backendDir "windows\start-backend.ps1"
+$healthScript = Join-Path $backendDir "windows\health-check.ps1"
 
 $nodeVersion = "v22.14.0"
 $nodeZipUrl = "https://nodejs.org/dist/$nodeVersion/node-$nodeVersion-win-x64.zip"
@@ -35,8 +36,36 @@ function Ensure-PortableNode {
 function Ensure-EnvFile {
   if (-not (Test-Path $envFile)) {
     Copy-Item $exampleEnv $envFile
-    Add-Content -Path $envFile -Value "ADMIN_RESET_JWT_SECRET=replace-this-with-a-long-random-secret"
     Write-Host "Created backend\.env"
+  }
+}
+
+function New-RandomSecret {
+  $bytes = New-Object byte[] 48
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  return [Convert]::ToBase64String($bytes).Replace("+","-").Replace("/","_").TrimEnd("=")
+}
+
+function Ensure-Secret {
+  $lines = Get-Content $envFile
+  $secretLineIdx = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^ADMIN_RESET_JWT_SECRET=') { $secretLineIdx = $i; break }
+  }
+  $needsNew = $true
+  if ($secretLineIdx -ge 0) {
+    $cur = ($lines[$secretLineIdx] -replace '^ADMIN_RESET_JWT_SECRET=', '').Trim()
+    if ($cur -and $cur -notmatch '^replace') { $needsNew = $false }
+  }
+  if ($needsNew) {
+    $secret = New-RandomSecret
+    if ($secretLineIdx -ge 0) {
+      $lines[$secretLineIdx] = "ADMIN_RESET_JWT_SECRET=$secret"
+    } else {
+      $lines += "ADMIN_RESET_JWT_SECRET=$secret"
+    }
+    Set-Content -Path $envFile -Value $lines
+    Write-Host "Generated ADMIN_RESET_JWT_SECRET automatically."
   }
 }
 
@@ -66,13 +95,29 @@ function Ensure-Task {
   Start-ScheduledTask -TaskName $taskName
 }
 
+function Wait-ForHealth {
+  for ($i = 1; $i -le 10; $i++) {
+    try {
+      & $healthScript *> $null
+      if ($LASTEXITCODE -eq 0) { return $true }
+    } catch {}
+    Start-Sleep -Seconds 2
+  }
+  return $false
+}
+
 Ensure-PortableNode
 Ensure-EnvFile
+Ensure-Secret
 Ensure-Dependencies
 Ensure-Task
+$healthy = Wait-ForHealth
 
 Write-Host ""
 Write-Host "One-click setup complete."
-Write-Host "1) Edit backend\.env and set ADMIN_RESET_JWT_SECRET."
-Write-Host "2) Health check: backend\windows\health-check.ps1"
-Write-Host "3) Generate reset link: cd backend; .\runtime\node\npm.cmd run create-link"
+if ($healthy) {
+  Write-Host "1) Health check passed automatically."
+} else {
+  Write-Host "1) Health check did not pass yet. Run: backend\windows\health-check.ps1"
+}
+Write-Host "2) Generate reset link: cd backend; .\runtime\node\npm.cmd run create-link"
