@@ -1,0 +1,2127 @@
+<!--
+  Catering Inventory Manager
+  Copyright (c) 2026 Taha Farooq
+  Licensed under the MIT License — see LICENSE file for details.
+
+  Third-party libraries used under MIT / Apache-2.0 licenses:
+  React 18, Recharts 2.12.7, SheetJS 0.18.5, JSZip 3.10.1, Babel Standalone
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Catering Inventory Manager</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    :root {
+      --brown:      #8B4513;
+      --brown-dk:   #6B3410;
+      --brown-md:   #A0522D;
+      --choc:       #D2691E;
+      --gold:       #B8860B;
+      --cream:      #FFF8DC;
+      --cream-dk:   #F5E6C0;
+      --border:     #DEB887;
+      --text:       #3d1a00;
+      --danger:     #c0392b;
+      --success:    #27ae60;
+      --radius:     6px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-size: 15px; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; }
+    input, select, textarea, button { font-family: inherit; font-size: inherit; }
+    button { cursor: pointer; }
+
+    /* ── Tables ── */
+    .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); }
+    table { border-collapse: collapse; width: 100%; min-width: 540px; }
+    th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid #EED9B0; font-size: 13.5px; }
+    th { background: var(--brown); color: white; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+    tr:nth-child(even) { background: rgba(222,184,135,0.09); }
+    tr:hover { background: rgba(139,69,19,0.07); }
+
+    /* ── Layout ── */
+    #app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+    .content-area { flex: 1; padding: clamp(10px, 2vw, 24px); max-width: 1300px; margin: 0 auto; width: 100%; }
+
+    /* ── Header ── */
+    .app-header { background: linear-gradient(135deg, var(--brown-dk) 0%, var(--brown-md) 100%);
+      color: white; padding: 10px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.22); flex-shrink: 0; }
+    .app-header h1 { font-size: clamp(14px, 2.5vw, 20px); font-weight: 700; }
+    .app-header .sub { font-size: clamp(11px, 1.5vw, 13px); opacity: .82; margin-top: 2px; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Tabs ── */
+    .tab-bar { background: #5a2c0e; padding: 6px 12px; display: flex; flex-wrap: wrap; gap: 3px; flex-shrink: 0; }
+    .tab-btn { padding: 7px 12px; border: none; background: rgba(255,255,255,0.11); color: rgba(255,255,255,0.86);
+      border-radius: 5px; font-size: clamp(11px, 1.4vw, 13px); transition: all .18s; white-space: nowrap; }
+    .tab-btn.active { background: var(--cream); color: var(--brown); font-weight: 700; }
+    .tab-btn:hover:not(.active) { background: rgba(255,255,255,0.24); color: white; }
+
+    /* ── Cards ── */
+    .card { background: white; border-radius: 8px; padding: clamp(12px, 2vw, 18px);
+      box-shadow: 0 2px 10px rgba(139,69,19,.1); margin-bottom: 16px; border: 1px solid #F0E0C0; }
+
+    /* ── Buttons ── */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      padding: 8px 14px; border: none; border-radius: 5px; font-size: 13.5px; font-weight: 500;
+      cursor: pointer; transition: opacity .18s, transform .1s; white-space: nowrap; }
+    .btn:hover { opacity: .86; }
+    .btn:active { transform: scale(.96); }
+    .btn-primary  { background: var(--brown); color: white; }
+    .btn-secondary{ background: var(--choc); color: white; }
+    .btn-danger   { background: var(--danger); color: white; }
+    .btn-success  { background: var(--success); color: white; }
+    .btn-outline  { background: white; color: var(--brown); border: 1.5px solid var(--brown); }
+    .btn-ghost    { background: rgba(255,255,255,0.18); color: white; border: 1px solid rgba(255,255,255,0.3); }
+    .btn-sm { padding: 4px 9px; font-size: 12px; }
+
+    /* ── Inputs ── */
+    .input { width: 100%; padding: 8px 11px; border: 1.5px solid var(--border); border-radius: 5px;
+      font-size: 14px; background: white; color: var(--text); transition: border-color .18s, box-shadow .18s; }
+    .input:focus { outline: none; border-color: var(--brown); box-shadow: 0 0 0 3px rgba(139,69,19,.15); }
+    label { display: block; font-size: 12.5px; font-weight: 600; color: #5a3010; margin-bottom: 4px; }
+    .field { margin-bottom: 12px; }
+
+    /* ── Grids ── */
+    .grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    @media(max-width:600px){ .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+
+    /* ── Badges ── */
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11.5px; font-weight: 600; }
+    .badge-paid    { background:#d4edda; color:#155724; }
+    .badge-unpaid  { background:#fff3cd; color:#856404; }
+    .badge-partial { background:#cce5ff; color:#004085; }
+    .badge-admin   { background:#f0d9ff; color:#6b21a8; }
+    .badge-user    { background:#dbeafe; color:#1d4ed8; }
+
+    /* ── Section title ── */
+    .section-title { font-size: clamp(16px,2.5vw,20px); font-weight:700; color:var(--brown);
+      margin-bottom:16px; padding-bottom:8px; border-bottom:2px solid var(--border); }
+
+    /* ── Stat Cards ── */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:20px; }
+    .stat-card { background:white; border-radius:8px; padding:16px 12px; text-align:center;
+      box-shadow:0 2px 10px rgba(139,69,19,.1); border:1px solid #F0E0C0; }
+    .stat-val { font-size: clamp(18px,2.5vw,26px); font-weight:700; color:var(--brown); }
+    .stat-lbl { font-size:11px; color:#999; margin-top:5px; text-transform:uppercase; letter-spacing:.5px; }
+
+    /* ── Misc ── */
+    .flex         { display:flex; }
+    .flex-between { display:flex; justify-content:space-between; align-items:center; }
+    .flex-wrap    { flex-wrap:wrap; }
+    .gap-2 { gap:8px; }
+    .gap-3 { gap:12px; }
+    .mb-2 { margin-bottom:8px; }
+    .mb-3 { margin-bottom:12px; }
+    .mb-4 { margin-bottom:16px; }
+    .text-center { text-align:center; }
+    .text-right  { text-align:right; }
+    .text-muted  { color:#999; font-size:13px; }
+    .divider { border:none; border-top:1px solid #EED9B0; margin:10px 0; }
+    .empty-state { padding:48px 24px; text-align:center; color:#bbb; font-size:15px; line-height:1.6; }
+
+    /* ── Toggle ── */
+    .toggle { position:relative; display:inline-block; width:42px; height:22px; flex-shrink:0; }
+    .toggle input { opacity:0; width:0; height:0; }
+    .toggle-slider { position:absolute; inset:0; background:#ccc; border-radius:22px; cursor:pointer; transition:.3s; }
+    .toggle-slider::before { content:''; position:absolute; width:16px; height:16px; left:3px; bottom:3px;
+      background:white; border-radius:50%; transition:.3s; }
+    .toggle input:checked + .toggle-slider { background:var(--brown); }
+    .toggle input:checked + .toggle-slider::before { transform:translateX(20px); }
+
+    /* ── Modal ── */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex;
+      align-items:center; justify-content:center; z-index:1000; padding:12px; }
+    .modal { background:white; border-radius:10px; padding:clamp(16px,3vw,26px); width:100%;
+      max-height:92vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+
+    /* ── Login Screen ── */
+    .login-screen { min-height:100vh; display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(135deg,#4a1800 0%,var(--brown-dk) 40%, var(--brown) 100%); padding:20px; }
+    .login-card { background:white; border-radius:14px; padding:clamp(24px,5vw,44px);
+      width:100%; max-width:400px; box-shadow:0 24px 80px rgba(0,0,0,.4); }
+    .login-logo { text-align:center; margin-bottom:28px; }
+    .login-logo .icon { font-size:52px; line-height:1; }
+    .login-logo h1 { font-size:22px; font-weight:700; color:var(--brown); margin-top:8px; }
+    .login-logo p { font-size:13px; color:#888; margin-top:4px; }
+
+    /* ── Scrollbar styling ── */
+    ::-webkit-scrollbar { width:7px; height:7px; }
+    ::-webkit-scrollbar-track { background:#f5ead5; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+    ::-webkit-scrollbar-thumb:hover { background:var(--brown-md); }
+
+    /* ── Animations ── */
+    @keyframes fadeInUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+
+    /* ── Print ── */
+    @media print {
+      .no-print { display:none !important; }
+      body { background:white; font-size:12px; }
+      .card { box-shadow:none; border:1px solid #ccc; break-inside:avoid; }
+      .modal-overlay { position:static; background:none; padding:0; }
+      .modal { box-shadow:none; max-height:none; padding:0; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+const RC = window.Recharts || {};
+const { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+        XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = RC;
+
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const BUSINESSES = {
+  degrill:  { name:'DeGrill Inc',               location:'Spring Valley, NY', taxRate:0.08375 },
+  parathas: { name:'Parathas and Platters Inc',  location:'Hackensack, NJ',   taxRate:0.06625 },
+  dera:     { name:'Dera Masala Grill Inc',      location:'Clifton, NJ',      taxRate:0.06625 },
+};
+
+const TABS_ADMIN = [
+  { id:'items',     label:'📦 Items' },
+  { id:'shopping',  label:'🛒 Shopping' },
+  { id:'purchase',  label:'📋 Purchase Inv.' },
+  { id:'catering',  label:'🍽️ Catering Inv.' },
+  { id:'customers', label:'👥 Customers' },
+  { id:'analytics', label:'📊 Analytics' },
+  { id:'archive',   label:'🗂️ Archive' },
+  { id:'history',   label:'📈 Price History' },
+  { id:'actlog',    label:'🔍 Activity Log' },
+];
+const ALL_USER_TABS = [
+  { id:'shopping',  label:'🛒 Shopping List' },
+  { id:'items',     label:'📦 Add Items' },
+  { id:'pricer',    label:'💰 Price Updater' },
+  { id:'catering',  label:'🍽️ Catering Invoices' },
+  { id:'archive',   label:'🗂️ Invoice Archive' },
+];
+const DEFAULT_USER_PERMS = ['shopping','items','pricer'];
+const PROFILE_ICONS = ['👤','👨‍🍳','👩‍🍳','🧑‍💼','👨‍💼','👩‍💼','🍴','🍽️','🥘','🧑','👨','👩','🙋','🤵','👷','💼','⭐','🌟','🔑','📋','✨','🎯','🏆','🥇'];
+
+const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Spices','Beverages','Bakery','Supplies','Other'];
+const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
+const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
+
+async function hashPwd(pwd) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// STORAGE
+// ═══════════════════════════════════════════════════════════
+function load(key, def) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
+  catch { return def; }
+}
+function save(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+  catch(e) { alert('Storage error: ' + (e.message||'Could not save data.')); return false; }
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+const fmt$ = n => '$' + (parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+const fmtDate = d => { if(!d) return ''; try { return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return d; } };
+const today = () => new Date().toISOString().split('T')[0];
+const uid = () => '_'+Math.random().toString(36).substr(2,9);
+const safeQty = v => { const n=parseFloat(v); return (!isNaN(n)&&n>=0)?n:0; };
+
+function logActivity(action, details='') {
+  try {
+    const session = load('_session', null);
+    if (!session) return;
+    const entry = { id:uid(), username:session.username, action, details, timestamp:new Date().toISOString() };
+    const log = load('_activityLog', []);
+    log.push(entry);
+    if (log.length > 2000) log.splice(0, log.length - 2000);
+    save('_activityLog', log);
+  } catch(e) {}
+}
+function getProfile(username) {
+  const profiles = load('_profiles', {});
+  return profiles[username] || { displayName: username==='admin'?'Administrator':'Staff User', icon: username==='admin'?'👤':'👨‍🍳' };
+}
+function saveProfileData(username, data) {
+  const profiles = load('_profiles', {});
+  profiles[username] = { ...(profiles[username]||{}), ...data };
+  save('_profiles', profiles);
+}
+const safePrice = v => { if(v===''||v==null) return null; const n=parseFloat(v); return(!isNaN(n)&&n>=0)?n:null; };
+
+let _seq = load('_seq',{purchase:0,catering:0});
+function nextId(type) {
+  _seq[type]=(_seq[type]||0)+1; save('_seq',_seq);
+  return (type==='purchase'?'P-':'C-')+String(_seq[type]).padStart(4,'0');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TOAST NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
+let _toastAdd = null;
+function showToast(msg, type='success') { if (_toastAdd) _toastAdd(msg, type); }
+function ToastContainer() {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    _toastAdd = (msg, type='success') => {
+      const id = Date.now() + Math.random();
+      setToasts(p => [...p, {id, msg, type}]);
+      setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
+    };
+    return () => { _toastAdd = null; };
+  }, []);
+  const getStyle = t => t==='error'?{background:'#fee2e2',color:'#991b1b'}:t==='warning'?{background:'#fff3cd',color:'#856404'}:{background:'#d4edda',color:'#155724'};
+  const getIcon  = t => t==='error'?'❌ ':t==='warning'?'⚠️ ':'✅ ';
+  return (
+    <div style={{position:'fixed',bottom:24,right:24,zIndex:9999,display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end',pointerEvents:'none'}}>
+      {toasts.map(t=>(
+        <div key={t.id} style={{...getStyle(t.type),padding:'10px 16px',borderRadius:8,boxShadow:'0 4px 12px rgba(0,0,0,.18)',fontSize:13.5,fontWeight:500,maxWidth:340,animation:'fadeInUp .25s ease'}}>
+          {getIcon(t.type)}{t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// UI PRIMITIVES
+// ═══════════════════════════════════════════════════════════
+function Modal({ open, onClose, title, children, wide, maxW }) {
+  if (!open) return null;
+  return (
+    <div className="modal-overlay no-print" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal" style={{maxWidth:maxW||(wide?840:560)}}>
+        <div className="flex-between mb-4">
+          <h2 style={{color:'var(--brown)',fontSize:'clamp(15px,2vw,18px)',fontWeight:700}}>{title}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb',lineHeight:1}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',userSelect:'none',margin:0}}>
+      <span className="toggle">
+        <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} />
+        <span className="toggle-slider" />
+      </span>
+      <span style={{fontSize:13.5,color:'#5a3010'}}>{label}</span>
+    </label>
+  );
+}
+
+function Confirm({ open, message, onConfirm, onCancel, confirmLabel='Delete', confirmClass='btn-danger' }) {
+  if (!open) return null;
+  return (
+    <div className="modal-overlay no-print">
+      <div className="modal" style={{maxWidth:380}}>
+        <p style={{marginBottom:20,fontSize:15,color:'#333',lineHeight:1.5}}>{message}</p>
+        <div className="flex gap-2" style={{justifyContent:'flex-end'}}>
+          <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
+          <button className={`btn ${confirmClass}`} onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FI({ label, ...props }) {
+  return <div className="field">{label&&<label>{label}</label>}<input className="input" {...props} /></div>;
+}
+function FS({ label, children, ...props }) {
+  return <div className="field">{label&&<label>{label}</label>}<select className="input" {...props}>{children}</select></div>;
+}
+function Btn({ className='', children, ...p }) {
+  return <button className={`btn ${className}`} {...p}>{children}</button>;
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOGIN SCREEN
+// ═══════════════════════════════════════════════════════════
+function FirstRunSetup({ onDone }) {
+  const [adminPwd, setAdminPwd] = useState('');
+  const [adminConfirm, setAdminConfirm] = useState('');
+  const [staffPwd, setStaffPwd] = useState('');
+  const [staffConfirm, setStaffConfirm] = useState('');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSetup(e) {
+    e.preventDefault();
+    setErr('');
+    if (adminPwd.length < 6) { setErr('Admin password must be at least 6 characters.'); return; }
+    if (adminPwd !== adminConfirm) { setErr('Admin passwords do not match.'); return; }
+    if (staffPwd.length < 6) { setErr('Staff password must be at least 6 characters.'); return; }
+    if (staffPwd !== staffConfirm) { setErr('Staff passwords do not match.'); return; }
+    setSaving(true);
+    const [aHash, uHash] = await Promise.all([hashPwd(adminPwd), hashPwd(staffPwd)]);
+    save('credentials', { admin: { password: aHash }, user: { password: uHash } });
+    onDone();
+  }
+
+  return (
+    <div className="login-screen">
+      <div className="login-card">
+        <div className="login-logo">
+          <div className="icon">🍽️</div>
+          <h1>Welcome — First Time Setup</h1>
+          <p>Create passwords to secure your account before first use.</p>
+        </div>
+        <form onSubmit={handleSetup}>
+          <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#7a5c00'}}>
+            🔒 Passwords are stored as secure hashes — never in plain text.
+          </div>
+          <label style={{fontWeight:700,fontSize:13,color:'var(--brown)',display:'block',marginBottom:4}}>👑 Admin Password</label>
+          <div className="field"><input className="input" type="password" placeholder="Min 6 characters" value={adminPwd} onChange={e=>{setAdminPwd(e.target.value);setErr('');}} autoFocus /></div>
+          <div className="field"><input className="input" type="password" placeholder="Confirm admin password" value={adminConfirm} onChange={e=>{setAdminConfirm(e.target.value);setErr('');}} /></div>
+          <label style={{fontWeight:700,fontSize:13,color:'var(--brown)',display:'block',margin:'12px 0 4px'}}>👤 Staff Password</label>
+          <div className="field"><input className="input" type="password" placeholder="Min 6 characters" value={staffPwd} onChange={e=>{setStaffPwd(e.target.value);setErr('');}} /></div>
+          <div className="field"><input className="input" type="password" placeholder="Confirm staff password" value={staffConfirm} onChange={e=>{setStaffConfirm(e.target.value);setErr('');}} /></div>
+          {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
+          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15,marginTop:4}} disabled={saving}>
+            {saving ? 'Setting up…' : '🔐 Create Passwords & Continue'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [needsSetup, setNeedsSetup] = useState(() => load('credentials', null) === null);
+  const [uname, setUname] = useState('');
+  const [pwd, setPwd] = useState('');
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+
+  if (needsSetup) return <FirstRunSetup onDone={() => setNeedsSetup(false)} />;
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setErr('');
+    const creds = load('credentials', null);
+    if (!creds) { setErr('App not configured yet. Please refresh.'); return; }
+    const key = uname.trim().toLowerCase();
+    if (!creds[key]) { setErr('Invalid username or password.'); return; }
+    setLoading(true);
+    const hash = await hashPwd(pwd);
+    if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
+    setTimeout(() => {
+      onLogin({ username: key, role: key === 'admin' ? 'admin' : 'user',
+        name: key === 'admin' ? 'Administrator' : 'Staff User' });
+    }, 400);
+  }
+
+  return (
+    <div className="login-screen">
+      <div className="login-card">
+        <div className="login-logo">
+          <div className="icon">🍽️</div>
+          <h1>Catering Inventory Manager</h1>
+          <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
+        </div>
+
+        <form onSubmit={handleLogin}>
+          <div className="field">
+            <label>Username</label>
+            <input className="input" placeholder="admin or user" value={uname} onChange={e=>{setUname(e.target.value);setErr('');}} autoFocus autoCapitalize="none" autoCorrect="off" />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input className="input" type="password" placeholder="Enter password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} />
+          </div>
+          {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
+          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15,marginTop:4}} disabled={loading}>
+            {loading ? 'Signing in…' : '🔐 Sign In'}
+          </button>
+        </form>
+
+        <button type="button" onClick={()=>setShowForgot(f=>!f)} style={{background:'none',border:'none',color:'var(--brown)',fontSize:13,cursor:'pointer',textDecoration:'underline',display:'block',textAlign:'center',marginTop:12,width:'100%'}}>
+          Forgot your password?
+        </button>
+        {showForgot && (
+          <div style={{background:'#FFF8DC',borderRadius:8,padding:'14px 16px',marginTop:8,border:'1px solid #DEB887',fontSize:13,lineHeight:1.8}}>
+            <div>🔐 <strong>Admin password:</strong> To reset, email{' '}
+              <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>
+            </div>
+            <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// PROFILE MODAL
+// ═══════════════════════════════════════════════════════════
+function ProfileModal({ open, onClose, username, profile, onSave }) {
+  const [icon, setIcon] = useState(profile ? profile.icon : '👤');
+  const [displayName, setDisplayName] = useState(profile ? profile.displayName : '');
+
+  useEffect(() => {
+    if (open && profile) { setIcon(profile.icon); setDisplayName(profile.displayName); }
+  }, [open]);
+
+  function handleSave() {
+    if (!displayName.trim()) { alert('Please enter a display name.'); return; }
+    onSave({ icon, displayName: displayName.trim() });
+    onClose();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="✏️ Edit Your Profile" maxW={480}>
+      <FI label="Display Name" value={displayName} onChange={e=>setDisplayName(e.target.value)} maxLength={40} placeholder="Enter your name" />
+      <div className="field">
+        <label>Choose Your Icon</label>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8,marginTop:4}}>
+          {PROFILE_ICONS.map(emoji=>(
+            <button key={emoji} type="button" onClick={()=>setIcon(emoji)}
+              style={{fontSize:26,padding:8,border:icon===emoji?'2.5px solid var(--brown)':'1.5px solid #ddd',
+                background:icon===emoji?'var(--cream)':'white',borderRadius:8,cursor:'pointer',lineHeight:1,transition:'all .12s'}}>
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,background:'var(--cream)',borderRadius:8,padding:'12px 16px',marginBottom:16,border:'1px solid var(--border)'}}>
+        <span style={{fontSize:34}}>{icon}</span>
+        <span style={{fontSize:16,color:'var(--brown)',fontWeight:700}}>{displayName||'Your Name'}</span>
+      </div>
+      <div className="flex gap-2" style={{justifyContent:'flex-end'}}>
+        <Btn className="btn-outline" onClick={onClose}>Cancel</Btn>
+        <Btn className="btn-primary" onClick={handleSave}>💾 Save Profile</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS MODAL (admin only)
+// ═══════════════════════════════════════════════════════════
+function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) {
+  const { items, shopping, purchaseInv, cateringInv, customers, priceHist,
+          setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz } = appState;
+
+  const [adminPwd, setAdminPwd] = useState('');
+  const [userPwd, setUserPwd] = useState('');
+  const [pwdMsg, setPwdMsg] = useState('');
+  const importRef = useRef();
+  const [userPerms, setUserPerms] = useState(() => load('_userPermissions', DEFAULT_USER_PERMS));
+
+  const TAB_DESCRIPTIONS = {
+    shopping: 'Build and export shopping lists',
+    items:    'Add new items to the item database',
+    pricer:   'Update supplier prices for existing items',
+    catering: 'View and create catering invoices',
+    archive:  'Browse and search all past invoices',
+  };
+
+  async function savePwds() {
+    if (!adminPwd && !userPwd) { setPwdMsg('Enter at least one new password.'); return; }
+    if (adminPwd && adminPwd.length < 6) { setPwdMsg('Admin password must be at least 6 characters.'); return; }
+    if (userPwd && userPwd.length < 6) { setPwdMsg('Staff password must be at least 6 characters.'); return; }
+    const creds = load('credentials', null) || { admin:{password:''}, user:{password:''} };
+    if (adminPwd) creds.admin.password = await hashPwd(adminPwd);
+    if (userPwd)  creds.user.password  = await hashPwd(userPwd);
+    save('credentials', creds);
+    setAdminPwd(''); setUserPwd('');
+    setPwdMsg('✅ Passwords updated!');
+    setTimeout(() => setPwdMsg(''), 3000);
+    showToast('Passwords updated!');
+  }
+
+  function savePerms() {
+    if (userPerms.length === 0) { alert('At least one tab must be enabled for staff users.'); return; }
+    save('_userPermissions', userPerms);
+    onPermsChange(userPerms);
+    showToast('Staff access settings saved!');
+  }
+
+  async function doExport() {
+    if (!window.JSZip) { alert('JSZip library not loaded. Check internet connection.'); return; }
+    try {
+      const zip = new JSZip();
+      const payload = {
+        items, shoppingList:shopping, purchaseInvoices:purchaseInv,
+        cateringInvoices:cateringInv, customers, priceHistory:priceHist,
+        settings:{ selectedBusiness: load('_lastBiz','degrill') },
+        exportDate: new Date().toISOString(), version:'2.0'
+      };
+      Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
+      zip.file('README.txt',
+        'Catering Inventory Manager — Backup\nExported: ' + new Date().toLocaleString() + '\n\n' +
+        'To restore: Open the app → Settings (⚙) → Import Backup → select this ZIP file.'
+      );
+      const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'catering-backup-' + today() + '.zip';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+      logActivity('export_backup', 'Exported data backup');
+      showToast('Backup exported! Save the ZIP file somewhere safe.');
+    } catch(e) { alert('Export failed: ' + e.message); }
+  }
+
+  function doImport(file) {
+    if (!file) return;
+    if (!window.JSZip) { alert('JSZip library not loaded.'); return; }
+    if (!window.confirm('⚠️ WARNING: This will REPLACE ALL current data with the backup file.\n\nAre you absolutely sure? This cannot be undone.')) return;
+    JSZip.loadAsync(file).then(zip => {
+      const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices','customers','priceHistory','settings'];
+      return Promise.all(keys.map(async k => {
+        const f = zip.file(k+'.json');
+        if (!f) return [k, null];
+        return [k, JSON.parse(await f.async('string'))];
+      }));
+    }).then(entries => {
+      entries.forEach(([k,v]) => {
+        if (!v) return;
+        if (k==='items')            { setItems(v);       save('items',v); }
+        if (k==='shoppingList')     { setShopping(v);    save('shoppingList',v); }
+        if (k==='purchaseInvoices') { setPurchaseInv(v); save('purchaseInvoices',v); }
+        if (k==='cateringInvoices') { setCateringInv(v); save('cateringInvoices',v); }
+        if (k==='customers')        { setCustomers(v);   save('customers',v); }
+        if (k==='priceHistory')     { setPriceHist(v);   save('priceHistory',v); }
+        if (k==='settings'&&v.selectedBusiness) { setBiz(v.selectedBusiness); save('_lastBiz',v.selectedBusiness); }
+      });
+      logActivity('restore_backup', 'Restored data from backup');
+      showToast('Backup restored! All data has been loaded.');
+      onClose();
+    }).catch(e => alert('Import failed: ' + e.message));
+  }
+
+  const totalInvoices = purchaseInv.length + cateringInv.length;
+  const unpaidBal = cateringInv.reduce((s,i)=>s+(i.balanceDue||0),0);
+
+  return (
+    <Modal open={open} onClose={onClose} title="⚙️ Settings & Backup" wide maxW={680}>
+      {/* Data Summary */}
+      <div style={{background:'var(--cream)',padding:14,borderRadius:8,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:10,fontSize:14}}>📊 Data Summary</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8}}>
+          {[['Items',items.length],['Customers',customers.length],['Invoices',totalInvoices],['Outstanding',fmt$(unpaidBal)]].map(([l,v])=>(
+            <div key={l} style={{background:'white',padding:'10px 8px',borderRadius:6,textAlign:'center',border:'1px solid #EED9B0'}}>
+              <div style={{fontWeight:700,color:'var(--brown)',fontSize:18}}>{v}</div>
+              <div style={{fontSize:11,color:'#999',marginTop:3}}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Backup / Restore */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>💾 Backup &amp; Restore</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:14,lineHeight:1.6}}>
+          Export a ZIP file of ALL your data — items, invoices, customers, price history.
+          Import it any time to restore if browser data is cleared.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <Btn className="btn-primary" onClick={doExport}>⬇ Export Backup (.zip)</Btn>
+          <Btn className="btn-outline" onClick={()=>importRef.current.click()}>⬆ Import Backup</Btn>
+          <input ref={importRef} type="file" accept=".zip" style={{display:'none'}} onChange={e=>{doImport(e.target.files[0]);e.target.value='';}} />
+        </div>
+        <p style={{fontSize:11.5,color:'#aaa',marginTop:10}}>
+          💡 Tip: Save backups to Google Drive, OneDrive, or email them to yourself for safekeeping.
+        </p>
+      </div>
+
+      {/* Staff User Access */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>👥 Staff User Access</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:14,marginTop:4,lineHeight:1.5}}>
+          Choose which sections staff users can see when they log in. At least one must stay enabled.
+        </p>
+        {ALL_USER_TABS.map(t => {
+          const checked = userPerms.includes(t.id);
+          return (
+            <label key={t.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 12px',borderRadius:6,marginBottom:8,background:checked?'var(--cream)':'#f9f9f9',border:checked?'1.5px solid #DEB887':'1px solid #e5e7eb',cursor:'pointer',userSelect:'none'}}>
+              <input type="checkbox" checked={checked} style={{marginTop:3,cursor:'pointer',flexShrink:0,width:16,height:16}} onChange={e=>setUserPerms(p=>e.target.checked?[...p,t.id]:p.filter(id=>id!==t.id))} />
+              <div>
+                <div style={{fontWeight:600,fontSize:14}}>{t.label}</div>
+                <div style={{fontSize:12,color:'#888',marginTop:2}}>{TAB_DESCRIPTIONS[t.id]||''}</div>
+              </div>
+            </label>
+          );
+        })}
+        <Btn className="btn-primary" style={{marginTop:4}} onClick={savePerms}>💾 Save Access Settings</Btn>
+        <div style={{fontSize:12,color:'#888',marginTop:8}}>Changes take effect immediately.</div>
+      </div>
+
+      {/* Password Management */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔑 Password Management</div>
+        <div className="grid-2">
+          <div>
+            <label>Change Admin Password</label>
+            <input className="input" type="password" placeholder="Leave blank to keep current" value={adminPwd} onChange={e=>setAdminPwd(e.target.value)} />
+            <div style={{fontSize:11.5,color:'#888',marginTop:5}}>⚠️ If locked out, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)'}}>fatimfarooq@yahoo.com</a></div>
+          </div>
+          <div>
+            <label>Reset Staff Password</label>
+            <input className="input" type="password" placeholder="Leave blank to keep current" value={userPwd} onChange={e=>setUserPwd(e.target.value)} />
+            <div style={{fontSize:11.5,color:'#888',marginTop:5}}>Resets the password for the staff (user) account</div>
+          </div>
+        </div>
+        {pwdMsg && (
+          <div style={{padding:'8px 12px',borderRadius:5,marginTop:10,fontSize:13,background:pwdMsg.startsWith('✅')?'#d4edda':'#fee2e2',color:pwdMsg.startsWith('✅')?'#155724':'#991b1b'}}>{pwdMsg}</div>
+        )}
+        <Btn className="btn-primary btn-sm" style={{marginTop:12}} onClick={savePwds}>Save Passwords</Btn>
+      </div>
+
+      <div style={{marginTop:16,textAlign:'right'}}>
+        <Btn className="btn-outline" onClick={onClose}>Close</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 1 — ITEM DATABASE
+// ═══════════════════════════════════════════════════════════
+function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole }) {
+  const isAdmin = userRole === 'admin';
+  const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',notes:'',sellers:[{name:'',price:''}]};
+  const blank = () => ({...BLANK, sellers:[{name:'',price:''}]});
+  const [search, setSearch] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(blank());
+  const [confirmId, setConfirmId] = useState(null);
+
+  const filtered = useMemo(()=>{
+    const q=search.toLowerCase();
+    return items.filter(i=>i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q));
+  },[items,search]);
+
+  function openEdit(item) { setForm({...item,sellers:item.sellers.map(s=>({...s}))}); setEditId(item.id); setShowForm(true); }
+  function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
+
+  function saveItem() {
+    if (!form.name.trim()) { alert('Item name is required.'); return; }
+    const sellers = [];
+    for (const s of form.sellers) {
+      if (!s.name.trim()) continue;
+      const p = safePrice(s.price);
+      if (s.price!==''&&p===null) { alert(`Invalid price for "${s.name}". Must be a positive number or left blank.`); return; }
+      sellers.push({name:s.name.trim(),price:p});
+    }
+    if (editId) {
+      const old = items.find(x=>x.id===editId);
+      const newHist = [];
+      sellers.forEach(s => {
+        const prev=(old.sellers||[]).find(os=>os.name===s.name);
+        if (prev&&prev.price!==null&&s.price!==null&&prev.price!==s.price)
+          newHist.push({id:uid(),itemId:editId,itemName:form.name,seller:s.name,oldPrice:prev.price,newPrice:s.price,date:today()});
+      });
+      if (newHist.length) { const u=[...priceHistory,...newHist]; setPriceHistory(u); save('priceHistory',u); }
+      const u=items.map(x=>x.id===editId?{...x,...form,sellers}:x);
+      setItems(u); save('items',u);
+    } else {
+      const u=[...items,{id:uid(),...form,sellers,createdAt:today()}];
+      setItems(u); save('items',u);
+    }
+    setShowForm(false);
+    logActivity(editId ? 'edit_item' : 'add_item', form.name);
+    showToast(editId ? 'Item updated!' : 'Item added to database!');
+  }
+
+  function deleteItem(id) { const u=items.filter(x=>x.id!==id); setItems(u); save('items',u); setConfirmId(null); showToast('Item deleted.'); logActivity('delete_item','Deleted item'); }
+
+  return (
+    <div>
+      <div className="flex-between mb-4 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Item Database ({items.length})</div>
+        <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setShowForm(true);}}>＋ Add New Item</Btn>
+      </div>
+      <input className="input mb-4" placeholder="Search by name, category, or UPC…" value={search} onChange={e=>setSearch(e.target.value)} />
+      {!isAdmin && <div style={{background:'#dbeafe',color:'#1d4ed8',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13}}>💡 Tip: You can add new items using the button above. To edit or delete items, contact your admin.</div>}
+
+      {filtered.length===0
+        ? <div className="card empty-state">{items.length===0?'No items yet. Click "Add Item" to get started.':'No items match your search.'}</div>
+        : (
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>UPC</th><th>Sellers / Prices</th>{isAdmin&&<th>Actions</th>}</tr></thead>
+                <tbody>
+                  {filtered.map(item=>(
+                    <tr key={item.id}>
+                      <td style={{fontWeight:600}}>{item.name}</td>
+                      <td><span style={{fontSize:11.5,background:'#FFF0D4',color:'var(--brown)',padding:'2px 7px',borderRadius:10}}>{item.category}</span></td>
+                      <td>{item.unit}</td>
+                      <td style={{fontFamily:'monospace',fontSize:12,color:'#888'}}>{item.upc||'—'}</td>
+                      <td>
+                        {(item.sellers||[]).map((s,i)=>(
+                          <div key={i} style={{fontSize:13,lineHeight:1.8}}>
+                            <strong style={{color:'var(--brown)'}}>{s.name}</strong>
+                            {s.price!==null&&s.price!==undefined
+                              ?<span style={{color:'#555'}}> — {fmt$(s.price)}/{item.unit}</span>
+                              :<span style={{color:'#bbb'}}> — no price</span>}
+                          </div>
+                        ))}
+                      </td>
+                      {isAdmin&&(
+                        <td style={{whiteSpace:'nowrap'}}>
+                          <Btn className="btn-secondary btn-sm" style={{marginRight:5}} onClick={()=>openEdit(item)}>Edit</Btn>
+                          <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(item.id)}>Delete</Btn>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
+
+      <Modal open={showForm} onClose={()=>setShowForm(false)} title={editId?'Edit Item':'Add New Item'}>
+        <div className="grid-2">
+          <FI label="Item Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Chicken Breast" />
+          <FS label="Category" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+            {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+          </FS>
+        </div>
+        <div className="grid-2">
+          <FI label="Unit of Measure" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="lb, kg, each, case…" />
+          <FI label="UPC Code (optional)" value={form.upc} onChange={e=>setForm(f=>({...f,upc:e.target.value}))} placeholder="Barcode" />
+        </div>
+        <div style={{marginBottom:14}}>
+          <div className="flex-between mb-2">
+            <label style={{margin:0}}>Sellers &amp; Prices</label>
+            <Btn className="btn-outline btn-sm" onClick={()=>setForm(f=>({...f,sellers:[...f.sellers,{name:'',price:''}]}))}>+ Seller</Btn>
+          </div>
+          {form.sellers.map((s,i)=>(
+            <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center'}}>
+              <input className="input" placeholder="Seller name" value={s.name} onChange={e=>setSeller(i,'name',e.target.value)} style={{flex:2}} />
+              <input className="input" placeholder="Price (blank = unknown)" type="number" min="0" step="0.01" value={s.price} onChange={e=>setSeller(i,'price',e.target.value)} style={{flex:1}} />
+              {form.sellers.length>1&&<Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,sellers:f.sellers.filter((_,x)=>x!==i)}))}>✕</Btn>}
+            </div>
+          ))}
+        </div>
+        <div className="field">
+          <label>Notes</label>
+          <textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
+        </div>
+        <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
+          <Btn className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveItem}>Save Item</Btn>
+        </div>
+      </Modal>
+
+      <Confirm open={!!confirmId} message="Delete this item permanently? It will be removed from the database." onConfirm={()=>deleteItem(confirmId)} onCancel={()=>setConfirmId(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 2 — SHOPPING LIST
+// ═══════════════════════════════════════════════════════════
+function ShoppingList({ items, shoppingList, setShoppingList }) {
+  const [search, setSearch] = useState('');
+  const [showDrop, setShowDrop] = useState(false);
+
+  const results = useMemo(()=>{
+    if (!search.trim()) return [];
+    const q=search.toLowerCase();
+    return items.filter(i=>i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)).slice(0,10);
+  },[search,items]);
+
+  function addItem(item) {
+    const sel=item.sellers[0]||{name:'',price:null};
+    const dup=shoppingList.find(s=>s.itemId===item.id&&s.selectedSeller===sel.name);
+    if (dup) { updateQty(dup.id, dup.quantity+1); }
+    else {
+      const u=[...shoppingList,{id:uid(),itemId:item.id,itemName:item.name,unit:item.unit,
+        selectedSeller:sel.name,price:sel.price,quantity:1,sellers:item.sellers}];
+      setShoppingList(u); save('shoppingList',u);
+    }
+    setSearch(''); setShowDrop(false);
+  }
+
+  function updateQty(id, raw) {
+    const n=parseFloat(raw);
+    if (isNaN(n)||n<0) return;
+    const u=shoppingList.map(s=>s.id===id?{...s,quantity:n}:s);
+    setShoppingList(u); save('shoppingList',u);
+  }
+
+  function changeSeller(id, name) {
+    const e=shoppingList.find(s=>s.id===id);
+    const sel=(e.sellers||[]).find(s=>s.name===name);
+    const u=shoppingList.map(s=>s.id===id?{...s,selectedSeller:name,price:sel?.price??null}:s);
+    setShoppingList(u); save('shoppingList',u);
+  }
+
+  function removeItem(id) { const u=shoppingList.filter(s=>s.id!==id); setShoppingList(u); save('shoppingList',u); }
+
+  function clearAll() {
+    if (!window.confirm('Clear the entire shopping list?')) return;
+    setShoppingList([]); save('shoppingList',[]);
+  }
+
+  function exportXlsx() {
+    if (!shoppingList.length) { alert('Shopping list is empty.'); return; }
+    if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
+    const rows = shoppingList.map(s=>({
+      'Item':s.itemName,'Seller':s.selectedSeller,'Quantity':s.quantity,'Unit':s.unit,
+      'Unit Price':s.price??'','Total':s.price!=null?(s.quantity*(s.price)).toFixed(2):''
+    }));
+    rows.push({Item:'','Seller':'','Quantity':'','Unit':'','Unit Price':'GRAND TOTAL','Total':grandTotal.toFixed(2)});
+    const ws=XLSX.utils.json_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Shopping List');
+    XLSX.writeFile(wb,'shopping-list-'+today()+'.xlsx');
+  }
+
+  const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
+
+  return (
+    <div>
+      <div className="flex-between mb-4 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Shopping List ({shoppingList.length})</div>
+        <div className="flex gap-2 flex-wrap">
+          <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
+          <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
+        </div>
+      </div>
+
+      <div className="card mb-4" style={{position:'relative',overflow:'visible'}}>
+        <label>Search &amp; Add Items</label>
+        <input className="input" placeholder="Type item name to search…" value={search}
+          onChange={e=>{setSearch(e.target.value);setShowDrop(true);}}
+          onFocus={()=>setShowDrop(true)} onBlur={()=>setTimeout(()=>setShowDrop(false),180)} />
+        {showDrop && results.length>0 && (
+          <div style={{position:'absolute',top:'100%',left:0,right:0,background:'white',border:'1.5px solid var(--border)',
+            borderRadius:'0 0 6px 6px',boxShadow:'0 8px 24px rgba(0,0,0,.15)',zIndex:300}}>
+            {results.map(item=>(
+              <div key={item.id} onMouseDown={()=>addItem(item)}
+                style={{padding:'10px 16px',cursor:'pointer',borderBottom:'1px solid #f5ead5',fontSize:14}}>
+                <strong>{item.name}</strong>
+                <span style={{color:'#999',fontSize:12,marginLeft:8}}>({item.category} · {item.unit})</span>
+                {item.sellers[0]?.price!=null&&<span style={{color:'var(--brown)',float:'right',fontSize:12,fontWeight:600}}>{fmt$(item.sellers[0].price)}/{item.unit}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        {showDrop&&search.trim()&&results.length===0&&(
+          <div style={{position:'absolute',top:'100%',left:0,right:0,background:'white',border:'1.5px solid var(--border)',
+            borderRadius:'0 0 6px 6px',padding:'12px 16px',color:'#aaa',fontSize:14}}>
+            No items found. Add it in the Item Database tab first.
+          </div>
+        )}
+      </div>
+
+      {shoppingList.length===0
+        ? <div className="card empty-state">Search for an item above and click to add it to your shopping list.</div>
+        : (
+          <>
+            <div className="card" style={{padding:0}}>
+              <div className="tbl-wrap">
+                <table>
+                  <thead><tr><th>Item</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th></th></tr></thead>
+                  <tbody>
+                    {shoppingList.map(e=>{
+                      const lt=safeQty(e.quantity)*(e.price??0);
+                      return (
+                        <tr key={e.id}>
+                          <td style={{fontWeight:600}}>{e.itemName}</td>
+                          <td>
+                            {(e.sellers||[]).length>1
+                              ?<select className="input" style={{padding:'3px 6px',width:'auto',fontSize:13}} value={e.selectedSeller} onChange={ev=>changeSeller(e.id,ev.target.value)}>
+                                {(e.sellers||[]).map(s=><option key={s.name} value={s.name}>{s.name}{s.price!=null?' ('+fmt$(s.price)+')':''}</option>)}
+                              </select>
+                              :<span>{e.selectedSeller||'—'}</span>}
+                          </td>
+                          <td>
+                            <input type="number" className="input" style={{width:80,padding:'4px 8px'}} min="0" step="0.5"
+                              value={e.quantity} onChange={ev=>updateQty(e.id,ev.target.value)} />
+                          </td>
+                          <td>{e.unit}</td>
+                          <td>{e.price!=null?fmt$(e.price):<span style={{color:'#bbb'}}>—</span>}</td>
+                          <td style={{fontWeight:600,color:'var(--brown)'}}>{e.price!=null?fmt$(lt):'—'}</td>
+                          <td><Btn className="btn-danger btn-sm" onClick={()=>removeItem(e.id)}>✕</Btn></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="card" style={{textAlign:'right'}}>
+              <span style={{fontSize:13,color:'#888',marginRight:16}}>{shoppingList.length} item{shoppingList.length!==1?'s':''}</span>
+              <span style={{fontSize:20,fontWeight:700,color:'var(--brown)'}}>Total: {fmt$(grandTotal)}</span>
+            </div>
+          </>
+        )
+      }
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 3 — PURCHASE INVOICES
+// ═══════════════════════════════════════════════════════════
+function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusiness }) {
+  const biz = BUSINESSES[selectedBusiness];
+  const blankF = () => ({supplier:'',date:today(),taxEnabled:false,notes:'',
+    payment:{account:'',date:'',transactionId:''},
+    lineItems:[{description:'',quantity:'',unit:'each',unitPrice:''}]});
+
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(blankF());
+  const [viewInv, setViewInv] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  function setLine(i,f2,v){setForm(f=>{const l=[...f.lineItems];l[i]={...l[i],[f2]:v};return{...f,lineItems:l};});}
+
+  function calcT(f,taxRate){
+    const lines=f.lineItems.map(l=>{const q=safeQty(l.quantity),p=parseFloat(l.unitPrice)||0;return{...l,qty:q,price:p,total:q*p};});
+    const sub=lines.reduce((s,l)=>s+l.total,0);
+    const tax=f.taxEnabled?sub*taxRate:0;
+    return{lines,sub,tax,total:sub+tax};
+  }
+
+  const T=calcT(form,biz.taxRate);
+
+  function saveInvoice(){
+    if (!form.supplier.trim()){alert('Supplier name is required.');return;}
+    const valid=T.lines.filter(l=>l.description.trim());
+    if (!valid.length){alert('Add at least one line item with a description.');return;}
+    const inv={id:nextId('purchase'),type:'purchase',business:selectedBusiness,
+      supplier:form.supplier,date:form.date,notes:form.notes,
+      lineItems:valid,subtotal:T.sub,taxEnabled:form.taxEnabled,taxRate:biz.taxRate,taxAmount:T.tax,
+      total:T.total,status:'unpaid',payment:{...form.payment},createdAt:today()};
+    const u=[...purchaseInvoices,inv]; setPurchaseInvoices(u); save('purchaseInvoices',u);
+    setShowForm(false); setForm(blankF());
+  }
+
+  function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);}
+  function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
+
+  return (
+    <div>
+      <div className="flex-between mb-4 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Purchase Invoices</div>
+        <Btn className="btn-primary" onClick={()=>{setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+      </div>
+
+      {purchaseInvoices.length===0
+        ? <div className="card empty-state">No purchase invoices yet. Click "+ New Invoice" to create one.</div>
+        : (
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Invoice #</th><th>Supplier</th><th>Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {[...purchaseInvoices].reverse().map(inv=>(
+                    <tr key={inv.id}>
+                      <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
+                      <td style={{fontWeight:600}}>{inv.supplier}</td>
+                      <td>{fmtDate(inv.date)}</td>
+                      <td style={{fontSize:12,color:'#777'}}>{BUSINESSES[inv.business]?.name}</td>
+                      <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
+                      <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
+                        {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Mark Paid</Btn>}
+                        <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
+
+      <Modal open={showForm} onClose={()=>setShowForm(false)} title="New Purchase Invoice" wide>
+        <div className="grid-2">
+          <FI label="Supplier Name *" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))} placeholder="Sysco, US Foods…" />
+          <FI label="Invoice Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
+        </div>
+        <div style={{marginBottom:14}}>
+          <div className="flex-between mb-2">
+            <label style={{margin:0}}>Line Items</label>
+            <Btn className="btn-outline btn-sm" onClick={()=>setForm(f=>({...f,lineItems:[...f.lineItems,{description:'',quantity:'',unit:'each',unitPrice:''}]}))}>+ Add Line</Btn>
+          </div>
+          {form.lineItems.map((l,i)=>(
+            <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center',flexWrap:'wrap'}}>
+              <input className="input" placeholder="Description *" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'3 1 160px'}} />
+              <input className="input" placeholder="Qty" type="number" min="0" step="0.01" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:'1 1 60px'}} />
+              <input className="input" placeholder="Unit" value={l.unit} onChange={e=>setLine(i,'unit',e.target.value)} style={{flex:'1 1 60px'}} />
+              <input className="input" placeholder="Unit $" type="number" min="0" step="0.01" value={l.unitPrice} onChange={e=>setLine(i,'unitPrice',e.target.value)} style={{flex:'1 1 70px'}} />
+              <span style={{minWidth:64,textAlign:'right',fontSize:13,color:'var(--brown)',fontWeight:600}}>{fmt$(T.lines[i]?.total||0)}</span>
+              <Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,lineItems:f.lineItems.filter((_,x)=>x!==i)}))}>✕</Btn>
+            </div>
+          ))}
+        </div>
+        <div style={{background:'var(--cream)',padding:14,borderRadius:8,marginBottom:14}}>
+          <div className="flex-between mb-2"><span>Subtotal</span><strong>{fmt$(T.sub)}</strong></div>
+          <div className="flex-between mb-2">
+            <Toggle checked={form.taxEnabled} onChange={v=>setForm(f=>({...f,taxEnabled:v}))} label={`Tax (${(biz.taxRate*100).toFixed(3)}%)`} />
+            <span style={{color:form.taxEnabled?'var(--brown)':'#bbb'}}>{fmt$(T.tax)}</span>
+          </div>
+          <hr className="divider" />
+          <div className="flex-between"><strong style={{fontSize:16}}>Total</strong><strong style={{fontSize:19,color:'var(--brown)'}}>{fmt$(T.total)}</strong></div>
+        </div>
+        <div style={{padding:14,border:'1px solid #EED9B0',borderRadius:8,marginBottom:14}}>
+          <div style={{fontWeight:700,color:'var(--brown)',marginBottom:10,fontSize:14}}>Payment Information</div>
+          <div className="grid-3">
+            <FI label="Account #" value={form.payment.account} onChange={e=>setForm(f=>({...f,payment:{...f.payment,account:e.target.value}}))} placeholder="Optional" />
+            <FI label="Payment Date" type="date" value={form.payment.date} onChange={e=>setForm(f=>({...f,payment:{...f.payment,date:e.target.value}}))} />
+            <FI label="Transaction ID" value={form.payment.transactionId} onChange={e=>setForm(f=>({...f,payment:{...f.payment,transactionId:e.target.value}}))} placeholder="Optional" />
+          </div>
+        </div>
+        <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
+        <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
+          <Btn className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveInvoice}>Create Invoice</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide>
+        {viewInv&&(
+          <div>
+            <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
+              <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{BUSINESSES[viewInv.business]?.location}</div></div>
+              <div style={{textAlign:'right',fontSize:13}}><div><strong>Invoice #:</strong> {viewInv.id}</div><div><strong>Date:</strong> {fmtDate(viewInv.date)}</div><div><strong>Supplier:</strong> {viewInv.supplier}</div></div>
+            </div>
+            <div className="tbl-wrap" style={{marginBottom:14}}>
+              <table><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th></tr></thead>
+                <tbody>{viewInv.lineItems.map((l,i)=><tr key={i}><td>{l.description}</td><td>{l.qty??l.quantity}</td><td>{l.unit}</td><td>{fmt$(l.price??l.unitPrice)}</td><td style={{fontWeight:600}}>{fmt$(l.total)}</td></tr>)}</tbody>
+              </table>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div>Subtotal: {fmt$(viewInv.subtotal)}</div>
+              {viewInv.taxEnabled&&<div>Tax ({(viewInv.taxRate*100).toFixed(3)}%): {fmt$(viewInv.taxAmount)}</div>}
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginTop:6}}>Total: {fmt$(viewInv.total)}</div>
+            </div>
+            {(viewInv.payment?.account||viewInv.payment?.transactionId||viewInv.payment?.date)&&(
+              <div style={{marginTop:14,padding:12,background:'var(--cream)',borderRadius:6,fontSize:13}}>
+                <strong>Payment: </strong>{viewInv.payment.account&&`Account: ${viewInv.payment.account}  `}{viewInv.payment.date&&`Date: ${fmtDate(viewInv.payment.date)}  `}{viewInv.payment.transactionId&&`Txn: ${viewInv.payment.transactionId}`}
+              </div>
+            )}
+            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
+              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Confirm open={!!confirmId} message="Delete this invoice permanently?" onConfirm={()=>deleteInv(confirmId)} onCancel={()=>setConfirmId(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 4 — CATERING INVOICES
+// ═══════════════════════════════════════════════════════════
+function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole }) {
+  const isAdmin = userRole==='admin';
+  const blankF = () => ({
+    customerId:'',customerName:'',customerPhone:'',customerEmail:'',
+    useRange:false,date:today(),dateStart:today(),dateEnd:today(),
+    eventType:'Catering',business:selectedBusiness,
+    lineItems:[{description:'',quantity:'1',unitPrice:''}],
+    ccFeeEnabled:false,taxEnabled:true,deposit:'',notes:''
+  });
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(blankF());
+  const [viewInv, setViewInv] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  function setLine(i,f2,v){setForm(f=>{const l=[...f.lineItems];l[i]={...l[i],[f2]:v};return{...f,lineItems:l};});}
+  function selCust(id){const c=customers.find(x=>x.id===id);if(c)setForm(f=>({...f,customerId:c.id,customerName:c.name,customerPhone:c.phone,customerEmail:c.email}));else setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:''}));}
+
+  function calcT(){
+    const fb=BUSINESSES[form.business]||BUSINESSES[selectedBusiness];
+    const lines=form.lineItems.map(l=>{const q=safeQty(l.quantity),p=parseFloat(l.unitPrice)||0;return{...l,qty:q,price:p,total:q*p};});
+    const sub=lines.reduce((s,l)=>s+l.total,0);
+    const cc=form.ccFeeEnabled?sub*0.035:0;
+    const taxBase=sub+cc;
+    const taxAmt=form.taxEnabled?taxBase*fb.taxRate:0;
+    const grand=taxBase+taxAmt;
+    const dep=Math.max(0,parseFloat(form.deposit)||0);
+    return{lines,sub,cc,taxAmt,grand,dep,balance:grand-dep,fb};
+  }
+  const T=calcT();
+
+  function saveInvoice(){
+    if (!form.customerName.trim()){alert('Customer name is required.');return;}
+    const valid=T.lines.filter(l=>l.description.trim());
+    if (!valid.length){alert('Add at least one line item with a description.');return;}
+    if (T.dep<0){alert('Deposit cannot be negative.');return;}
+    let custId=form.customerId;
+    if (!custId&&form.customerName.trim()){
+      const nc={id:uid(),name:form.customerName,phone:form.customerPhone,email:form.customerEmail,address:'',notes:'',createdAt:today()};
+      const uc=[...customers,nc];setCustomers(uc);save('customers',uc);custId=nc.id;
+    }
+    const status=T.dep>=T.grand?'paid':T.dep>0?'partial':'unpaid';
+    const inv={
+      id:nextId('catering'),type:'catering',business:form.business||selectedBusiness,
+      customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,
+      useRange:form.useRange,date:form.useRange?null:form.date,dateStart:form.useRange?form.dateStart:null,dateEnd:form.useRange?form.dateEnd:null,
+      eventType:form.eventType,lineItems:valid,subtotal:T.sub,
+      ccFeeEnabled:form.ccFeeEnabled,ccFee:T.cc,taxEnabled:form.taxEnabled,taxRate:T.fb.taxRate,taxAmount:T.taxAmt,
+      grandTotal:T.grand,deposit:T.dep,balanceDue:T.balance,status,notes:form.notes,createdAt:today()
+    };
+    const u=[...cateringInvoices,inv];setCateringInvoices(u);save('cateringInvoices',u);
+    setShowForm(false);setForm(blankF());
+  }
+
+  function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);}
+  function markPaid(id){const u=cateringInvoices.map(x=>x.id===id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
+
+  return (
+    <div>
+      <div className="flex-between mb-4 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Catering Invoices</div>
+        <Btn className="btn-primary" onClick={()=>{setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+      </div>
+
+      {cateringInvoices.length===0
+        ? <div className="card empty-state">No catering invoices yet. Click "+ New Invoice" to create one.</div>
+        : (
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Invoice #</th><th>Customer</th><th>Event Date</th><th>Event</th><th>Total</th><th>Balance Due</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {[...cateringInvoices].reverse().map(inv=>(
+                    <tr key={inv.id}>
+                      <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
+                      <td style={{fontWeight:600}}>{inv.customerName}</td>
+                      <td style={{fontSize:12}}>{inv.useRange?`${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`:fmtDate(inv.date)}</td>
+                      <td>{inv.eventType}</td>
+                      <td style={{fontWeight:600}}>{fmt$(inv.grandTotal)}</td>
+                      <td style={{fontWeight:600,color:inv.balanceDue>0?'var(--danger)':'var(--success)'}}>{fmt$(inv.balanceDue)}</td>
+                      <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
+                        {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Paid</Btn>}
+                        {isAdmin&&<Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Create Form */}
+      <Modal open={showForm} onClose={()=>setShowForm(false)} title="New Catering Invoice" wide>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Customer</div>
+        <div className="grid-2 mb-2">
+          <FS label="Existing Customer" value={form.customerId} onChange={e=>selCust(e.target.value)}>
+            <option value="">— New Customer —</option>
+            {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </FS>
+          <FI label="Customer Name *" value={form.customerName} onChange={e=>setForm(f=>({...f,customerName:e.target.value,customerId:''}))} placeholder="Full name" />
+        </div>
+        <div className="grid-2 mb-4">
+          <FI label="Phone" value={form.customerPhone} onChange={e=>setForm(f=>({...f,customerPhone:e.target.value}))} />
+          <FI label="Email" type="email" value={form.customerEmail} onChange={e=>setForm(f=>({...f,customerEmail:e.target.value}))} />
+        </div>
+
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Event Details</div>
+        <div className="grid-2 mb-3">
+          <FI label="Event Type" value={form.eventType} onChange={e=>setForm(f=>({...f,eventType:e.target.value}))} placeholder="Wedding, Corporate, Birthday…" />
+          <FS label="Business Entity" value={form.business} onChange={e=>setForm(f=>({...f,business:e.target.value}))}>
+            {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
+          </FS>
+        </div>
+        <div className="mb-4">
+          <div className="mb-2"><Toggle checked={form.useRange} onChange={v=>setForm(f=>({...f,useRange:v}))} label="Date range (multi-day event)" /></div>
+          <div className="grid-2">
+            {form.useRange
+              ?<><FI label="Start Date" type="date" value={form.dateStart} onChange={e=>setForm(f=>({...f,dateStart:e.target.value}))} /><FI label="End Date" type="date" value={form.dateEnd} onChange={e=>setForm(f=>({...f,dateEnd:e.target.value}))} /></>
+              :<FI label="Event Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />}
+          </div>
+        </div>
+
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Line Items</div>
+        <div className="mb-3">
+          {form.lineItems.map((l,i)=>(
+            <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center',flexWrap:'wrap'}}>
+              <input className="input" placeholder="Description" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'4 1 180px'}} />
+              <input className="input" placeholder="Qty" type="number" min="0" step="0.01" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:'1 1 60px'}} />
+              <input className="input" placeholder="Unit Price" type="number" min="0" step="0.01" value={l.unitPrice} onChange={e=>setLine(i,'unitPrice',e.target.value)} style={{flex:'1 1 80px'}} />
+              <span style={{minWidth:64,textAlign:'right',fontSize:13,color:'var(--brown)',fontWeight:600}}>{fmt$(T.lines[i]?.total||0)}</span>
+              {form.lineItems.length>1&&<Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,lineItems:f.lineItems.filter((_,x)=>x!==i)}))}>✕</Btn>}
+            </div>
+          ))}
+          <Btn className="btn-outline btn-sm" onClick={()=>setForm(f=>({...f,lineItems:[...f.lineItems,{description:'',quantity:'1',unitPrice:''}]}))}>+ Add Line</Btn>
+        </div>
+
+        <div style={{background:'var(--cream)',padding:16,borderRadius:8,marginBottom:14}}>
+          <div className="flex-between mb-2"><span>Subtotal</span><strong>{fmt$(T.sub)}</strong></div>
+          <div className="flex-between mb-2">
+            <Toggle checked={form.ccFeeEnabled} onChange={v=>setForm(f=>({...f,ccFeeEnabled:v}))} label="Credit Card Fee (3.5%)" />
+            <span style={{color:form.ccFeeEnabled?'var(--brown)':'#bbb'}}>{fmt$(T.cc)}</span>
+          </div>
+          <div className="flex-between mb-2">
+            <Toggle checked={form.taxEnabled} onChange={v=>setForm(f=>({...f,taxEnabled:v}))} label={`Sales Tax (${(T.fb.taxRate*100).toFixed(3)}%)`} />
+            <span style={{color:form.taxEnabled?'var(--brown)':'#bbb'}}>{fmt$(T.taxAmt)}</span>
+          </div>
+          <hr className="divider" />
+          <div className="flex-between mb-3" style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>
+            <span>Grand Total</span><span>{fmt$(T.grand)}</span>
+          </div>
+          <div className="flex-between" style={{alignItems:'center',marginBottom:8}}>
+            <label style={{margin:0}}>Deposit / Amount Paid</label>
+            <input className="input" type="number" min="0" step="0.01" value={form.deposit} onChange={e=>setForm(f=>({...f,deposit:e.target.value}))} style={{width:130}} placeholder="0.00" />
+          </div>
+          <div className="flex-between" style={{fontWeight:700,fontSize:15,color:T.balance>0?'var(--danger)':'var(--success)'}}>
+            <span>Balance Due</span><span>{fmt$(T.balance)}</span>
+          </div>
+        </div>
+
+        <div style={{background:'#FFF3CD',padding:10,borderRadius:6,marginBottom:14,fontSize:13,color:'#856404'}}>
+          <strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}
+        </div>
+        <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
+        <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
+          <Btn className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveInvoice}>Create Invoice</Btn>
+        </div>
+      </Modal>
+
+      {/* View Modal */}
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Catering Invoice ${viewInv?.id||''}`} wide>
+        {viewInv&&(
+          <div style={{fontFamily:'Georgia,serif'}}>
+            <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
+              <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{BUSINESSES[viewInv.business]?.location}</div></div>
+              <div style={{textAlign:'right',fontSize:13}}><div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div><div><strong>Event:</strong> {viewInv.eventType}</div></div>
+            </div>
+            <div style={{padding:'10px 14px',background:'var(--cream)',borderRadius:6,marginBottom:16,fontSize:14}}>
+              <strong style={{fontSize:15}}>{viewInv.customerName}</strong>
+              {viewInv.customerPhone&&<div>📞 {viewInv.customerPhone}</div>}
+              {viewInv.customerEmail&&<div>✉️ {viewInv.customerEmail}</div>}
+            </div>
+            <div className="tbl-wrap" style={{marginBottom:16}}>
+              <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+                <tbody>{viewInv.lineItems.map((l,i)=><tr key={i}><td>{l.description}</td><td>{l.qty??l.quantity}</td><td>{fmt$(l.price??l.unitPrice)}</td><td style={{fontWeight:600}}>{fmt$(l.total)}</td></tr>)}</tbody>
+              </table>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div>Subtotal: {fmt$(viewInv.subtotal)}</div>
+              {viewInv.ccFeeEnabled&&<div>CC Fee (3.5%): {fmt$(viewInv.ccFee)}</div>}
+              {viewInv.taxEnabled&&<div>Tax ({(viewInv.taxRate*100).toFixed(3)}%): {fmt$(viewInv.taxAmount)}</div>}
+              <hr className="divider" />
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>Total: {fmt$(viewInv.grandTotal)}</div>
+              {viewInv.deposit>0&&<div style={{color:'var(--success)'}}>Deposit Received: {fmt$(viewInv.deposit)}</div>}
+              <div style={{fontWeight:700,color:viewInv.balanceDue>0?'var(--danger)':'var(--success)',fontSize:15}}>Balance Due: {fmt$(viewInv.balanceDue)}</div>
+            </div>
+            <div style={{marginTop:14,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}>
+              <strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}
+            </div>
+            {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
+            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
+              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Confirm open={!!confirmId} message="Delete this invoice permanently?" onConfirm={()=>deleteInv(confirmId)} onCancel={()=>setConfirmId(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 5 — CUSTOMER MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
+  const blank=()=>({name:'',phone:'',email:'',address:'',notes:''});
+  const [showForm,setShowForm]=useState(false);
+  const [editId,setEditId]=useState(null);
+  const [form,setForm]=useState(blank());
+  const [viewId,setViewId]=useState(null);
+  const [confirmId,setConfirmId]=useState(null);
+  const [search,setSearch]=useState('');
+
+  const filtered=useMemo(()=>{
+    const q=search.toLowerCase();
+    return customers.filter(c=>c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q));
+  },[customers,search]);
+
+  function openEdit(c){setForm({name:c.name,phone:c.phone,email:c.email,address:c.address,notes:c.notes});setEditId(c.id);setShowForm(true);}
+  function saveCust(){
+    if (!form.name.trim()){alert('Customer name is required.');return;}
+    let u;
+    if (editId) u=customers.map(c=>c.id===editId?{...c,...form}:c);
+    else u=[...customers,{id:uid(),...form,createdAt:today()}];
+    setCustomers(u);save('customers',u);setShowForm(false);setEditId(null);
+  }
+  function delCust(id){const u=customers.filter(c=>c.id!==id);setCustomers(u);save('customers',u);setConfirmId(null);}
+
+  const viewCust=customers.find(c=>c.id===viewId);
+  const custInvs=useMemo(()=>cateringInvoices.filter(i=>i.customerId===viewId),[viewId,cateringInvoices]);
+
+  return (
+    <div>
+      <div className="flex-between mb-4 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Customers ({customers.length})</div>
+        <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setShowForm(true);}}>+ Add Customer</Btn>
+      </div>
+      <input className="input mb-4" placeholder="Search customers…" value={search} onChange={e=>setSearch(e.target.value)} />
+
+      {filtered.length===0
+        ? <div className="card empty-state">No customers yet.</div>
+        : (
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Invoices</th><th>Total Revenue</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {filtered.map(c=>{
+                    const invs=cateringInvoices.filter(i=>i.customerId===c.id);
+                    const rev=invs.reduce((s,i)=>s+(i.grandTotal||0),0);
+                    return (
+                      <tr key={c.id}>
+                        <td style={{fontWeight:600}}>{c.name}</td>
+                        <td>{c.phone||'—'}</td>
+                        <td>{c.email||'—'}</td>
+                        <td>{invs.length}</td>
+                        <td style={{fontWeight:600,color:'var(--brown)'}}>{fmt$(rev)}</td>
+                        <td style={{whiteSpace:'nowrap'}}>
+                          <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>setViewId(c.id)}>History</Btn>
+                          <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>openEdit(c)}>Edit</Btn>
+                          <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(c.id)}>Delete</Btn>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
+
+      <Modal open={showForm} onClose={()=>setShowForm(false)} title={editId?'Edit Customer':'Add Customer'}>
+        <FI label="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
+        <div className="grid-2">
+          <FI label="Phone" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} />
+          <FI label="Email" type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
+        </div>
+        <FI label="Address" value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))} />
+        <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
+        <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
+          <Btn className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveCust}>Save</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={!!viewCust} onClose={()=>setViewId(null)} title={`${viewCust?.name||''} — Invoice History`} wide>
+        {viewCust&&(
+          <div>
+            <div style={{padding:'10px 14px',background:'var(--cream)',borderRadius:6,marginBottom:16,fontSize:14}}>
+              {viewCust.phone&&<div>📞 {viewCust.phone}</div>}
+              {viewCust.email&&<div>✉️ {viewCust.email}</div>}
+              {viewCust.address&&<div>📍 {viewCust.address}</div>}
+              {viewCust.notes&&<div style={{color:'#888',marginTop:4}}>📝 {viewCust.notes}</div>}
+            </div>
+            {custInvs.length===0
+              ? <p style={{color:'#aaa',textAlign:'center',padding:24}}>No invoices for this customer yet.</p>
+              : (
+                <>
+                  <div style={{marginBottom:10,fontSize:14}}>
+                    <strong>Total Revenue: </strong><span style={{color:'var(--brown)',fontWeight:700}}>{fmt$(custInvs.reduce((s,i)=>s+(i.grandTotal||0),0))}</span>
+                    <span style={{marginLeft:16,color:'#888'}}>{custInvs.length} invoice{custInvs.length!==1?'s':''}</span>
+                  </div>
+                  <div className="tbl-wrap">
+                    <table><thead><tr><th>Invoice #</th><th>Date</th><th>Event</th><th>Total</th><th>Balance</th><th>Status</th></tr></thead>
+                      <tbody>{[...custInvs].reverse().map(inv=>(
+                        <tr key={inv.id}>
+                          <td style={{fontFamily:'monospace',fontWeight:600}}>{inv.id}</td>
+                          <td>{inv.useRange?`${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`:fmtDate(inv.date)}</td>
+                          <td>{inv.eventType}</td>
+                          <td style={{fontWeight:600}}>{fmt$(inv.grandTotal)}</td>
+                          <td style={{color:inv.balanceDue>0?'var(--danger)':'var(--success)',fontWeight:600}}>{fmt$(inv.balanceDue)}</td>
+                          <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            }
+          </div>
+        )}
+      </Modal>
+      <Confirm open={!!confirmId} message="Delete this customer? Their invoice history will remain in the archive." onConfirm={()=>delCust(confirmId)} onCancel={()=>setConfirmId(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 6 — ANALYTICS
+// ═══════════════════════════════════════════════════════════
+function Analytics({ cateringInvoices, purchaseInvoices }) {
+  const totalRevenue=useMemo(()=>cateringInvoices.reduce((s,i)=>s+(i.grandTotal||0),0),[cateringInvoices]);
+  const totalSpending=useMemo(()=>purchaseInvoices.reduce((s,i)=>s+(i.total||0),0),[purchaseInvoices]);
+  const outstanding=useMemo(()=>cateringInvoices.reduce((s,i)=>s+(i.balanceDue||0),0),[cateringInvoices]);
+
+  const monthRevenue=useMemo(()=>{
+    const m={};
+    cateringInvoices.forEach(inv=>{const d=inv.date||inv.dateStart||inv.createdAt;if(!d)return;const k=d.substring(0,7);m[k]=(m[k]||0)+(inv.grandTotal||0);});
+    return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([k,v])=>({month:k.slice(5)+'/'+k.slice(2,4),total:+v.toFixed(2)}));
+  },[cateringInvoices]);
+
+  const statusData=useMemo(()=>[
+    {name:'Paid',value:cateringInvoices.filter(i=>i.status==='paid').length},
+    {name:'Unpaid',value:cateringInvoices.filter(i=>i.status==='unpaid').length},
+    {name:'Partial',value:cateringInvoices.filter(i=>i.status==='partial').length},
+  ].filter(d=>d.value>0),[cateringInvoices]);
+
+  const supplierData=useMemo(()=>{
+    const m={};
+    purchaseInvoices.forEach(i=>{m[i.supplier]=(m[i.supplier]||0)+(i.total||0);});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
+  },[purchaseInvoices]);
+
+  const hasData=cateringInvoices.length>0||purchaseInvoices.length>0;
+
+  return (
+    <div>
+      <div className="section-title">Analytics Dashboard</div>
+      <div className="stat-grid">
+        {[
+          {v:fmt$(totalRevenue),l:'Total Revenue'},
+          {v:fmt$(outstanding),l:'Outstanding Balance'},
+          {v:fmt$(totalSpending),l:'Total Purchases'},
+          {v:cateringInvoices.length,l:'Catering Invoices'},
+          {v:purchaseInvoices.length,l:'Purchase Orders'},
+          {v:cateringInvoices.length>0?fmt$(totalRevenue/cateringInvoices.length):'—',l:'Avg Invoice Value'},
+        ].map((s,i)=>(
+          <div key={i} className="stat-card"><div className="stat-val">{s.v}</div><div className="stat-lbl">{s.l}</div></div>
+        ))}
+      </div>
+
+      {!hasData&&<div className="card empty-state">Create invoices to see analytics charts here.</div>}
+
+      {monthRevenue.length>1&&LineChart&&(
+        <div className="card mb-4">
+          <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Monthly Revenue</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={monthRevenue}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
+              <XAxis dataKey="month" tick={{fontSize:11}} />
+              <YAxis tickFormatter={v=>'$'+v.toLocaleString()} tick={{fontSize:11}} width={70} />
+              <Tooltip formatter={v=>[fmt$(v),'Revenue']} />
+              <Line type="monotone" dataKey="total" stroke="#8B4513" strokeWidth={2.5} dot={{r:4}} name="Revenue" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:16,marginBottom:16}}>
+        {supplierData.length>0&&BarChart&&(
+          <div className="card">
+            <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Spending by Supplier</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={supplierData} layout="vertical" margin={{left:10}}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
+                <XAxis type="number" tickFormatter={v=>'$'+v} tick={{fontSize:10}} />
+                <YAxis type="category" dataKey="name" tick={{fontSize:10}} width={90} />
+                <Tooltip formatter={v=>[fmt$(v),'Spending']} />
+                <Bar dataKey="total" fill="#D2691E" name="Spending" radius={[0,3,3,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        {statusData.length>0&&PieChart&&(
+          <div className="card">
+            <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Invoice Status</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
+                  label={({name,percent})=>`${name} ${(percent*100).toFixed(0)}%`}>
+                  {statusData.map((_,i)=><Cell key={i} fill={CHART_COLORS[i%CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip /><Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 7 — INVOICE ARCHIVE
+// ═══════════════════════════════════════════════════════════
+function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, userRole }) {
+  const isAdmin=userRole==='admin';
+  const [typeF,setTypeF]=useState('all');
+  const [statusF,setStatusF]=useState('all');
+  const [search,setSearch]=useState('');
+  const [dateFrom,setDateFrom]=useState('');
+  const [dateTo,setDateTo]=useState('');
+  const [confirmObj,setConfirmObj]=useState(null);
+  const [viewInv,setViewInv]=useState(null);
+
+  const all=useMemo(()=>{
+    const p=purchaseInvoices.map(i=>({...i,_type:'purchase',_date:i.date}));
+    const c=cateringInvoices.map(i=>({...i,_type:'catering',_date:i.date||i.dateStart}));
+    return [...p,...c].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  },[purchaseInvoices,cateringInvoices]);
+
+  const filtered=useMemo(()=>all.filter(inv=>{
+    if(typeF!=='all'&&inv._type!==typeF) return false;
+    if(statusF!=='all'&&inv.status!==statusF) return false;
+    const q=search.toLowerCase();
+    if(q&&![(inv.customerName||''),(inv.supplier||''),inv.id].some(s=>s.toLowerCase().includes(q))) return false;
+    if(dateFrom&&inv._date&&inv._date<dateFrom) return false;
+    if(dateTo&&inv._date&&inv._date>dateTo) return false;
+    return true;
+  }),[all,typeF,statusF,search,dateFrom,dateTo]);
+
+  function markPaid(inv){
+    if(inv._type==='purchase'){const u=purchaseInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
+    else{const u=cateringInvoices.map(x=>x.id===inv.id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
+  }
+  function deleteInv({id,_type}){
+    if(_type==='purchase'){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);}
+    else{const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);}
+    setConfirmObj(null);
+  }
+
+  const filtTotal=filtered.reduce((s,i)=>s+(i.total||i.grandTotal||0),0);
+
+  return (
+    <div>
+      <div className="section-title">Invoice Archive</div>
+      <div className="card mb-4">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:12}}>
+          <div className="field" style={{margin:0}}><label>Type</label>
+            <select className="input" value={typeF} onChange={e=>setTypeF(e.target.value)}>
+              <option value="all">All Types</option><option value="catering">Catering</option><option value="purchase">Purchase</option>
+            </select>
+          </div>
+          <div className="field" style={{margin:0}}><label>Status</label>
+            <select className="input" value={statusF} onChange={e=>setStatusF(e.target.value)}>
+              <option value="all">All Status</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="partial">Partial</option>
+            </select>
+          </div>
+          <div className="field" style={{margin:0}}><label>Search</label><input className="input" placeholder="Customer, supplier, #…" value={search} onChange={e=>setSearch(e.target.value)} /></div>
+          <div className="field" style={{margin:0}}><label>From</label><input className="input" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></div>
+          <div className="field" style={{margin:0}}><label>To</label><input className="input" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></div>
+        </div>
+        <div style={{marginTop:10,fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <span>Showing <strong>{filtered.length}</strong> of {all.length} · Total: <strong style={{color:'var(--brown)'}}>{fmt$(filtTotal)}</strong></span>
+          {(typeF!=='all'||statusF!=='all'||search||dateFrom||dateTo)&&
+            <Btn className="btn-sm" style={{background:'#eee',color:'#666'}} onClick={()=>{setTypeF('all');setStatusF('all');setSearch('');setDateFrom('');setDateTo('');}}>✕ Clear Filters</Btn>}
+        </div>
+      </div>
+
+      {filtered.length===0
+        ? <div className="card empty-state">No invoices match the current filters.</div>
+        : (
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Invoice #</th><th>Type</th><th>Customer / Supplier</th><th>Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {filtered.map(inv=>(
+                    <tr key={inv.id}>
+                      <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
+                      <td><span style={{fontSize:11,padding:'2px 7px',borderRadius:10,fontWeight:600,background:inv._type==='catering'?'#E8F4FC':'#FFF0E0',color:inv._type==='catering'?'#2980b9':'var(--choc)'}}>{inv._type}</span></td>
+                      <td style={{fontWeight:600}}>{inv.customerName||inv.supplier}</td>
+                      <td style={{fontSize:12}}>{inv._type==='catering'&&inv.useRange?`${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`:fmtDate(inv._date)}</td>
+                      <td style={{fontSize:12,color:'#777'}}>{BUSINESSES[inv.business]?.name}</td>
+                      <td style={{fontWeight:600}}>{fmt$(inv.total||inv.grandTotal)}</td>
+                      <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
+                        {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv)}>Paid</Btn>}
+                        {isAdmin&&<Btn className="btn-danger btn-sm" onClick={()=>setConfirmObj(inv)}>Delete</Btn>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
+
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide>
+        {viewInv&&(
+          <div>
+            <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
+              <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{BUSINESSES[viewInv.business]?.location}</div></div>
+              <div style={{textAlign:'right',fontSize:13}}><div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.customerName||viewInv.supplier}</div><span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span></div>
+            </div>
+            {viewInv.lineItems&&(
+              <div className="tbl-wrap" style={{marginBottom:14}}>
+                <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+                  <tbody>{viewInv.lineItems.map((l,i)=><tr key={i}><td>{l.description}</td><td>{l.qty??l.quantity}</td><td>{fmt$(l.price??l.unitPrice)}</td><td style={{fontWeight:600}}>{fmt$(l.total)}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
+            <div style={{textAlign:'right'}}>
+              <div>Subtotal: {fmt$(viewInv.subtotal)}</div>
+              {viewInv.ccFeeEnabled&&<div>CC Fee: {fmt$(viewInv.ccFee)}</div>}
+              {viewInv.taxEnabled&&<div>Tax: {fmt$(viewInv.taxAmount)}</div>}
+              <div style={{fontWeight:700,fontSize:17,color:'var(--brown)',marginTop:6}}>Total: {fmt$(viewInv.total||viewInv.grandTotal)}</div>
+              {viewInv.balanceDue!==undefined&&<div style={{color:viewInv.balanceDue>0?'var(--danger)':'var(--success)',fontWeight:600}}>Balance Due: {fmt$(viewInv.balanceDue)}</div>}
+            </div>
+            {viewInv._type==='catering'&&<div style={{marginTop:12,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}><strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}</div>}
+            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
+              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+      <Confirm open={!!confirmObj} message="Delete this invoice permanently? This cannot be undone." onConfirm={()=>deleteInv(confirmObj)} onCancel={()=>setConfirmObj(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 8 — PRICE HISTORY
+// ═══════════════════════════════════════════════════════════
+function PriceHistory({ items, priceHistory, setPriceHistory }) {
+  const [selId,setSelId]=useState('');
+  const [confirmId,setConfirmId]=useState(null);
+  const selItem=items.find(i=>i.id===selId);
+  const hist=useMemo(()=>priceHistory.filter(h=>h.itemId===selId).sort((a,b)=>a.date.localeCompare(b.date)),[selId,priceHistory]);
+  const sellers=useMemo(()=>[...new Set(hist.map(h=>h.seller))],[hist]);
+  const chartData=useMemo(()=>{
+    if(!hist.length) return [];
+    const dates=[...new Set(hist.map(h=>h.date))].sort();
+    const last={};sellers.forEach(s=>{last[s]=null;});
+    return dates.map(date=>{
+      hist.filter(h=>h.date===date).forEach(e=>{last[e.seller]=e.newPrice;});
+      return{date:fmtDate(date),...Object.fromEntries(sellers.map(s=>[s,last[s]]))};
+    });
+  },[hist,sellers]);
+
+  function delEntry(id){const u=priceHistory.filter(h=>h.id!==id);setPriceHistory(u);save('priceHistory',u);setConfirmId(null);}
+
+  return (
+    <div>
+      <div className="section-title">Price History</div>
+      <div className="card mb-4">
+        <label>Select Item to View Price Trends</label>
+        <select className="input" value={selId} onChange={e=>setSelId(e.target.value)}>
+          <option value="">— Choose an item —</option>
+          {items.map(i=><option key={i.id} value={i.id}>{i.name} ({i.category})</option>)}
+        </select>
+      </div>
+
+      {!selId&&items.length>0&&<div className="card empty-state">Select an item above to see how its prices changed over time.</div>}
+      {items.length===0&&<div className="card empty-state">No items yet. Add items in the Item Database tab first.</div>}
+      {selId&&hist.length===0&&(
+        <div className="card empty-state">
+          No price history for <strong>{selItem?.name}</strong> yet.<br/>
+          <span style={{fontSize:13,color:'#bbb'}}>Price changes are recorded automatically when you edit a seller's price.</span>
+        </div>
+      )}
+
+      {hist.length>0&&(
+        <>
+          {chartData.length>1&&LineChart&&(
+            <div className="card mb-4">
+              <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Price Trends — {selItem?.name} ({selItem?.unit})</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
+                  <XAxis dataKey="date" tick={{fontSize:11}} />
+                  <YAxis tickFormatter={v=>'$'+v} tick={{fontSize:11}} width={55} />
+                  <Tooltip formatter={v=>[fmt$(v),'Price']} />
+                  <Legend />
+                  {sellers.map((s,i)=><Line key={s} type="monotone" dataKey={s} stroke={CHART_COLORS[i%CHART_COLORS.length]} strokeWidth={2.5} dot={{r:5}} connectNulls name={s} />)}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Seller</th><th>Old Price</th><th>New Price</th><th>Change</th><th></th></tr></thead>
+                <tbody>
+                  {[...hist].reverse().map(h=>{
+                    const diff=h.newPrice-h.oldPrice;
+                    const pct=h.oldPrice?(diff/h.oldPrice*100).toFixed(1)+'%':'—';
+                    return (
+                      <tr key={h.id}>
+                        <td>{fmtDate(h.date)}</td>
+                        <td style={{fontWeight:600}}>{h.seller}</td>
+                        <td>{fmt$(h.oldPrice)}</td>
+                        <td style={{fontWeight:600}}>{fmt$(h.newPrice)}</td>
+                        <td style={{fontWeight:600,color:diff>0?'var(--danger)':'var(--success)'}}>{diff>0?'▲':'▼'} {fmt$(Math.abs(diff))} ({pct})</td>
+                        <td><Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(h.id)}>✕</Btn></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+      <Confirm open={!!confirmId} message="Delete this price history entry?" onConfirm={()=>delEntry(confirmId)} onCancel={()=>setConfirmId(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// PRICE UPDATER
+// ═══════════════════════════════════════════════════════════
+function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
+  const [search, setSearch] = useState('');
+  const [edits, setEdits] = useState({});
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return items;
+    const q = search.toLowerCase();
+    return items.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
+  }, [items, search]);
+
+  function setPrice(itemId, sellerName, val) {
+    setEdits(prev => ({ ...prev, [itemId+'|'+sellerName]: val }));
+  }
+  function hasChanges(item) { return Object.keys(edits).some(k => k.startsWith(item.id+'|')); }
+  function hasSellerChange(itemId, sellerName) { return edits[itemId+'|'+sellerName] !== undefined; }
+
+  function saveItem(item) {
+    let valid = true;
+    const newSellers = item.sellers.map(s => {
+      const key = item.id+'|'+s.name;
+      if (edits[key] !== undefined) {
+        const val = edits[key];
+        if (val !== '' && safePrice(val) === null) { showToast('Invalid price for ' + s.name, 'error'); valid = false; return s; }
+        return { ...s, price: val==='' ? null : safePrice(val) };
+      }
+      return s;
+    });
+    if (!valid) return;
+
+    const newHist = [];
+    item.sellers.forEach(s => {
+      const key = item.id+'|'+s.name;
+      if (edits[key] !== undefined) {
+        const newPrice = edits[key]==='' ? null : safePrice(edits[key]);
+        const oldPrice = s.price !== undefined ? s.price : null;
+        if (oldPrice !== newPrice && oldPrice !== null && newPrice !== null)
+          newHist.push({ id:uid(), itemId:item.id, itemName:item.name, seller:s.name, oldPrice, newPrice, date:today() });
+      }
+    });
+    if (newHist.length) { const h=[...priceHistory,...newHist]; setPriceHistory(h); save('priceHistory',h); }
+
+    const updated = items.map(i => i.id===item.id ? {...i, sellers:newSellers} : i);
+    setItems(updated); save('items', updated);
+
+    const remaining = {...edits};
+    Object.keys(remaining).forEach(k => { if (k.startsWith(item.id+'|')) delete remaining[k]; });
+    setEdits(remaining);
+    logActivity('update_prices', item.name);
+    showToast('Prices saved for ' + item.name);
+  }
+
+  return (
+    <div>
+      <div className="section-title">💰 Price Updater</div>
+      <div style={{background:'#dbeafe',color:'#1d4ed8',borderRadius:8,padding:'12px 16px',marginBottom:16,fontSize:13.5,lineHeight:1.6}}>
+        Update prices for each supplier below. Changed fields are highlighted. Click <strong>Save Prices</strong> to save an item's changes — price history is recorded automatically.
+      </div>
+      <input className="input mb-4" placeholder="Search items by name or category…" value={search} onChange={e=>setSearch(e.target.value)} />
+      {items.length===0 && <div className="card empty-state">No items yet. Use the Add Items tab to add items first.</div>}
+      {items.length>0 && filtered.length===0 && <div className="card empty-state">No items match your search.</div>}
+      {filtered.map(item=>(
+        <div key={item.id} className="card mb-3">
+          <div className="flex-between mb-3">
+            <div>
+              <div style={{fontWeight:700,fontSize:15,color:'var(--brown)'}}>{item.name}</div>
+              <div style={{fontSize:12,color:'#888'}}>{item.category} · per {item.unit}</div>
+            </div>
+            <Btn className={'btn-primary btn-sm'+(hasChanges(item)?'':' btn-disabled')} onClick={()=>saveItem(item)} disabled={!hasChanges(item)} title={hasChanges(item)?'Save changes':'No changes to save'}>
+              💾 Save Prices
+            </Btn>
+          </div>
+          {(!item.sellers||item.sellers.length===0)
+            ? <div style={{fontSize:13,color:'#aaa'}}>No suppliers added. Edit this item in the Item Database to add suppliers.</div>
+            : item.sellers.map(s => {
+                const key = item.id+'|'+s.name;
+                const changed = hasSellerChange(item.id, s.name);
+                const val = changed ? edits[key] : (s.price!=null ? String(s.price) : '');
+                return (
+                  <div key={s.name} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'8px 12px',borderRadius:6,background:changed?'#FFF8DC':'#f9f9f9',border:changed?'1px solid #DEB887':'1px solid #eee'}}>
+                    <span style={{flex:2,fontWeight:600,color:'#5a3010',fontSize:14}}>{s.name}</span>
+                    <input className="input" type="number" min="0" step="0.01" value={val} placeholder="Enter price"
+                      onChange={e=>setPrice(item.id,s.name,e.target.value)}
+                      style={{flex:1.5,borderColor:changed?'var(--brown)':undefined}} />
+                    <span style={{fontSize:13,color:'#888',minWidth:40}}>/{item.unit}</span>
+                    {s.price!=null && <span style={{fontSize:11,color:'#aaa',whiteSpace:'nowrap'}}>saved: {fmt$(s.price)}</span>}
+                  </div>
+                );
+              })
+          }
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACTIVITY LOG
+// ═══════════════════════════════════════════════════════════
+function ActivityLog() {
+  const [log, setLog] = useState(() => load('_activityLog',[]));
+  const [userF, setUserF] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  function refresh() { setLog(load('_activityLog',[])); showToast('Log refreshed'); }
+  function clearLog() {
+    if (!window.confirm('Clear all activity logs? This cannot be undone.')) return;
+    save('_activityLog',[]); setLog([]);
+    showToast('Activity log cleared');
+  }
+
+  const users = useMemo(()=>[...new Set(log.map(e=>e.username))],[log]);
+
+  const filtered = useMemo(()=>{
+    let r = [...log].reverse();
+    if (userF!=='all') r = r.filter(e=>e.username===userF);
+    if (dateFrom) r = r.filter(e=>e.timestamp&&e.timestamp.slice(0,10)>=dateFrom);
+    if (dateTo)   r = r.filter(e=>e.timestamp&&e.timestamp.slice(0,10)<=dateTo);
+    return r;
+  },[log,userF,dateFrom,dateTo]);
+
+  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup'};
+  const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase()+a.slice(1) : '');
+
+  return (
+    <div>
+      <div className="flex-between mb-3 flex-wrap gap-2">
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span className="section-title" style={{margin:0}}>🔍 Activity Log</span>
+          <span className="badge badge-user">{log.length} entries</span>
+        </div>
+        <div className="flex gap-2">
+          <Btn className="btn-outline btn-sm" onClick={refresh}>↻ Refresh</Btn>
+          <Btn className="btn-danger btn-sm" onClick={clearLog}>🗑 Clear Log</Btn>
+        </div>
+      </div>
+      <p style={{fontSize:13,color:'#666',marginBottom:14}}>All user actions are automatically recorded here. Use filters to find specific activity.</p>
+
+      <div className="card mb-3" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:12}}>
+        <div className="field" style={{margin:0}}>
+          <label>User</label>
+          <select className="input" value={userF} onChange={e=>setUserF(e.target.value)}>
+            <option value="all">All Users</option>
+            {users.map(u=><option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{margin:0}}><label>From Date</label><input className="input" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></div>
+        <div className="field" style={{margin:0}}><label>To Date</label><input className="input" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></div>
+      </div>
+
+      <div style={{fontSize:13,color:'#666',marginBottom:12,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <span>Showing <strong>{filtered.length}</strong> of {log.length} entries</span>
+        {(userF!=='all'||dateFrom||dateTo) && <Btn className="btn-sm" style={{background:'#eee',color:'#666'}} onClick={()=>{setUserF('all');setDateFrom('');setDateTo('');}}>✕ Clear Filters</Btn>}
+      </div>
+
+      {log.length===0 && <div className="card empty-state">No activity logged yet. Actions are recorded automatically as users interact with the app.</div>}
+      {log.length>0 && filtered.length===0 && <div className="card empty-state">No entries match the current filters.</div>}
+      {filtered.length>0 && (
+        <div className="card" style={{padding:0}}>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead>
+              <tbody>
+                {filtered.map((e,i)=>(
+                  <tr key={e.id||i}>
+                    <td style={{fontFamily:'monospace',fontSize:12,whiteSpace:'nowrap'}}>{e.timestamp ? new Date(e.timestamp).toLocaleString() : ''}</td>
+                    <td><span className={'badge badge-'+(e.username==='admin'?'admin':'user')}>{e.username}</span></td>
+                    <td style={{fontWeight:600,fontSize:13}}>{fmtAction(e.action)}</td>
+                    <td style={{fontSize:13,color:'#666'}}>{e.details}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ROOT APP
+// ═══════════════════════════════════════════════════════════
+function App() {
+  const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
+  const [tab, setTab] = useState('items');
+  const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
+  const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [items, setItems] = useState(()=>load('items',[]));
+  const [shopping, setShopping] = useState(()=>load('shoppingList',[]));
+  const [purchaseInv, setPurchaseInv] = useState(()=>load('purchaseInvoices',[]));
+  const [cateringInv, setCateringInv] = useState(()=>load('cateringInvoices',[]));
+  const [customers, setCustomers] = useState(()=>load('customers',[]));
+  const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
+  const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
+  const [profile, setProfile] = useState(()=> {
+    const u = load('_session', null);
+    return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
+  });
+
+  // Keep active tab valid when permissions change — MUST be before any conditional return
+  useEffect(() => {
+    if (!currentUser) return;
+    const isAdmin = currentUser.role === 'admin';
+    const available = isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+    if (!available.find(t => t.id === tab)) {
+      setTab(available[0]?.id || 'shopping');
+    }
+  }, [userPerms, currentUser]);
+
+  function handleLogin(user) {
+    setCurrentUser(user);
+    save('_session', user);
+    const p = getProfile(user.username);
+    setProfile(p);
+    const perms = load('_userPermissions', DEFAULT_USER_PERMS);
+    setUserPerms(perms);
+    const isAdmin = user.role === 'admin';
+    const firstTab = isAdmin ? TABS_ADMIN[0].id : (ALL_USER_TABS.find(t => perms.includes(t.id))?.id || 'shopping');
+    setTab(firstTab);
+    logActivity('login', 'Signed in as ' + user.role);
+  }
+
+  function handleLogout() {
+    if (!window.confirm('Sign out?')) return;
+    logActivity('logout', 'Signed out');
+    setCurrentUser(null);
+    save('_session', null);
+  }
+
+  function handleBizChange(k) { setBiz(k); save('_lastBiz', k); }
+
+  function handleTabChange(id) {
+    setTab(id);
+    logActivity('tab_change', 'Navigated to ' + id);
+  }
+
+  function handleProfileSave(data) {
+    saveProfileData(currentUser.username, data);
+    setProfile(data);
+    showToast('Profile updated!');
+  }
+
+  if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
+
+  const isAdmin = currentUser.role === 'admin';
+  const TABS = isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+  const bizInfo = BUSINESSES[biz];
+
+  const appState = { items, shopping, purchaseInv, cateringInv, customers, priceHist,
+    setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz };
+
+  return (
+    <div id="app-shell">
+      <ToastContainer />
+
+      {/* ── Header ── */}
+      <div className="app-header no-print">
+        <div className="header-row">
+          <div>
+            <h1>🍽️ Catering Inventory Manager</h1>
+            <div className="sub">{bizInfo.name} · {bizInfo.location} · Tax: {(bizInfo.taxRate*100).toFixed(3)}%</div>
+          </div>
+          <div className="header-actions">
+            {isAdmin&&(
+              <select style={{padding:'6px 10px',borderRadius:5,border:'none',background:'rgba(255,255,255,0.92)',color:'var(--brown)',fontWeight:700,fontSize:13,cursor:'pointer'}}
+                value={biz} onChange={e=>handleBizChange(e.target.value)}>
+                {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
+              </select>
+            )}
+            {isAdmin&&<Btn className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙ Settings</Btn>}
+            <div
+              title="Click to edit your profile"
+              onClick={()=>setShowProfile(true)}
+              style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.12)',padding:'5px 10px',borderRadius:5,cursor:'pointer',transition:'background .15s'}}
+              onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.22)'}
+              onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.12)'}
+            >
+              <span style={{fontSize:20}}>{profile.icon}</span>
+              <span style={{fontSize:13,color:'rgba(255,255,255,0.92)',fontWeight:600}}>{profile.displayName}</span>
+              <span style={{fontSize:11,opacity:.65}}>✏️</span>
+              <span className={`badge badge-${currentUser.role}`} style={{fontSize:11}}>{currentUser.role}</span>
+              <Btn className="btn-ghost btn-sm" onClick={e=>{e.stopPropagation();handleLogout();}} style={{padding:'3px 8px',marginLeft:4}}>Sign Out</Btn>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <div className="tab-bar no-print">
+        {TABS.map(t=>(
+          <button key={t.id} className={`tab-btn${tab===t.id?' active':''}`} onClick={()=>handleTabChange(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content ── */}
+      <div className="content-area">
+        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
+        {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
+        {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
+        {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} />}
+        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
+        {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} />}
+        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} userRole={currentUser.role} />}
+        {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
+        {tab==='actlog'    && isAdmin && <ActivityLog />}
+      </div>
+
+      {/* ── Modals ── */}
+      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} onPermsChange={perms=>{setUserPerms(perms);}} />
+      <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
