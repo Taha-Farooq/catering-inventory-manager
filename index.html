@@ -385,8 +385,10 @@ async function syncCredentialsToBackend(credentials, preferredBase) {
   }
 }
 async function scanApiCall(pathName, { method='GET', body=null, currentUser, query=null, preferredBase=null } = {}) {
-  const resolved = await resolveResetApiBase(preferredBase);
-  if (!resolved.ok) return { ok:false, error:'Backend unavailable' };
+  // Scanner should "just work" on admin Windows device: prefer local backend automatically.
+  const localFirst = await resolveResetApiBase(preferredBase || 'http://localhost:8787');
+  const resolved = localFirst.ok ? localFirst : await resolveResetApiBase(preferredBase);
+  if (!resolved.ok) return { ok:false, error:'Backend unavailable (local scanner service not reachable)' };
   const qs = query ? '?' + new URLSearchParams(query).toString() : '';
   const headers = {
     'Content-Type': 'application/json',
