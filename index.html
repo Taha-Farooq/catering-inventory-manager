@@ -241,6 +241,7 @@ const fmtDate = d => { if(!d) return ''; try { return new Date(d+'T00:00:00').to
 const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
 const safeQty = v => { const n=parseFloat(v); return (!isNaN(n)&&n>=0)?n:0; };
+const sellerKey = n => String(n ?? '').trim().toLowerCase();
 
 function logActivity(action, details='') {
   try {
@@ -357,20 +358,36 @@ function Btn({ className='', children, ...p }) {
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════
 function FirstRunSetup({ onDone }) {
-  const [pwd, setPwd] = useState('');
-  const [confirm, setConfirm] = useState('');
   const [err, setErr] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
+  const importRef = useRef();
 
-  async function handleSetup(e) {
-    e.preventDefault();
+  async function importStarter(file) {
+    if (!file) return;
     setErr('');
-    if (pwd.length < 6) { setErr('Password must be at least 6 characters.'); return; }
-    if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
-    setSaving(true);
-    const hash = await hashPwd(pwd);
-    save('credentials', { admin: { password: hash, role: 'admin' } });
-    onDone();
+    setImportMsg('');
+    if (!window.JSZip) { setErr('Import tool failed to load. Check internet and refresh.'); return; }
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices','customers','priceHistory','settings','credentials','_profiles','_adminPasswordHash','_userPermissions'];
+      let loadedCredentials = false;
+      for (const k of keys) {
+        const f = zip.file(k + '.json');
+        if (!f) continue;
+        const v = JSON.parse(await f.async('string'));
+        if (k === 'settings' && v && v.selectedBusiness) save('_lastBiz', v.selectedBusiness);
+        else save(k, v);
+        if (k === 'credentials' && v && typeof v === 'object') loadedCredentials = true;
+      }
+      if (loadedCredentials) {
+        setImportMsg('Starter file imported. You can sign in now.');
+        onDone();
+      } else {
+        setErr('This starter file is missing login accounts. Ask your admin for a valid starter file.');
+      }
+    } catch (e) {
+      setErr('Starter file import failed. Use a valid app backup ZIP.');
+    }
   }
 
   return (
@@ -378,26 +395,21 @@ function FirstRunSetup({ onDone }) {
       <div className="login-card">
         <div className="login-logo">
           <div className="icon">🍽️</div>
-          <h1>Welcome — Admin Setup</h1>
-          <p>Create your admin password to get started. Add staff accounts later from ⚙ Settings.</p>
+          <h1>Welcome — Starter File Required</h1>
+          <p>This app can only be initialized using a starter file from your manager/admin.</p>
         </div>
-        <form onSubmit={handleSetup}>
-          <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#7a5c00'}}>
-            🔒 Password is stored as a secure hash — never in plain text.
-          </div>
-          <div className="field">
-            <label>Admin Password</label>
-            <input className="input" type="password" placeholder="Min 6 characters" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} autoFocus />
-          </div>
-          <div className="field">
-            <label>Confirm Password</label>
-            <input className="input" type="password" placeholder="Re-enter your password" value={confirm} onChange={e=>{setConfirm(e.target.value);setErr('');}} />
-          </div>
-          {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
-          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15,marginTop:4}} disabled={saving}>
-            {saving ? 'Setting up…' : '🔐 Create Admin Account & Continue'}
-          </button>
-        </form>
+        <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:14,fontSize:13,color:'#1e4f72'}}>
+          <strong>Quick start:</strong> Click <strong>Import Starter File</strong> and choose the ZIP provided by your admin.
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+          <Btn className="btn-outline" onClick={()=>importRef.current?.click()}>⬆ Import Starter File</Btn>
+          <input ref={importRef} type="file" accept=".zip" style={{display:'none'}} onChange={e=>{importStarter(e.target.files[0]);e.target.value='';}} />
+        </div>
+        {importMsg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:6,marginBottom:12,fontSize:13}}>{importMsg}</div>}
+        <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:8,fontSize:13,color:'#7a5c00'}}>
+          🔒 Manual setup is disabled. Only approved starter files can unlock access.
+        </div>
+        {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
       </div>
     </div>
   );
@@ -436,6 +448,9 @@ function LoginScreen({ onLogin }) {
           <div className="icon">🍽️</div>
           <h1>Catering Inventory Manager</h1>
           <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
+        </div>
+        <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color:'#7a5c00'}}>
+          Tip: Enter the username/password provided by your admin. If this device is brand new, the first screen allows starter-file import.
         </div>
 
         <form onSubmit={handleLogin}>
@@ -522,10 +537,6 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
           setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz } = appState;
   const importRef = useRef();
 
-  // Admin password
-  const [adminPwd, setAdminPwd] = useState('');
-  const [adminPwdMsg, setAdminPwdMsg] = useState('');
-
   // Staff user management
   const loadStaff = () => {
     const creds = load('credentials', {});
@@ -556,19 +567,6 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     catering: 'View and create catering invoices',
     archive:  'Browse and search past invoices',
   };
-
-  async function saveAdminPwd() {
-    if (!adminPwd) { setAdminPwdMsg('Enter a new password.'); return; }
-    if (adminPwd.length < 6) { setAdminPwdMsg('Must be at least 6 characters.'); return; }
-    const creds = load('credentials', null) || { admin: { password: '', role: 'admin' } };
-    creds.admin.password = await hashPwd(adminPwd);
-    save('credentials', creds);
-    setAdminPwd('');
-    setAdminPwdMsg('✅ Updated!');
-    setTimeout(() => setAdminPwdMsg(''), 3000);
-    showToast('Admin password updated!');
-    logActivity('change_password', 'Admin updated their own password');
-  }
 
   async function addUser() {
     setAddErr('');
@@ -809,13 +807,13 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
 
       {/* Admin Password */}
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
-        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔑 Admin Password</div>
-        <FI label="New Password (leave blank to keep current)" type="password" placeholder="Min 6 characters" value={adminPwd} onChange={e=>setAdminPwd(e.target.value)} />
-        {adminPwdMsg && (
-          <div style={{padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:13,background:adminPwdMsg.startsWith('✅')?'#d4edda':'#fee2e2',color:adminPwdMsg.startsWith('✅')?'#155724':'#991b1b'}}>{adminPwdMsg}</div>
-        )}
-        <Btn className="btn-primary btn-sm" onClick={saveAdminPwd}>Save Password</Btn>
-        <div style={{fontSize:11.5,color:'#888',marginTop:8}}>⚠️ If locked out, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)'}}>fatimfarooq@yahoo.com</a></div>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:15}}>🔑 Admin Credentials</div>
+        <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:8}}>
+          Admin credentials are managed centrally and cannot be changed from inside the app.
+        </p>
+        <div style={{fontSize:12.5,color:'#7a5c00',background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:6,padding:'10px 12px'}}>
+          To request admin credential changes, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>.
+        </div>
       </div>
 
       <div style={{marginTop:4,textAlign:'right'}}>
@@ -843,23 +841,33 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
     return items.filter(i=>i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q));
   },[items,search]);
 
-  function openEdit(item) { setForm({...item,sellers:item.sellers.map(s=>({...s}))}); setEditId(item.id); setShowForm(true); }
+  function openEdit(item) {
+    const sellers = Array.isArray(item.sellers) ? item.sellers : [];
+    setForm({...item,sellers:sellers.length ? sellers.map(s=>({...s})) : [{name:'',price:''}]});
+    setEditId(item.id);
+    setShowForm(true);
+  }
   function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
 
   function saveItem() {
     if (!form.name.trim()) { alert('Item name is required.'); return; }
     const sellers = [];
+    const seenSellerKeys = new Set();
     for (const s of form.sellers) {
-      if (!s.name.trim()) continue;
+      const sellerName = (s.name || '').trim();
+      if (!sellerName) continue;
+      const sk = sellerKey(sellerName);
+      if (seenSellerKeys.has(sk)) { alert(`Duplicate seller "${sellerName}" for this item. Use unique seller names.`); return; }
+      seenSellerKeys.add(sk);
       const p = safePrice(s.price);
-      if (s.price!==''&&p===null) { alert(`Invalid price for "${s.name}". Must be a positive number or left blank.`); return; }
-      sellers.push({name:s.name.trim(),price:p});
+      if (s.price!==''&&p===null) { alert(`Invalid price for "${sellerName}". Must be a positive number or left blank.`); return; }
+      sellers.push({name:sellerName,price:p});
     }
     if (editId) {
       const old = items.find(x=>x.id===editId);
       const newHist = [];
       sellers.forEach(s => {
-        const prev=(old.sellers||[]).find(os=>os.name===s.name);
+        const prev=(old.sellers||[]).find(os=>sellerKey(os.name)===sellerKey(s.name));
         if (prev&&prev.price!==null&&s.price!==null&&prev.price!==s.price)
           newHist.push({id:uid(),itemId:editId,itemName:form.name,seller:s.name,oldPrice:prev.price,newPrice:s.price,date:today()});
       });
@@ -978,12 +986,13 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
   },[search,items]);
 
   function addItem(item) {
-    const sel=item.sellers[0]||{name:'',price:null};
+    const sellerList = Array.isArray(item.sellers) ? item.sellers : [];
+    const sel=sellerList[0]||{name:'',price:null};
     const dup=shoppingList.find(s=>s.itemId===item.id&&s.selectedSeller===sel.name);
     if (dup) { updateQty(dup.id, dup.quantity+1); }
     else {
       const u=[...shoppingList,{id:uid(),itemId:item.id,itemName:item.name,unit:item.unit,
-        selectedSeller:sel.name,price:sel.price,quantity:1,sellers:item.sellers}];
+        selectedSeller:sel.name,price:sel.price,quantity:1,sellers:sellerList}];
       setShoppingList(u); save('shoppingList',u);
     }
     setSearch(''); setShowDrop(false);
@@ -1024,6 +1033,35 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
     XLSX.writeFile(wb,'shopping-list-'+today()+'.xlsx');
   }
 
+  function exportCsv() {
+    if (!shoppingList.length) { alert('Shopping list is empty.'); return; }
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = shoppingList.map(s => [
+      s.itemName,
+      s.selectedSeller || '',
+      safeQty(s.quantity),
+      s.unit || '',
+      (s.price ?? 0).toFixed(2),
+      (safeQty(s.quantity) * (s.price ?? 0)).toFixed(2),
+      s.notes || ''
+    ]);
+    const csv = [
+      ['Item Name','Seller','Quantity','Unit','Unit Price','Total','Notes'].map(esc).join(','),
+      ...rows.map(r => r.map(esc).join(','))
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'shopping-list-' + today() + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Shopping list exported as CSV.');
+    logActivity('export_csv', 'Exported shopping list CSV');
+  }
+
   const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
 
   return (
@@ -1031,6 +1069,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Shopping List ({shoppingList.length})</div>
         <div className="flex gap-2 flex-wrap">
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
         </div>
@@ -1144,10 +1183,12 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
       total:T.total,status:'unpaid',payment:{...form.payment},createdAt:today()};
     const u=[...purchaseInvoices,inv]; setPurchaseInvoices(u); save('purchaseInvoices',u);
     setShowForm(false); setForm(blankF());
+    showToast('Purchase invoice created.');
+    logActivity('create_invoice', 'Created purchase invoice ' + inv.id);
   }
 
-  function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);}
-  function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
+  function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
+  function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);showToast('Purchase invoice marked paid.');logActivity('mark_paid','Marked purchase invoice paid '+id);}
 
   return (
     <div>
@@ -1320,10 +1361,12 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     };
     const u=[...cateringInvoices,inv];setCateringInvoices(u);save('cateringInvoices',u);
     setShowForm(false);setForm(blankF());
+    showToast('Catering invoice created.');
+    logActivity('create_invoice', 'Created catering invoice ' + inv.id);
   }
 
-  function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);}
-  function markPaid(id){const u=cateringInvoices.map(x=>x.id===id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
+  function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);showToast('Catering invoice deleted.');logActivity('delete_invoice','Deleted catering invoice '+id);}
+  function markPaid(id){const u=cateringInvoices.map(x=>x.id===id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);showToast('Catering invoice marked paid.');logActivity('mark_paid','Marked catering invoice paid '+id);}
 
   return (
     <div>
@@ -1506,11 +1549,18 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
   function saveCust(){
     if (!form.name.trim()){alert('Customer name is required.');return;}
     let u;
-    if (editId) u=customers.map(c=>c.id===editId?{...c,...form}:c);
-    else u=[...customers,{id:uid(),...form,createdAt:today()}];
+    if (editId) {
+      u=customers.map(c=>c.id===editId?{...c,...form}:c);
+      showToast('Customer updated.');
+      logActivity('edit_customer', 'Updated customer ' + form.name);
+    } else {
+      u=[...customers,{id:uid(),...form,createdAt:today()}];
+      showToast('Customer added.');
+      logActivity('add_customer', 'Added customer ' + form.name);
+    }
     setCustomers(u);save('customers',u);setShowForm(false);setEditId(null);
   }
-  function delCust(id){const u=customers.filter(c=>c.id!==id);setCustomers(u);save('customers',u);setConfirmId(null);}
+  function delCust(id){const removed=customers.find(c=>c.id===id);const u=customers.filter(c=>c.id!==id);setCustomers(u);save('customers',u);setConfirmId(null);showToast('Customer deleted.');logActivity('delete_customer','Deleted customer '+(removed?.name||id));}
 
   const viewCust=customers.find(c=>c.id===viewId);
   const custInvs=useMemo(()=>cateringInvoices.filter(i=>i.customerId===viewId),[viewId,cateringInvoices]);
@@ -1739,11 +1789,15 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   function markPaid(inv){
     if(inv._type==='purchase'){const u=purchaseInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
     else{const u=cateringInvoices.map(x=>x.id===inv.id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
+    showToast('Invoice marked paid.');
+    logActivity('mark_paid', 'Marked '+inv._type+' invoice paid '+inv.id);
   }
   function deleteInv({id,_type}){
     if(_type==='purchase'){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);}
     else{const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);}
     setConfirmObj(null);
+    showToast('Invoice deleted.');
+    logActivity('delete_invoice', 'Deleted '+_type+' invoice '+id);
   }
 
   const filtTotal=filtered.reduce((s,i)=>s+(i.total||i.grandTotal||0),0);
@@ -1933,6 +1987,7 @@ function PriceHistory({ items, priceHistory, setPriceHistory }) {
 function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
   const [search, setSearch] = useState('');
   const [edits, setEdits] = useState({});
+  const sellerEditKey = (itemId, sellerName, sellerIdx) => itemId+'|'+sellerKey(sellerName)+'|'+sellerIdx;
 
   const filtered = useMemo(() => {
     if (!search.trim()) return items;
@@ -1940,16 +1995,16 @@ function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
     return items.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
   }, [items, search]);
 
-  function setPrice(itemId, sellerName, val) {
-    setEdits(prev => ({ ...prev, [itemId+'|'+sellerName]: val }));
+  function setPrice(itemId, sellerName, val, sellerIdx) {
+    setEdits(prev => ({ ...prev, [sellerEditKey(itemId, sellerName, sellerIdx)]: val }));
   }
   function hasChanges(item) { return Object.keys(edits).some(k => k.startsWith(item.id+'|')); }
-  function hasSellerChange(itemId, sellerName) { return edits[itemId+'|'+sellerName] !== undefined; }
+  function hasSellerChange(itemId, sellerName, sellerIdx) { return edits[sellerEditKey(itemId, sellerName, sellerIdx)] !== undefined; }
 
   function saveItem(item) {
     let valid = true;
-    const newSellers = item.sellers.map(s => {
-      const key = item.id+'|'+s.name;
+    const newSellers = item.sellers.map((s, sellerIdx) => {
+      const key = sellerEditKey(item.id, s.name, sellerIdx);
       if (edits[key] !== undefined) {
         const val = edits[key];
         if (val !== '' && safePrice(val) === null) { showToast('Invalid price for ' + s.name, 'error'); valid = false; return s; }
@@ -1960,8 +2015,8 @@ function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
     if (!valid) return;
 
     const newHist = [];
-    item.sellers.forEach(s => {
-      const key = item.id+'|'+s.name;
+    item.sellers.forEach((s, sellerIdx) => {
+      const key = sellerEditKey(item.id, s.name, sellerIdx);
       if (edits[key] !== undefined) {
         const newPrice = edits[key]==='' ? null : safePrice(edits[key]);
         const oldPrice = s.price !== undefined ? s.price : null;
@@ -2003,15 +2058,15 @@ function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
           </div>
           {(!item.sellers||item.sellers.length===0)
             ? <div style={{fontSize:13,color:'#aaa'}}>No suppliers added. Edit this item in the Item Database to add suppliers.</div>
-            : item.sellers.map(s => {
-                const key = item.id+'|'+s.name;
-                const changed = hasSellerChange(item.id, s.name);
+            : item.sellers.map((s, sellerIdx) => {
+                const key = sellerEditKey(item.id, s.name, sellerIdx);
+                const changed = hasSellerChange(item.id, s.name, sellerIdx);
                 const val = changed ? edits[key] : (s.price!=null ? String(s.price) : '');
                 return (
                   <div key={s.name} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'8px 12px',borderRadius:6,background:changed?'#FFF8DC':'#f9f9f9',border:changed?'1px solid #DEB887':'1px solid #eee'}}>
                     <span style={{flex:2,fontWeight:600,color:'#5a3010',fontSize:14}}>{s.name}</span>
                     <input className="input" type="number" min="0" step="0.01" value={val} placeholder="Enter price"
-                      onChange={e=>setPrice(item.id,s.name,e.target.value)}
+                      onChange={e=>setPrice(item.id,s.name,e.target.value,sellerIdx)}
                       style={{flex:1.5,borderColor:changed?'var(--brown)':undefined}} />
                     <span style={{fontSize:13,color:'#888',minWidth:40}}>/{item.unit}</span>
                     {s.price!=null && <span style={{fontSize:11,color:'#aaa',whiteSpace:'nowrap'}}>saved: {fmt$(s.price)}</span>}
@@ -2051,7 +2106,7 @@ function ActivityLog() {
     return r;
   },[log,userF,dateFrom,dateTo]);
 
-  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup'};
+  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',tab_change:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',edit_customer:'Edited Customer',delete_customer:'Deleted Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup',export_csv:'Exported CSV'};
   const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase()+a.slice(1) : '');
 
   return (
