@@ -224,6 +224,7 @@ const ADMIN_RESET_API_ENDPOINTS = [
   'http://127.0.0.1:8787'
 ];
 const ADMIN_RESET_API_BASE_KEY = '_adminResetApiBase';
+const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -497,6 +498,12 @@ function LoginScreen({ onLogin }) {
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+  const [showQuickReset, setShowQuickReset] = useState(false);
+  const [resetCode, setResetCode] = useState('');
+  const [resetPwd, setResetPwd] = useState('');
+  const [resetPwdC, setResetPwdC] = useState('');
+  const [resetMsg, setResetMsg] = useState('');
+  const [resetErr, setResetErr] = useState('');
 
   if (needsSetup) return <FirstRunSetup onDone={() => setNeedsSetup(false)} />;
 
@@ -514,6 +521,28 @@ function LoginScreen({ onLogin }) {
       onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
         name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key) });
     }, 400);
+  }
+
+  async function handleQuickAdminReset(e) {
+    e.preventDefault();
+    setResetErr('');
+    setResetMsg('');
+    const codeHash = load(ADMIN_RESET_CODE_KEY, '');
+    if (!codeHash) { setResetErr('Reset is not configured yet. Ask manager to set Reset Code in Settings.'); return; }
+    if (!resetCode) { setResetErr('Enter Reset Code.'); return; }
+    if (resetPwd.length < 6) { setResetErr('New password must be at least 6 characters.'); return; }
+    if (resetPwd !== resetPwdC) { setResetErr('Passwords do not match.'); return; }
+    const enteredHash = await hashPwd(resetCode);
+    if (enteredHash !== codeHash) { setResetErr('Invalid Reset Code.'); return; }
+    const creds = load('credentials', {});
+    if (!creds.admin) creds.admin = { role:'admin', displayName:'Administrator', password:'' };
+    creds.admin.password = await hashPwd(resetPwd);
+    save('credentials', creds);
+    pushAuditEvent('admin_password_reset', 'Quick reset completed from login screen');
+    setResetCode('');
+    setResetPwd('');
+    setResetPwdC('');
+    setResetMsg('Admin password reset complete. You can now sign in with the new password.');
   }
 
   return (
@@ -554,7 +583,20 @@ function LoginScreen({ onLogin }) {
             <Btn className="btn-outline btn-sm" style={{marginTop:8}} onClick={()=>requestAdminResetEmail('login_forgot_password')}>
               ✉️ Send Admin Password Reset Request
             </Btn>
+            <Btn className="btn-outline btn-sm" style={{marginTop:8,marginLeft:8}} onClick={()=>setShowQuickReset(v=>!v)}>
+              🔐 Quick Admin Reset
+            </Btn>
             <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
+            {showQuickReset && (
+              <form onSubmit={handleQuickAdminReset} style={{marginTop:10,paddingTop:10,borderTop:'1px solid #E7CFA6'}}>
+                <FI label="Reset Code" type="password" value={resetCode} onChange={e=>{setResetCode(e.target.value);setResetErr('');}} placeholder="Manager reset code" />
+                <FI label="New Admin Password" type="password" value={resetPwd} onChange={e=>{setResetPwd(e.target.value);setResetErr('');}} placeholder="Min 6 characters" />
+                <FI label="Confirm New Password" type="password" value={resetPwdC} onChange={e=>{setResetPwdC(e.target.value);setResetErr('');}} placeholder="Re-enter password" />
+                {resetErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:12.5}}>{resetErr}</div>}
+                {resetMsg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:12.5}}>{resetMsg}</div>}
+                <button type="submit" className="btn btn-primary btn-sm">Save New Admin Password</button>
+              </form>
+            )}
           </div>
         )}
 
@@ -773,6 +815,9 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
   const [editPwdC, setEditPwdC] = useState('');
   const [editPermsFor, setEditPermsFor] = useState(null);
   const [editPerms, setEditPerms] = useState([]);
+  const [resetCode, setResetCode] = useState('');
+  const [resetCodeC, setResetCodeC] = useState('');
+  const [resetCodeMsg, setResetCodeMsg] = useState('');
   const [resetApiInput, setResetApiInput] = useState(() => loadAdminResetApiBase());
   const [resetApiState, setResetApiState] = useState({ kind:'idle', msg:'' });
 
@@ -885,6 +930,17 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     saveAdminResetApiBase(ADMIN_RESET_API_BASE);
     setResetApiInput(ADMIN_RESET_API_BASE);
     setResetApiState({ kind:'idle', msg:'Reverted to default local URL.' });
+  }
+  async function saveResetCode() {
+    setResetCodeMsg('');
+    if (!resetCode || resetCode.length < 6) { setResetCodeMsg('Reset Code must be at least 6 characters.'); return; }
+    if (resetCode !== resetCodeC) { setResetCodeMsg('Reset Code values do not match.'); return; }
+    const h = await hashPwd(resetCode);
+    save(ADMIN_RESET_CODE_KEY, h);
+    setResetCode('');
+    setResetCodeC('');
+    setResetCodeMsg('Reset Code saved.');
+    showToast('Quick reset code updated.');
   }
 
   async function doExport() {
@@ -1078,6 +1134,15 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
         </Btn>
         <div style={{fontSize:12.5,color:'#7a5c00',background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:6,padding:'10px 12px'}}>
           To request admin credential changes, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>.
+        </div>
+        <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid #EED9B0'}}>
+          <div style={{fontWeight:600,fontSize:13,color:'#5a3010',marginBottom:6}}>Quick Reset Code (for login-screen reset)</div>
+          <div className="grid-2">
+            <FI label="New Reset Code" type="password" value={resetCode} onChange={e=>{setResetCode(e.target.value);setResetCodeMsg('');}} placeholder="Min 6 characters" />
+            <FI label="Confirm Reset Code" type="password" value={resetCodeC} onChange={e=>{setResetCodeC(e.target.value);setResetCodeMsg('');}} placeholder="Re-enter reset code" />
+          </div>
+          {resetCodeMsg && <div style={{fontSize:12.5,color:resetCodeMsg==='Reset Code saved.'?'#166534':'#991b1b',marginBottom:8}}>{resetCodeMsg}</div>}
+          <Btn className="btn-primary btn-sm" onClick={saveResetCode}>💾 Save Reset Code</Btn>
         </div>
       </div>
 
@@ -2459,9 +2524,6 @@ function ActivityLog() {
 // ROOT APP
 // ═══════════════════════════════════════════════════════════
 function App() {
-  const resetAccess = parseAdminResetParams();
-  if (resetAccess) return <AdminResetPortal />;
-
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
