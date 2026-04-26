@@ -387,6 +387,42 @@ const downloadFailureLog = () => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+const BRANDING = {
+  degrill:  { mark:'DG', name:'DeGrill Inc', location:'Spring Valley, NY' },
+  parathas: { mark:'PP', name:'Parathas and Platters Inc', location:'Hackensack, NJ' },
+  dera:     { mark:'DMG', name:'Dera Masala Grill Inc', location:'Clifton, NJ' },
+  transfer: { mark:'PP', name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood' }
+};
+function getInvoiceBranding(inv) {
+  if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return BRANDING.transfer;
+  return BRANDING[inv?.business] || { mark:'INV', name:'Invoice', location:'' };
+}
+function printHtmlDocument(html, title='Invoice') {
+  const w = window.open('', '_blank', 'width=1024,height=768');
+  if (!w) { showToast('Pop-up blocked. Please allow pop-ups.', 'error'); return false; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>${title}</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;margin:20px;color:#222}
+  .print-wrap{max-width:900px;margin:0 auto}
+  .invoice-mark{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:#8B4513;color:#fff;font-weight:800;font-size:13px;margin-right:10px}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px}
+  th{background:#f7f7f7}
+  .text-right{text-align:right}
+  .muted{color:#666;font-size:12px}
+  @media print{body{margin:8mm} .no-print{display:none}}
+</style></head><body><div class="print-wrap">${html}</div></body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(()=>w.print(), 300);
+  return true;
+}
+function printInvoiceById(sectionId, mode='print') {
+  const el = document.getElementById(sectionId);
+  if (!el) { showToast('Invoice content not found.', 'error'); return; }
+  const ok = printHtmlDocument(el.outerHTML, 'Invoice');
+  if (ok && mode === 'pdf') showToast('In print dialog, choose "Save as PDF".', 'warning');
+}
 
 function logActivity(action, details='') {
   try {
@@ -1720,9 +1756,12 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
 
       <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide>
         {viewInv&&(
-          <div>
+          <div id={`purchase-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
-              <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{BUSINESSES[viewInv.business]?.location}</div></div>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv).location}</div></div>
+              </div>
               <div style={{textAlign:'right',fontSize:13}}><div><strong>Invoice #:</strong> {viewInv.id}</div><div><strong>Date:</strong> {fmtDate(viewInv.date)}</div><div><strong>Supplier:</strong> {viewInv.supplier}</div></div>
             </div>
             <div className="tbl-wrap" style={{marginBottom:14}}>
@@ -1741,7 +1780,8 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
+              <Btn className="btn-success" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -1933,9 +1973,12 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
       {/* View Modal */}
       <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Catering Invoice ${viewInv?.id||''}`} wide>
         {viewInv&&(
-          <div style={{fontFamily:'Georgia,serif'}}>
+          <div id={`catering-view-${viewInv.id}`} style={{fontFamily:'Georgia,serif'}}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
-              <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{BUSINESSES[viewInv.business]?.location}</div></div>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv).location}</div></div>
+              </div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div><div><strong>Event:</strong> {viewInv.eventType}</div></div>
             </div>
             <div style={{padding:'10px 14px',background:'var(--cream)',borderRadius:6,marginBottom:16,fontSize:14}}>
@@ -1962,7 +2005,8 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
             </div>
             {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
+              <Btn className="btn-success" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -2360,9 +2404,12 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
 
       <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide>
         {viewInv&&(
-          <div>
+          <div id={`archive-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
-              <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{viewInv._type==='transfer'?'Parathas & Platters Internal Transfer':BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):BUSINESSES[viewInv.business]?.location}</div></div>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):getInvoiceBranding(viewInv).location}</div></div>
+              </div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.customerName||viewInv.supplier}</div><span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span></div>
             </div>
             {viewInv.lineItems&&(
@@ -2382,7 +2429,8 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
             </div>
             {viewInv._type==='catering'&&<div style={{marginTop:12,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}><strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
+              <Btn className="btn-success" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -2595,11 +2643,14 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
 
       <Modal open={!!viewInv} onClose={()=>setViewId(null)} title={`Transfer Invoice ${viewInv?.id || ''}`} wide maxW={900}>
         {viewInv && (
-          <>
+          <div id={`transfer-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
-              <div>
-                <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>Parathas &amp; Platters Transfer Invoice</div>
-                <div style={{fontSize:13,color:'#666'}}>Internal transfer: Hackensack → Englewood</div>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div>
+                  <div style={{fontSize:13,color:'#666'}}>{getInvoiceBranding(viewInv).location}</div>
+                </div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}>
                 <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div>
@@ -2636,10 +2687,11 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
             </div>
             {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
+              <Btn className="btn-success" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
             </div>
-          </>
+          </div>
         )}
       </Modal>
 
