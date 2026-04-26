@@ -39,6 +39,12 @@ For backend-gated admin password resets, use the `backend` folder:
 
 See `backend/README.md` for setup and run steps.
 
+For easiest Windows reliability, use:
+
+- `backend/windows/install-autostart.ps1`
+
+This installs and auto-starts the backend reset service on login.
+
 ## License
 
 MIT

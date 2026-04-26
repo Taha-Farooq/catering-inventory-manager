@@ -35,6 +35,34 @@ npm run create-link
 
 This prints a one-time reset link payload (time-limited JWT) to send privately.
 
+## Windows Auto-Start (Recommended for low-tech reliability)
+
+From PowerShell in `backend/windows`:
+
+```powershell
+./install-autostart.ps1
+```
+
+What it does:
+- installs dependencies if missing
+- creates `backend\.env` from `.env.example` if missing
+- registers a scheduled task named `CateringAdminResetBackend`
+- starts the backend automatically at user logon
+
+Useful commands:
+
+```powershell
+# check service health
+./health-check.ps1
+
+# remove auto-start task
+./remove-autostart.ps1
+```
+
+Logs are written to:
+
+- `backend/logs/backend.log`
+
 ## 4) Frontend integration
 
 The app is configured to call:
