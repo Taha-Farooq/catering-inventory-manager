@@ -425,6 +425,38 @@ function printInvoiceById(sectionId) {
   if (!el) { showToast('Invoice content not found.', 'error'); return; }
   printHtmlDocument(el.outerHTML, 'Invoice');
 }
+function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchive }) {
+  const hasResetCode = !!load(ADMIN_RESET_CODE_KEY, '');
+  const creds = load('credentials', {});
+  const hasStarterData = !!creds?.admin && itemsCount > 0;
+  const log = load('_activityLog', []);
+  const hasBackup = log.some(e => e?.action === 'export_backup');
+  const doneCount = [hasStarterData, hasResetCode, hasBackup].filter(Boolean).length;
+  const allDone = doneCount === 3;
+
+  return (
+    <div className="card" style={{border:'1.5px solid #EED9B0',background:'#fffdf8'}}>
+      <div className="flex-between mb-2" style={{flexWrap:'wrap',gap:8}}>
+        <div style={{fontWeight:800,color:'var(--brown)',fontSize:16}}>✅ First-Time Setup Checklist</div>
+        <span className="badge badge-user">{doneCount}/3 complete</span>
+      </div>
+      {!allDone && <div style={{fontSize:13,color:'#6b4b20',marginBottom:10}}>Complete these once to reduce support issues.</div>}
+      {allDone && <div style={{fontSize:13,color:'#166534',marginBottom:10}}>All essential setup steps are complete.</div>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr',gap:6,fontSize:13,marginBottom:12}}>
+        <div>{hasStarterData ? '✅' : '⬜'} Starter data imported (admin + items available)</div>
+        <div>{hasResetCode ? '✅' : '⬜'} Quick Reset Code configured (Settings -> Admin Credentials)</div>
+        <div>{hasBackup ? '✅' : '⬜'} At least one backup exported</div>
+      </div>
+      <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:8}}>⚡ Quick Actions</div>
+      <div className="flex gap-2 flex-wrap">
+        <Btn className="btn-primary btn-sm" onClick={onOpenSettings}>⚙ Open Settings</Btn>
+        <Btn className="btn-outline btn-sm" onClick={onGoTransfer}>🚚 Go to Transfer Invoices</Btn>
+        <Btn className="btn-outline btn-sm" onClick={onGoArchive}>🗂 Open Archive</Btn>
+        <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Download Failure Log</Btn>
+      </div>
+    </div>
+  );
+}
 function BrandMark({ brand }) {
   const [failed, setFailed] = useState(false);
   return (
@@ -3166,6 +3198,16 @@ function App() {
 
       {/* ── Content ── */}
       <div className="content-area">
+        {isAdmin && (
+          <div className="mb-3">
+            <SetupQuickActions
+              itemsCount={items.length}
+              onOpenSettings={()=>setShowSettings(true)}
+              onGoTransfer={()=>setTab('transfer')}
+              onGoArchive={()=>setTab('archive')}
+            />
+          </div>
+        )}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
