@@ -195,6 +195,7 @@ const TABS_ADMIN = [
   { id:'items',     label:'📦 Items' },
   { id:'shopping',  label:'🛒 Shopping' },
   { id:'purchase',  label:'📋 Purchase Inv.' },
+  { id:'transfer',  label:'🚚 P&P Transfer Inv.' },
   { id:'catering',  label:'🍽️ Catering Inv.' },
   { id:'customers', label:'👥 Customers' },
   { id:'analytics', label:'📊 Analytics' },
@@ -413,6 +414,12 @@ let _seq = load('_seq',{purchase:0,catering:0});
 function nextId(type) {
   _seq[type]=(_seq[type]||0)+1; save('_seq',_seq);
   return (type==='purchase'?'P-':'C-')+String(_seq[type]).padStart(4,'0');
+}
+function nextTransferId(dateStr) {
+  const d = (dateStr || today()).replace(/-/g,'');
+  _seq.transfer = (_seq.transfer || 0) + 1;
+  save('_seq', _seq);
+  return `PPH-ENG-${d}-${String(_seq.transfer).padStart(4,'0')}`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2197,7 +2204,7 @@ function Analytics({ cateringInvoices, purchaseInvoices }) {
 // ═══════════════════════════════════════════════════════════
 // TAB 7 — INVOICE ARCHIVE
 // ═══════════════════════════════════════════════════════════
-function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, userRole }) {
+function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, userRole }) {
   const isAdmin=userRole==='admin';
   const [typeF,setTypeF]=useState('all');
   const [statusF,setStatusF]=useState('all');
@@ -2210,8 +2217,9 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   const all=useMemo(()=>{
     const p=purchaseInvoices.map(i=>({...i,_type:'purchase',_date:i.date}));
     const c=cateringInvoices.map(i=>({...i,_type:'catering',_date:i.date||i.dateStart}));
-    return [...p,...c].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-  },[purchaseInvoices,cateringInvoices]);
+    const t=transferInvoices.map(i=>({...i,_type:'transfer',_date:i.date, supplier:`${i.from} -> ${i.to}`}));
+    return [...p,...c,...t].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  },[purchaseInvoices,cateringInvoices,transferInvoices]);
 
   const filtered=useMemo(()=>all.filter(inv=>{
     if(typeF!=='all'&&inv._type!==typeF) return false;
@@ -2225,13 +2233,15 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
 
   function markPaid(inv){
     if(inv._type==='purchase'){const u=purchaseInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
-    else{const u=cateringInvoices.map(x=>x.id===inv.id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
+    else if(inv._type==='catering'){const u=cateringInvoices.map(x=>x.id===inv.id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
+    else{const u=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setTransferInvoices(u);save('transferInvoices',u);}
     showToast('Invoice marked paid.');
     logActivity('mark_paid', 'Marked '+inv._type+' invoice paid '+inv.id);
   }
   function deleteInv({id,_type}){
     if(_type==='purchase'){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);}
-    else{const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);}
+    else if(_type==='catering'){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);}
+    else{const u=transferInvoices.filter(x=>x.id!==id);setTransferInvoices(u);save('transferInvoices',u);}
     setConfirmObj(null);
     showToast('Invoice deleted.');
     logActivity('delete_invoice', 'Deleted '+_type+' invoice '+id);
@@ -2246,7 +2256,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:12}}>
           <div className="field" style={{margin:0}}><label>Type</label>
             <select className="input" value={typeF} onChange={e=>setTypeF(e.target.value)}>
-              <option value="all">All Types</option><option value="catering">Catering</option><option value="purchase">Purchase</option>
+              <option value="all">All Types</option><option value="catering">Catering</option><option value="purchase">Purchase</option><option value="transfer">Transfer</option>
             </select>
           </div>
           <div className="field" style={{margin:0}}><label>Status</label>
@@ -2276,7 +2286,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
                   {filtered.map(inv=>(
                     <tr key={inv.id}>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
-                      <td><span style={{fontSize:11,padding:'2px 7px',borderRadius:10,fontWeight:600,background:inv._type==='catering'?'#E8F4FC':'#FFF0E0',color:inv._type==='catering'?'#2980b9':'var(--choc)'}}>{inv._type}</span></td>
+                      <td><span style={{fontSize:11,padding:'2px 7px',borderRadius:10,fontWeight:600,background:inv._type==='catering'?'#E8F4FC':inv._type==='transfer'?'#EEF9F1':'#FFF0E0',color:inv._type==='catering'?'#2980b9':inv._type==='transfer'?'#1e7a3b':'var(--choc)'}}>{inv._type}</span></td>
                       <td style={{fontWeight:600}}>{inv.customerName||inv.supplier}</td>
                       <td style={{fontSize:12}}>{inv._type==='catering'&&inv.useRange?`${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`:fmtDate(inv._date)}</td>
                       <td style={{fontSize:12,color:'#777'}}>{BUSINESSES[inv.business]?.name}</td>
@@ -2300,19 +2310,20 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
         {viewInv&&(
           <div>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
-              <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{BUSINESSES[viewInv.business]?.location}</div></div>
+              <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{viewInv._type==='transfer'?'Parathas & Platters Internal Transfer':BUSINESSES[viewInv.business]?.name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):BUSINESSES[viewInv.business]?.location}</div></div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.customerName||viewInv.supplier}</div><span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span></div>
             </div>
             {viewInv.lineItems&&(
               <div className="tbl-wrap" style={{marginBottom:14}}>
-                <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
-                  <tbody>{viewInv.lineItems.map((l,i)=><tr key={i}><td>{l.description}</td><td>{l.qty??l.quantity}</td><td>{fmt$(l.price??l.unitPrice)}</td><td style={{fontWeight:600}}>{fmt$(l.total)}</td></tr>)}</tbody>
+                <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th>{viewInv._type==='transfer'&&<th>15% Commission</th>}<th>Total</th></tr></thead>
+                  <tbody>{viewInv.lineItems.map((l,i)=><tr key={i}><td>{l.description||l.item}</td><td>{l.qty??l.quantity}</td><td>{fmt$(l.price??l.unitPrice)}</td>{viewInv._type==='transfer'&&<td>{fmt$(l.commission||0)}</td>}<td style={{fontWeight:600}}>{fmt$(l.total)}</td></tr>)}</tbody>
                 </table>
               </div>
             )}
             <div style={{textAlign:'right'}}>
-              <div>Subtotal: {fmt$(viewInv.subtotal)}</div>
+              <div>Subtotal: {fmt$(viewInv.subtotal??viewInv.subTotal??0)}</div>
               {viewInv.ccFeeEnabled&&<div>CC Fee: {fmt$(viewInv.ccFee)}</div>}
+              {viewInv._type==='transfer'&&<div>Commission: {fmt$(viewInv.commissionTotal||0)}</div>}
               {viewInv.taxEnabled&&<div>Tax: {fmt$(viewInv.taxAmount)}</div>}
               <div style={{fontWeight:700,fontSize:17,color:'var(--brown)',marginTop:6}}>Total: {fmt$(viewInv.total||viewInv.grandTotal)}</div>
               {viewInv.balanceDue!==undefined&&<div style={{color:viewInv.balanceDue>0?'var(--danger)':'var(--success)',fontWeight:600}}>Balance Due: {fmt$(viewInv.balanceDue)}</div>}
@@ -2326,6 +2337,261 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
         )}
       </Modal>
       <Confirm open={!!confirmObj} message="Delete this invoice permanently? This cannot be undone." onConfirm={()=>deleteInv(confirmObj)} onCancel={()=>setConfirmObj(null)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// INTERNAL TRANSFER INVOICES (P&P Hackensack -> Englewood)
+// ═══════════════════════════════════════════════════════════
+function TransferInvoices({ transferInvoices, setTransferInvoices }) {
+  const COMMISSION_RATE = 0.15;
+  const blankForm = () => ({
+    date: today(),
+    from: 'Parathas & Platters - Hackensack',
+    to: 'Parathas & Platters - Englewood',
+    notes: '',
+    lineItems: [{ quantity:'', item:'', price:'' }]
+  });
+
+  const [form, setForm] = useState(blankForm);
+  const [showForm, setShowForm] = useState(false);
+  const [viewId, setViewId] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  function setLine(i, field, value) {
+    setForm(f => {
+      const lines = [...f.lineItems];
+      lines[i] = { ...lines[i], [field]: value };
+      return { ...f, lineItems: lines };
+    });
+  }
+  function addLine() {
+    setForm(f => ({ ...f, lineItems: [...f.lineItems, { quantity:'', item:'', price:'' }] }));
+  }
+  function removeLine(i) {
+    setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }));
+  }
+
+  function saveTransferInvoice() {
+    const lines = form.lineItems
+      .map(l => {
+        const price = parseFloat(l.price) || 0;
+        const commission = +(price * COMMISSION_RATE).toFixed(2);
+        const total = +(price + commission).toFixed(2);
+        return {
+          quantity: (l.quantity || '').trim(),
+          item: (l.item || '').trim(),
+          price: +price.toFixed(2),
+          commission,
+          total
+        };
+      })
+      .filter(l => l.item && (l.quantity || l.price > 0));
+    if (!lines.length) { showToast('Add at least one line item.', 'error'); return; }
+    if (!form.date) { showToast('Date is required.', 'error'); return; }
+
+    const subTotal = +lines.reduce((s, l) => s + l.price, 0).toFixed(2);
+    const commissionTotal = +lines.reduce((s, l) => s + l.commission, 0).toFixed(2);
+    const grandTotal = +(subTotal + commissionTotal).toFixed(2);
+    const invoice = {
+      id: nextTransferId(form.date),
+      invoiceType: 'pp_transfer',
+      status: 'unpaid',
+      date: form.date,
+      from: form.from,
+      to: form.to,
+      notes: form.notes.trim(),
+      lineItems: lines,
+      commissionRate: COMMISSION_RATE,
+      subTotal,
+      commissionTotal,
+      grandTotal,
+      createdAt: new Date().toISOString()
+    };
+    const updated = [...transferInvoices, invoice];
+    setTransferInvoices(updated);
+    save('transferInvoices', updated);
+    logActivity('create_invoice', 'Created transfer invoice ' + invoice.id);
+    showToast('Transfer invoice created.');
+    setForm(blankForm());
+    setShowForm(false);
+  }
+
+  function deleteTransferInvoice(id) {
+    const updated = transferInvoices.filter(x => x.id !== id);
+    setTransferInvoices(updated);
+    save('transferInvoices', updated);
+    setConfirmId(null);
+    logActivity('delete_invoice', 'Deleted transfer invoice ' + id);
+    showToast('Transfer invoice deleted.');
+  }
+  function exportTransferExcel() {
+    if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
+    const byMonth = {};
+    sorted.forEach(inv => {
+      const d = inv.date || today();
+      const k = d.slice(0,7);
+      if (!byMonth[k]) byMonth[k] = [];
+      inv.lineItems.forEach(li => {
+        byMonth[k].push({
+          Date: d,
+          Quantity: li.quantity || '',
+          Item: li.item || '',
+          Price: li.price ?? 0,
+          '15% commission': li.commission ?? 0,
+          Total: li.total ?? 0,
+          'Invoice #': inv.id
+        });
+      });
+    });
+    const wb = XLSX.utils.book_new();
+    const monthKeys = Object.keys(byMonth).sort();
+    if (!monthKeys.length) {
+      const ws = XLSX.utils.json_to_sheet([{ Date:'', Quantity:'', Item:'', Price:'', '15% commission':'', Total:'', 'Invoice #':'' }]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Transfers');
+    } else {
+      monthKeys.forEach(k => {
+        const ws = XLSX.utils.json_to_sheet(byMonth[k]);
+        const sheetName = (() => {
+          try { return new Date(k + '-01').toLocaleString('en-US',{month:'long',year:'numeric'}).replace(',',''); }
+          catch { return k; }
+        })();
+        XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0,31));
+      });
+    }
+    XLSX.writeFile(wb, `pp-hackensack-to-englewood-${today()}.xlsx`);
+    logActivity('export_csv', 'Exported transfer invoices Excel');
+    showToast('Transfer invoices exported to Excel.');
+  }
+
+  const sorted = useMemo(() => [...transferInvoices].sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
+  const viewInv = sorted.find(x => x.id === viewId);
+
+  return (
+    <div>
+      <div className="flex-between mb-3 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>🚚 P&P Transfer Invoice Generator</div>
+        <div className="flex gap-2">
+          <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
+          <Btn className="btn-primary" onClick={()=>setShowForm(v=>!v)}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
+        </div>
+      </div>
+      <p style={{fontSize:13,color:'#666',marginBottom:12}}>
+        Generates internal invoices from <strong>Parathas &amp; Platters - Hackensack</strong> to <strong>Parathas &amp; Platters - Englewood</strong> using a fixed 15% commission structure.
+      </p>
+
+      {showForm && (
+        <div className="card mb-3">
+          <div className="grid-3">
+            <FI label="Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
+            <FI label="From" value={form.from} onChange={e=>setForm(f=>({...f,from:e.target.value}))} />
+            <FI label="To" value={form.to} onChange={e=>setForm(f=>({...f,to:e.target.value}))} />
+          </div>
+          <FI label="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
+
+          <div className="flex-between mb-2">
+            <label style={{margin:0}}>Line Items</label>
+            <Btn className="btn-outline btn-sm" onClick={addLine}>+ Add Line</Btn>
+          </div>
+          {form.lineItems.map((l, i)=>(
+            <div key={i} style={{display:'flex',gap:8,marginBottom:8,alignItems:'center'}}>
+              <input className="input" placeholder="Quantity (e.g. 10 lbs)" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:1.2}} />
+              <input className="input" placeholder="Item" value={l.item} onChange={e=>setLine(i,'item',e.target.value)} style={{flex:2.2}} />
+              <input className="input" placeholder="Price" type="number" min="0" step="0.01" value={l.price} onChange={e=>setLine(i,'price',e.target.value)} style={{flex:1}} />
+              <span style={{fontSize:12,color:'#777',minWidth:80}}>+15%</span>
+              <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>removeLine(i)}>🗑</Btn>
+            </div>
+          ))}
+          <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:10}}>
+            <Btn className="btn-primary" onClick={saveTransferInvoice}>💾 Save Transfer Invoice</Btn>
+          </div>
+        </div>
+      )}
+
+      {sorted.length===0 && <div className="card empty-state">No transfer invoices yet.</div>}
+      {sorted.length>0 && (
+        <div className="card">
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Total</th><th></th></tr></thead>
+              <tbody>
+                {sorted.map(inv=>(
+                  <tr key={inv.id}>
+                    <td>{inv.id}</td>
+                    <td>{fmtDate(inv.date)}</td>
+                    <td>{inv.from}</td>
+                    <td>{inv.to}</td>
+                    <td style={{fontWeight:700}}>{fmt$(inv.grandTotal)}</td>
+                    <td>
+                      <div className="flex gap-2">
+                        <Btn className="btn-outline btn-sm" onClick={()=>setViewId(inv.id)}>View</Btn>
+                        {inv.status!=='paid'&&<Btn className="btn-success btn-sm" onClick={()=>{
+                          const updated=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);
+                          setTransferInvoices(updated); save('transferInvoices',updated); showToast('Transfer invoice marked paid.');
+                        }}>Paid</Btn>}
+                        <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <Modal open={!!viewInv} onClose={()=>setViewId(null)} title={`Transfer Invoice ${viewInv?.id || ''}`} wide maxW={900}>
+        {viewInv && (
+          <>
+            <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>Parathas &amp; Platters Transfer Invoice</div>
+                <div style={{fontSize:13,color:'#666'}}>Internal transfer: Hackensack → Englewood</div>
+              </div>
+              <div style={{textAlign:'right',fontSize:13}}>
+                <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div>
+                <div>Date: {fmtDate(viewInv.date)}</div>
+                <span className={`badge badge-${viewInv.status||'unpaid'}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status||'unpaid'}</span>
+              </div>
+            </div>
+            <div className="card" style={{padding:12,marginBottom:12,background:'#fffdf8'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,fontSize:13}}>
+                <div><strong>From:</strong> {viewInv.from}</div>
+                <div><strong>To:</strong> {viewInv.to}</div>
+              </div>
+            </div>
+            <div className="tbl-wrap mb-3">
+              <table>
+                <thead><tr><th>Quantity</th><th>Item</th><th>Price</th><th>15% commission</th><th>Total</th></tr></thead>
+                <tbody>
+                  {viewInv.lineItems.map((l,i)=>(
+                    <tr key={i}>
+                      <td>{l.quantity}</td>
+                      <td>{l.item}</td>
+                      <td>{fmt$(l.price)}</td>
+                      <td>{fmt$(l.commission)}</td>
+                      <td style={{fontWeight:700}}>{fmt$(l.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{textAlign:'right',fontSize:14}}>
+              <div>Subtotal: <strong>{fmt$(viewInv.subTotal)}</strong></div>
+              <div>Commission: <strong>{fmt$(viewInv.commissionTotal)}</strong></div>
+              <div style={{fontSize:16,color:'var(--brown)'}}>Grand Total: <strong>{fmt$(viewInv.grandTotal)}</strong></div>
+            </div>
+            {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
+            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
+              <Btn className="btn-outline" onClick={()=>window.print()}>🖨 Print</Btn>
+              <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Confirm open={!!confirmId} message="Delete this transfer invoice?" onConfirm={()=>deleteTransferInvoice(confirmId)} onCancel={()=>setConfirmId(null)} />
     </div>
   );
 }
@@ -2616,6 +2882,7 @@ function App() {
   const [items, setItems] = useState(()=>load('items',[]));
   const [shopping, setShopping] = useState(()=>load('shoppingList',[]));
   const [purchaseInv, setPurchaseInv] = useState(()=>load('purchaseInvoices',[]));
+  const [transferInv, setTransferInv] = useState(()=>load('transferInvoices',[]));
   const [cateringInv, setCateringInv] = useState(()=>load('cateringInvoices',[]));
   const [customers, setCustomers] = useState(()=>load('customers',[]));
   const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
@@ -2729,10 +2996,11 @@ function App() {
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
+        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} />}
         {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} />}
-        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} userRole={currentUser.role} />}
+        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} userRole={currentUser.role} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}
       </div>
