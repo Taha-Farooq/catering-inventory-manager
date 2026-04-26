@@ -357,23 +357,19 @@ function Btn({ className='', children, ...p }) {
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════
 function FirstRunSetup({ onDone }) {
-  const [adminPwd, setAdminPwd] = useState('');
-  const [adminConfirm, setAdminConfirm] = useState('');
-  const [staffPwd, setStaffPwd] = useState('');
-  const [staffConfirm, setStaffConfirm] = useState('');
+  const [pwd, setPwd] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSetup(e) {
     e.preventDefault();
     setErr('');
-    if (adminPwd.length < 6) { setErr('Admin password must be at least 6 characters.'); return; }
-    if (adminPwd !== adminConfirm) { setErr('Admin passwords do not match.'); return; }
-    if (staffPwd.length < 6) { setErr('Staff password must be at least 6 characters.'); return; }
-    if (staffPwd !== staffConfirm) { setErr('Staff passwords do not match.'); return; }
+    if (pwd.length < 6) { setErr('Password must be at least 6 characters.'); return; }
+    if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
     setSaving(true);
-    const [aHash, uHash] = await Promise.all([hashPwd(adminPwd), hashPwd(staffPwd)]);
-    save('credentials', { admin: { password: aHash }, user: { password: uHash } });
+    const hash = await hashPwd(pwd);
+    save('credentials', { admin: { password: hash, role: 'admin' } });
     onDone();
   }
 
@@ -382,22 +378,24 @@ function FirstRunSetup({ onDone }) {
       <div className="login-card">
         <div className="login-logo">
           <div className="icon">🍽️</div>
-          <h1>Welcome — First Time Setup</h1>
-          <p>Create passwords to secure your account before first use.</p>
+          <h1>Welcome — Admin Setup</h1>
+          <p>Create your admin password to get started. Add staff accounts later from ⚙ Settings.</p>
         </div>
         <form onSubmit={handleSetup}>
           <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#7a5c00'}}>
-            🔒 Passwords are stored as secure hashes — never in plain text.
+            🔒 Password is stored as a secure hash — never in plain text.
           </div>
-          <label style={{fontWeight:700,fontSize:13,color:'var(--brown)',display:'block',marginBottom:4}}>👑 Admin Password</label>
-          <div className="field"><input className="input" type="password" placeholder="Min 6 characters" value={adminPwd} onChange={e=>{setAdminPwd(e.target.value);setErr('');}} autoFocus /></div>
-          <div className="field"><input className="input" type="password" placeholder="Confirm admin password" value={adminConfirm} onChange={e=>{setAdminConfirm(e.target.value);setErr('');}} /></div>
-          <label style={{fontWeight:700,fontSize:13,color:'var(--brown)',display:'block',margin:'12px 0 4px'}}>👤 Staff Password</label>
-          <div className="field"><input className="input" type="password" placeholder="Min 6 characters" value={staffPwd} onChange={e=>{setStaffPwd(e.target.value);setErr('');}} /></div>
-          <div className="field"><input className="input" type="password" placeholder="Confirm staff password" value={staffConfirm} onChange={e=>{setStaffConfirm(e.target.value);setErr('');}} /></div>
+          <div className="field">
+            <label>Admin Password</label>
+            <input className="input" type="password" placeholder="Min 6 characters" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} autoFocus />
+          </div>
+          <div className="field">
+            <label>Confirm Password</label>
+            <input className="input" type="password" placeholder="Re-enter your password" value={confirm} onChange={e=>{setConfirm(e.target.value);setErr('');}} />
+          </div>
           {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
           <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15,marginTop:4}} disabled={saving}>
-            {saving ? 'Setting up…' : '🔐 Create Passwords & Continue'}
+            {saving ? 'Setting up…' : '🔐 Create Admin Account & Continue'}
           </button>
         </form>
       </div>
@@ -426,8 +424,8 @@ function LoginScreen({ onLogin }) {
     const hash = await hashPwd(pwd);
     if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
     setTimeout(() => {
-      onLogin({ username: key, role: key === 'admin' ? 'admin' : 'user',
-        name: key === 'admin' ? 'Administrator' : 'Staff User' });
+      onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
+        name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key) });
     }, 400);
   }
 
@@ -443,7 +441,7 @@ function LoginScreen({ onLogin }) {
         <form onSubmit={handleLogin}>
           <div className="field">
             <label>Username</label>
-            <input className="input" placeholder="admin or user" value={uname} onChange={e=>{setUname(e.target.value);setErr('');}} autoFocus autoCapitalize="none" autoCorrect="off" />
+            <input className="input" placeholder="Enter your username" value={uname} onChange={e=>{setUname(e.target.value);setErr('');}} autoFocus autoCapitalize="none" autoCorrect="off" />
           </div>
           <div className="field">
             <label>Password</label>
@@ -522,40 +520,111 @@ function ProfileModal({ open, onClose, username, profile, onSave }) {
 function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) {
   const { items, shopping, purchaseInv, cateringInv, customers, priceHist,
           setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz } = appState;
-
-  const [adminPwd, setAdminPwd] = useState('');
-  const [userPwd, setUserPwd] = useState('');
-  const [pwdMsg, setPwdMsg] = useState('');
   const importRef = useRef();
-  const [userPerms, setUserPerms] = useState(() => load('_userPermissions', DEFAULT_USER_PERMS));
 
-  const TAB_DESCRIPTIONS = {
+  // Admin password
+  const [adminPwd, setAdminPwd] = useState('');
+  const [adminPwdMsg, setAdminPwdMsg] = useState('');
+
+  // Staff user management
+  const loadStaff = () => {
+    const creds = load('credentials', {});
+    return Object.entries(creds).filter(([k]) => k !== 'admin').map(([k, v]) => ({
+      username: k, displayName: v.displayName || k, permissions: v.permissions || DEFAULT_USER_PERMS
+    }));
+  };
+  const [staff, setStaff] = useState(loadStaff);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newUname, setNewUname] = useState('');
+  const [newDisplay, setNewDisplay] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [newPwdC, setNewPwdC] = useState('');
+  const [newPerms, setNewPerms] = useState([...DEFAULT_USER_PERMS]);
+  const [addErr, setAddErr] = useState('');
+  const [editPwdFor, setEditPwdFor] = useState(null);
+  const [editPwd, setEditPwd] = useState('');
+  const [editPwdC, setEditPwdC] = useState('');
+  const [editPermsFor, setEditPermsFor] = useState(null);
+  const [editPerms, setEditPerms] = useState([]);
+
+  useEffect(() => { if (open) { setStaff(loadStaff()); } }, [open]);
+
+  const TAB_DESC = {
     shopping: 'Build and export shopping lists',
-    items:    'Add new items to the item database',
-    pricer:   'Update supplier prices for existing items',
+    items:    'Add new items to the database',
+    pricer:   'Update supplier prices',
     catering: 'View and create catering invoices',
-    archive:  'Browse and search all past invoices',
+    archive:  'Browse and search past invoices',
   };
 
-  async function savePwds() {
-    if (!adminPwd && !userPwd) { setPwdMsg('Enter at least one new password.'); return; }
-    if (adminPwd && adminPwd.length < 6) { setPwdMsg('Admin password must be at least 6 characters.'); return; }
-    if (userPwd && userPwd.length < 6) { setPwdMsg('Staff password must be at least 6 characters.'); return; }
-    const creds = load('credentials', null) || { admin:{password:''}, user:{password:''} };
-    if (adminPwd) creds.admin.password = await hashPwd(adminPwd);
-    if (userPwd)  creds.user.password  = await hashPwd(userPwd);
+  async function saveAdminPwd() {
+    if (!adminPwd) { setAdminPwdMsg('Enter a new password.'); return; }
+    if (adminPwd.length < 6) { setAdminPwdMsg('Must be at least 6 characters.'); return; }
+    const creds = load('credentials', null) || { admin: { password: '', role: 'admin' } };
+    creds.admin.password = await hashPwd(adminPwd);
     save('credentials', creds);
-    setAdminPwd(''); setUserPwd('');
-    setPwdMsg('✅ Passwords updated!');
-    setTimeout(() => setPwdMsg(''), 3000);
-    showToast('Passwords updated!');
+    setAdminPwd('');
+    setAdminPwdMsg('✅ Updated!');
+    setTimeout(() => setAdminPwdMsg(''), 3000);
+    showToast('Admin password updated!');
+    logActivity('change_password', 'Admin updated their own password');
   }
 
-  function savePerms() {
-    if (userPerms.length === 0) { alert('At least one tab must be enabled for staff users.'); return; }
-    save('_userPermissions', userPerms);
-    onPermsChange(userPerms);
-    showToast('Staff access settings saved!');
+  async function addUser() {
+    setAddErr('');
+    const uname = newUname.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!uname) { setAddErr('Username is required.'); return; }
+    if (!/^[a-z0-9_]+$/.test(uname)) { setAddErr('Use only letters, numbers, or underscores.'); return; }
+    if (uname === 'admin') { setAddErr('"admin" is a reserved username.'); return; }
+    const creds = load('credentials', {});
+    if (creds[uname]) { setAddErr('That username is already taken.'); return; }
+    if (newPwd.length < 6) { setAddErr('Password must be at least 6 characters.'); return; }
+    if (newPwd !== newPwdC) { setAddErr('Passwords do not match.'); return; }
+    if (newPerms.length === 0) { setAddErr('At least one tab must be enabled.'); return; }
+    const hash = await hashPwd(newPwd);
+    const displayName = newDisplay.trim() || uname;
+    creds[uname] = { password: hash, role: 'user', displayName, permissions: newPerms };
+    save('credentials', creds);
+    setStaff(s => [...s, { username: uname, displayName, permissions: newPerms }]);
+    setNewUname(''); setNewDisplay(''); setNewPwd(''); setNewPwdC(''); setNewPerms([...DEFAULT_USER_PERMS]);
+    setShowAdd(false);
+    showToast(displayName + ' added!');
+    logActivity('add_user', 'Created staff user: ' + uname);
+  }
+
+  function deleteUser(uname) {
+    if (!window.confirm('Delete user "' + uname + '"? This cannot be undone.')) return;
+    const creds = load('credentials', {});
+    delete creds[uname];
+    save('credentials', creds);
+    setStaff(s => s.filter(x => x.username !== uname));
+    showToast('User removed.');
+    logActivity('delete_user', 'Deleted staff user: ' + uname);
+  }
+
+  async function saveUserPwd(uname) {
+    if (editPwd.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+    if (editPwd !== editPwdC) { showToast('Passwords do not match.', 'error'); return; }
+    const creds = load('credentials', {});
+    if (!creds[uname]) return;
+    creds[uname].password = await hashPwd(editPwd);
+    save('credentials', creds);
+    setEditPwdFor(null); setEditPwd(''); setEditPwdC('');
+    showToast('Password updated for @' + uname);
+    logActivity('reset_password', 'Reset password for: ' + uname);
+  }
+
+  function saveUserPerms(uname) {
+    if (editPerms.length === 0) { showToast('At least one tab must be enabled.', 'error'); return; }
+    const creds = load('credentials', {});
+    if (!creds[uname]) return;
+    creds[uname].permissions = editPerms;
+    save('credentials', creds);
+    setStaff(s => s.map(x => x.username === uname ? { ...x, permissions: editPerms } : x));
+    onPermsChange(editPerms, uname);
+    setEditPermsFor(null);
+    showToast('Permissions saved for @' + uname);
+    logActivity('update_permissions', 'Updated permissions for: ' + uname);
   }
 
   async function doExport() {
@@ -647,50 +716,109 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
         </p>
       </div>
 
-      {/* Staff User Access */}
+      {/* Staff Users */}
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
-        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>👥 Staff User Access</div>
-        <p style={{fontSize:13,color:'#666',marginBottom:14,marginTop:4,lineHeight:1.5}}>
-          Choose which sections staff users can see when they log in. At least one must stay enabled.
-        </p>
-        {ALL_USER_TABS.map(t => {
-          const checked = userPerms.includes(t.id);
-          return (
-            <label key={t.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 12px',borderRadius:6,marginBottom:8,background:checked?'var(--cream)':'#f9f9f9',border:checked?'1.5px solid #DEB887':'1px solid #e5e7eb',cursor:'pointer',userSelect:'none'}}>
-              <input type="checkbox" checked={checked} style={{marginTop:3,cursor:'pointer',flexShrink:0,width:16,height:16}} onChange={e=>setUserPerms(p=>e.target.checked?[...p,t.id]:p.filter(id=>id!==t.id))} />
-              <div>
-                <div style={{fontWeight:600,fontSize:14}}>{t.label}</div>
-                <div style={{fontSize:12,color:'#888',marginTop:2}}>{TAB_DESCRIPTIONS[t.id]||''}</div>
-              </div>
-            </label>
-          );
-        })}
-        <Btn className="btn-primary" style={{marginTop:4}} onClick={savePerms}>💾 Save Access Settings</Btn>
-        <div style={{fontSize:12,color:'#888',marginTop:8}}>Changes take effect immediately.</div>
-      </div>
-
-      {/* Password Management */}
-      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16}}>
-        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔑 Password Management</div>
-        <div className="grid-2">
-          <div>
-            <label>Change Admin Password</label>
-            <input className="input" type="password" placeholder="Leave blank to keep current" value={adminPwd} onChange={e=>setAdminPwd(e.target.value)} />
-            <div style={{fontSize:11.5,color:'#888',marginTop:5}}>⚠️ If locked out, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)'}}>fatimfarooq@yahoo.com</a></div>
-          </div>
-          <div>
-            <label>Reset Staff Password</label>
-            <input className="input" type="password" placeholder="Leave blank to keep current" value={userPwd} onChange={e=>setUserPwd(e.target.value)} />
-            <div style={{fontSize:11.5,color:'#888',marginTop:5}}>Resets the password for the staff (user) account</div>
-          </div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div style={{fontWeight:700,color:'var(--brown)',fontSize:15}}>👥 Staff Users</div>
+          {!showAdd && <Btn className="btn-primary btn-sm" onClick={()=>{setShowAdd(true);setAddErr('');}}>＋ Add User</Btn>}
         </div>
-        {pwdMsg && (
-          <div style={{padding:'8px 12px',borderRadius:5,marginTop:10,fontSize:13,background:pwdMsg.startsWith('✅')?'#d4edda':'#fee2e2',color:pwdMsg.startsWith('✅')?'#155724':'#991b1b'}}>{pwdMsg}</div>
+
+        {showAdd && (
+          <div style={{background:'#f9f6ef',border:'1.5px solid #DEB887',borderRadius:8,padding:14,marginBottom:14}}>
+            <div style={{fontWeight:700,marginBottom:10,color:'var(--brown)'}}>✨ New Staff User</div>
+            <div className="grid-2">
+              <FI label="Username (used to log in)" value={newUname} onChange={e=>setNewUname(e.target.value)} placeholder="e.g. john" autoComplete="off" />
+              <FI label="Display Name (shown in app)" value={newDisplay} onChange={e=>setNewDisplay(e.target.value)} placeholder="e.g. John Smith" />
+              <FI label="Password" type="password" value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
+              <FI label="Confirm Password" type="password" value={newPwdC} onChange={e=>setNewPwdC(e.target.value)} placeholder="Re-enter password" autoComplete="new-password" />
+            </div>
+            <div style={{marginBottom:6,fontWeight:600,fontSize:13,color:'var(--brown)'}}>Tab Access:</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:12}}>
+              {ALL_USER_TABS.map(t=>(
+                <label key={t.id} title={TAB_DESC[t.id]} style={{display:'flex',alignItems:'center',gap:6,background:newPerms.includes(t.id)?'var(--cream)':'#f0f0f0',padding:'5px 10px',borderRadius:20,border:newPerms.includes(t.id)?'1.5px solid #DEB887':'1px solid #ddd',cursor:'pointer',fontSize:13,userSelect:'none'}}>
+                  <input type="checkbox" checked={newPerms.includes(t.id)} onChange={e=>setNewPerms(p=>e.target.checked?[...p,t.id]:p.filter(id=>id!==t.id))} />
+                  {t.label}
+                </label>
+              ))}
+            </div>
+            {addErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'7px 10px',borderRadius:5,marginBottom:10,fontSize:13}}>{addErr}</div>}
+            <div className="flex gap-2">
+              <Btn className="btn-primary btn-sm" onClick={addUser}>✓ Create User</Btn>
+              <Btn className="btn-outline btn-sm" onClick={()=>{setShowAdd(false);setAddErr('');}}>Cancel</Btn>
+            </div>
+          </div>
         )}
-        <Btn className="btn-primary btn-sm" style={{marginTop:12}} onClick={savePwds}>Save Passwords</Btn>
+
+        {staff.length === 0 && !showAdd && (
+          <div style={{textAlign:'center',padding:'24px 16px',color:'#bbb',fontSize:13,border:'1px dashed #ddd',borderRadius:8}}>
+            No staff users yet. Click <strong>＋ Add User</strong> to create the first one.
+          </div>
+        )}
+
+        {staff.map(u => (
+          <div key={u.username} style={{border:'1px solid #EED9B0',borderRadius:8,padding:'12px 14px',marginBottom:10,background:'white'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:14}}>{u.displayName} <span style={{fontWeight:400,color:'#999',fontSize:12}}>@{u.username}</span></div>
+                <div style={{fontSize:12,color:'#888',marginTop:3}}>
+                  Access: {u.permissions.map(p=>ALL_USER_TABS.find(t=>t.id===p)?.label||p).join(' · ') || '(none)'}
+                </div>
+              </div>
+              <div className="flex gap-2" style={{flexWrap:'wrap'}}>
+                <Btn className="btn-outline btn-sm" onClick={()=>{setEditPermsFor(editPermsFor===u.username?null:u.username);setEditPerms([...u.permissions]);setEditPwdFor(null);}}>🔒 Permissions</Btn>
+                <Btn className="btn-outline btn-sm" onClick={()=>{setEditPwdFor(editPwdFor===u.username?null:u.username);setEditPwd('');setEditPwdC('');setEditPermsFor(null);}}>🔑 Password</Btn>
+                <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>deleteUser(u.username)}>🗑</Btn>
+              </div>
+            </div>
+
+            {editPermsFor === u.username && (
+              <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid #EED9B0'}}>
+                <div style={{fontWeight:600,fontSize:13,marginBottom:8,color:'var(--brown)'}}>Tab access for @{u.username}:</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:10}}>
+                  {ALL_USER_TABS.map(t=>(
+                    <label key={t.id} title={TAB_DESC[t.id]} style={{display:'flex',alignItems:'center',gap:6,background:editPerms.includes(t.id)?'var(--cream)':'#f0f0f0',padding:'5px 10px',borderRadius:20,border:editPerms.includes(t.id)?'1.5px solid #DEB887':'1px solid #ddd',cursor:'pointer',fontSize:13,userSelect:'none'}}>
+                      <input type="checkbox" checked={editPerms.includes(t.id)} onChange={e=>setEditPerms(p=>e.target.checked?[...p,t.id]:p.filter(id=>id!==t.id))} />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Btn className="btn-primary btn-sm" onClick={()=>saveUserPerms(u.username)}>💾 Save Access</Btn>
+                  <Btn className="btn-outline btn-sm" onClick={()=>setEditPermsFor(null)}>Cancel</Btn>
+                </div>
+              </div>
+            )}
+
+            {editPwdFor === u.username && (
+              <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid #EED9B0'}}>
+                <div style={{fontWeight:600,fontSize:13,marginBottom:8,color:'var(--brown)'}}>Set new password for @{u.username}:</div>
+                <div className="grid-2">
+                  <FI label="New Password" type="password" value={editPwd} onChange={e=>setEditPwd(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
+                  <FI label="Confirm Password" type="password" value={editPwdC} onChange={e=>setEditPwdC(e.target.value)} placeholder="Re-enter" autoComplete="new-password" />
+                </div>
+                <div className="flex gap-2">
+                  <Btn className="btn-primary btn-sm" onClick={()=>saveUserPwd(u.username)}>💾 Save Password</Btn>
+                  <Btn className="btn-outline btn-sm" onClick={()=>setEditPwdFor(null)}>Cancel</Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        <div style={{fontSize:12,color:'#888',marginTop:4}}>💡 To view a user's activity, go to the <strong>Activity Log</strong> tab and filter by their username.</div>
       </div>
 
-      <div style={{marginTop:16,textAlign:'right'}}>
+      {/* Admin Password */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔑 Admin Password</div>
+        <FI label="New Password (leave blank to keep current)" type="password" placeholder="Min 6 characters" value={adminPwd} onChange={e=>setAdminPwd(e.target.value)} />
+        {adminPwdMsg && (
+          <div style={{padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:13,background:adminPwdMsg.startsWith('✅')?'#d4edda':'#fee2e2',color:adminPwdMsg.startsWith('✅')?'#155724':'#991b1b'}}>{adminPwdMsg}</div>
+        )}
+        <Btn className="btn-primary btn-sm" onClick={saveAdminPwd}>Save Password</Btn>
+        <div style={{fontSize:11.5,color:'#888',marginTop:8}}>⚠️ If locked out, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)'}}>fatimfarooq@yahoo.com</a></div>
+      </div>
+
+      <div style={{marginTop:4,textAlign:'right'}}>
         <Btn className="btn-outline" onClick={onClose}>Close</Btn>
       </div>
     </Modal>
@@ -2018,7 +2146,8 @@ function App() {
     save('_session', user);
     const p = getProfile(user.username);
     setProfile(p);
-    const perms = load('_userPermissions', DEFAULT_USER_PERMS);
+    const creds = load('credentials', {});
+    const perms = creds[user.username]?.permissions || DEFAULT_USER_PERMS;
     setUserPerms(perms);
     const isAdmin = user.role === 'admin';
     const firstTab = isAdmin ? TABS_ADMIN[0].id : (ALL_USER_TABS.find(t => perms.includes(t.id))?.id || 'shopping');
@@ -2115,7 +2244,7 @@ function App() {
       </div>
 
       {/* ── Modals ── */}
-      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} onPermsChange={perms=>{setUserPerms(perms);}} />
+      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
     </div>
   );
