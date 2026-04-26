@@ -215,9 +215,10 @@ const PROFILE_ICONS = ['👤','👨‍🍳','👩‍🍳','🧑‍💼','👨‍
 const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Spices','Beverages','Bakery','Supplies','Other'];
 const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
 const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
-const ADMIN_RESET_QUERY_KEY = 'adminReset';
+const ADMIN_RESET_QUERY_KEY = 'adminResetToken';
+const ADMIN_RESET_REQ_KEY = 'adminResetReq';
 const ADMIN_RESET_EMAIL = 'fatimfarooq@yahoo.com';
-const ADMIN_RESET_LINK_TTL_MIN = 30;
+const ADMIN_RESET_API_BASE = 'http://localhost:8787';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -245,68 +246,32 @@ const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
 const safeQty = v => { const n=parseFloat(v); return (!isNaN(n)&&n>=0)?n:0; };
 const sellerKey = n => String(n ?? '').trim().toLowerCase();
-const safeB64Encode = (v) => {
-  try { return btoa(unescape(encodeURIComponent(v))); } catch { return ''; }
-};
-const safeB64Decode = (v) => {
-  try { return decodeURIComponent(escape(atob(v))); } catch { return ''; }
-};
-const makeResetToken = () => {
-  try {
-    const arr = new Uint8Array(24);
-    crypto.getRandomValues(arr);
-    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-  } catch {
-    return uid().replace('_', '') + uid().replace('_', '');
-  }
-};
-const parseAdminResetAccess = () => {
+const parseAdminResetParams = () => {
   try {
     const q = new URLSearchParams(window.location.search);
-    const raw = q.get(ADMIN_RESET_QUERY_KEY);
-    if (!raw) return null;
-    const payload = JSON.parse(safeB64Decode(raw));
-    if (!payload || !payload.token || !payload.requestId || !payload.expiresAt) return null;
-    if (Date.now() > Number(payload.expiresAt)) return null;
-    return payload;
+    const token = q.get(ADMIN_RESET_QUERY_KEY) || '';
+    const requestId = q.get(ADMIN_RESET_REQ_KEY) || '';
+    if (!token || !requestId) return null;
+    return { token, requestId };
   } catch {
     return null;
   }
 };
-const buildAdminResetLink = (payload) => {
-  const u = new URL(window.location.href);
-  u.searchParams.set(ADMIN_RESET_QUERY_KEY, safeB64Encode(JSON.stringify(payload)));
-  return u.toString();
-};
 const buildAdminResetRequestMailto = (requestSource = 'app') => {
-  const payload = {
-    requestId: 'APR-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.random().toString(36).slice(2,8).toUpperCase(),
-    token: makeResetToken(),
-    issuedAt: Date.now(),
-    expiresAt: Date.now() + (ADMIN_RESET_LINK_TTL_MIN * 60 * 1000),
-    source: requestSource,
-    userAgent: navigator.userAgent || 'unknown',
-  };
-  const resetLink = buildAdminResetLink(payload);
   const subject = 'Admin Password Change Request';
   const body =
 `Hello,
 
 Please reset the admin password for Catering Inventory Manager.
 
-Request ID: ${payload.requestId}
-Requested from: ${payload.source}
-Link expires in: ${ADMIN_RESET_LINK_TTL_MIN} minutes
+Requested from: ${requestSource}
 
-Reset link (private):
-${resetLink}
+Generate a secure reset link from the backend utility and send it to the requester.
 
 Requested by: `;
   return `mailto:${ADMIN_RESET_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 };
-const requestAdminResetEmail = (requestSource = 'app') => {
-  window.location.href = buildAdminResetRequestMailto(requestSource);
-};
+const requestAdminResetEmail = (requestSource = 'app') => { window.location.href = buildAdminResetRequestMailto(requestSource); };
 const pushAuditEvent = (action, details) => {
   const entry = { id:uid(), username:'system', action, details, timestamp:new Date().toISOString() };
   const log = load('_activityLog', []);
@@ -561,36 +526,75 @@ function LoginScreen({ onLogin }) {
 }
 
 function AdminResetPortal() {
-  const access = useMemo(() => parseAdminResetAccess(), []);
+  const access = useMemo(() => parseAdminResetParams(), []);
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [approver, setApprover] = useState('');
   const [authorized, setAuthorized] = useState(false);
+  const [status, setStatus] = useState('checking');
+  const [meta, setMeta] = useState(null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!access) { setStatus('invalid'); return; }
+    setStatus('checking');
+    fetch(`${ADMIN_RESET_API_BASE}/api/admin-reset/validate`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: access.token, requestId: access.requestId })
+    })
+      .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.valid) throw new Error(data.error || 'Reset link validation failed.');
+        setMeta(data);
+        setStatus('valid');
+      })
+      .catch(e => {
+        setErr(String(e.message || e));
+        setStatus('invalid');
+      });
+  }, [access?.token, access?.requestId]);
 
   async function handleReset(e) {
     e.preventDefault();
     setErr('');
     setMsg('');
-    if (!access) { setErr('Reset link is invalid or expired. Request a new one.'); return; }
+    if (!access || status !== 'valid') { setErr('Reset link is invalid or expired. Request a new one.'); return; }
     if (!authorized) { setErr('Please confirm this reset is authorized.'); return; }
     if (!approver.trim()) { setErr('Enter approver name for audit logging.'); return; }
     if (pwd.length < 6) { setErr('Password must be at least 6 characters.'); return; }
     if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
     setSaving(true);
+    const newPasswordHash = await hashPwd(pwd);
+    const r = await fetch(`${ADMIN_RESET_API_BASE}/api/admin-reset/complete`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        token: access.token,
+        requestId: access.requestId,
+        approver: approver.trim(),
+        newPasswordHash
+      })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      setSaving(false);
+      setErr(data.error || 'Reset failed.');
+      return;
+    }
     const creds = load('credentials', {});
     if (!creds.admin) creds.admin = { role: 'admin', displayName: 'Administrator', password: '' };
-    creds.admin.password = await hashPwd(pwd);
+    creds.admin.password = newPasswordHash;
     save('credentials', creds);
-    pushAuditEvent('admin_password_reset', `Completed ${access.requestId} by ${approver.trim()}`);
+    pushAuditEvent('admin_password_reset', `Completed ${access.requestId} by ${approver.trim()} (${data.auditId || 'no-audit'})`);
     setPwd('');
     setConfirm('');
     setApprover('');
     setAuthorized(false);
     setSaving(false);
-    setMsg('Admin password has been reset successfully. This link should not be reused.');
+    setMsg('Admin password has been reset successfully.');
   }
 
   function closePortal() {
@@ -608,18 +612,23 @@ function AdminResetPortal() {
           <p>Use this page only for approved admin password resets.</p>
         </div>
         <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#7a5c00'}}>
-          This reset portal is hidden from normal navigation and only opens from the private reset link.
+          This reset portal is hidden from normal navigation and requires backend validation.
         </div>
-        {!access && (
+        {!access || status === 'invalid' ? (
           <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>
-            Reset link is missing, invalid, or expired. Request a fresh reset email link.
+            {err || 'Reset link is missing, invalid, expired, or backend is unavailable.'}
+          </div>
+        ) : null}
+        {access && status === 'checking' && (
+          <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72'}}>
+            Validating reset link with secure backend...
           </div>
         )}
-        {access && (
+        {access && status === 'valid' && (
           <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72',lineHeight:1.6}}>
-            <div><strong>Request ID:</strong> {access.requestId}</div>
-            <div><strong>Source:</strong> {access.source || 'app'}</div>
-            <div><strong>Expires:</strong> {new Date(Number(access.expiresAt)).toLocaleString()}</div>
+            <div><strong>Request ID:</strong> {meta?.requestId || access.requestId}</div>
+            <div><strong>Source:</strong> {meta?.source || 'app'}</div>
+            <div><strong>Expires:</strong> {meta?.expiresAt ? new Date(meta.expiresAt).toLocaleString() : 'n/a'}</div>
           </div>
         )}
         <form onSubmit={handleReset}>
@@ -630,9 +639,9 @@ function AdminResetPortal() {
             <input type="checkbox" checked={authorized} onChange={e=>{setAuthorized(e.target.checked);setErr('');}} />
             I confirm this reset is approved by management.
           </label>
-          {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
+          {err && status === 'valid' && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
           {msg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{msg}</div>}
-          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15}} disabled={saving || !access}>
+          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15}} disabled={saving || !access || status !== 'valid'}>
             {saving ? 'Saving…' : '💾 Reset Admin Password'}
           </button>
         </form>
@@ -2266,7 +2275,7 @@ function ActivityLog() {
     return r;
   },[log,userF,dateFrom,dateTo]);
 
-  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',tab_change:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',edit_customer:'Edited Customer',delete_customer:'Deleted Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup',export_csv:'Exported CSV'};
+  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',tab_change:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',edit_customer:'Edited Customer',delete_customer:'Deleted Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup',export_csv:'Exported CSV',admin_password_reset:'Admin Password Reset'};
   const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase()+a.slice(1) : '');
 
   return (
@@ -2329,7 +2338,7 @@ function ActivityLog() {
 // ROOT APP
 // ═══════════════════════════════════════════════════════════
 function App() {
-  const resetAccess = parseAdminResetAccess();
+  const resetAccess = parseAdminResetParams();
   if (resetAccess) return <AdminResetPortal />;
 
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
