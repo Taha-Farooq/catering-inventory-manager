@@ -219,6 +219,11 @@ const ADMIN_RESET_QUERY_KEY = 'adminResetToken';
 const ADMIN_RESET_REQ_KEY = 'adminResetReq';
 const ADMIN_RESET_EMAIL = 'fatimfarooq@yahoo.com';
 const ADMIN_RESET_API_BASE = 'http://localhost:8787';
+const ADMIN_RESET_API_ENDPOINTS = [
+  'http://localhost:8787',
+  'http://127.0.0.1:8787'
+];
+const ADMIN_RESET_API_BASE_KEY = '_adminResetApiBase';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -257,6 +262,39 @@ const parseAdminResetParams = () => {
     return null;
   }
 };
+const loadAdminResetApiBase = () => {
+  const saved = load(ADMIN_RESET_API_BASE_KEY, '');
+  if (typeof saved === 'string' && saved.trim()) return saved.trim();
+  return ADMIN_RESET_API_BASE;
+};
+const saveAdminResetApiBase = (url) => save(ADMIN_RESET_API_BASE_KEY, String(url || '').trim());
+const normalizeApiBase = (url) => String(url || '').trim().replace(/\/+$/, '');
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), ms))]);
+async function probeResetApi(baseUrl) {
+  const base = normalizeApiBase(baseUrl);
+  if (!base) return { ok:false, base, error:'Empty URL' };
+  try {
+    const r = await withTimeout(fetch(`${base}/health`, { method:'GET' }), 3500);
+    if (!r.ok) return { ok:false, base, error:`HTTP ${r.status}` };
+    const data = await r.json().catch(() => ({}));
+    if (data && data.ok) return { ok:true, base };
+    return { ok:false, base, error:'Invalid health response' };
+  } catch (e) {
+    return { ok:false, base, error:String(e.message || e) };
+  }
+}
+async function resolveResetApiBase(preferredBase) {
+  const candidates = [preferredBase, loadAdminResetApiBase(), ...ADMIN_RESET_API_ENDPOINTS].map(normalizeApiBase).filter(Boolean);
+  const uniq = [...new Set(candidates)];
+  for (const c of uniq) {
+    const chk = await probeResetApi(c);
+    if (chk.ok) {
+      saveAdminResetApiBase(c);
+      return { ok:true, base:c };
+    }
+  }
+  return { ok:false, base:normalizeApiBase(preferredBase || loadAdminResetApiBase() || ADMIN_RESET_API_BASE) };
+}
 const buildAdminResetRequestMailto = (requestSource = 'app') => {
   const subject = 'Admin Password Change Request';
   const body =
@@ -527,6 +565,7 @@ function LoginScreen({ onLogin }) {
 
 function AdminResetPortal() {
   const access = useMemo(() => parseAdminResetParams(), []);
+  const [apiBase, setApiBase] = useState(() => loadAdminResetApiBase());
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [approver, setApprover] = useState('');
@@ -540,21 +579,22 @@ function AdminResetPortal() {
   useEffect(() => {
     if (!access) { setStatus('invalid'); return; }
     setStatus('checking');
-    fetch(`${ADMIN_RESET_API_BASE}/api/admin-reset/validate`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ token: access.token, requestId: access.requestId })
-    })
-      .then(async r => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.valid) throw new Error(data.error || 'Reset link validation failed.');
-        setMeta(data);
-        setStatus('valid');
-      })
-      .catch(e => {
-        setErr(String(e.message || e));
-        setStatus('invalid');
+    resolveResetApiBase(apiBase).then(async resolved => {
+      if (!resolved.ok) throw new Error('Reset service is unavailable. Please contact support.');
+      setApiBase(resolved.base);
+      const r = await fetch(`${resolved.base}/api/admin-reset/validate`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ token: access.token, requestId: access.requestId })
       });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.valid) throw new Error(data.error || 'Reset link validation failed.');
+      setMeta(data);
+      setStatus('valid');
+    }).catch(e => {
+      setErr(String(e.message || e));
+      setStatus('invalid');
+    });
   }, [access?.token, access?.requestId]);
 
   async function handleReset(e) {
@@ -568,7 +608,14 @@ function AdminResetPortal() {
     if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
     setSaving(true);
     const newPasswordHash = await hashPwd(pwd);
-    const r = await fetch(`${ADMIN_RESET_API_BASE}/api/admin-reset/complete`, {
+    const resolved = await resolveResetApiBase(apiBase);
+    if (!resolved.ok) {
+      setSaving(false);
+      setErr('Reset service is unavailable. Please try again later.');
+      return;
+    }
+    setApiBase(resolved.base);
+    const r = await fetch(`${resolved.base}/api/admin-reset/complete`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -613,6 +660,9 @@ function AdminResetPortal() {
         </div>
         <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#7a5c00'}}>
           This reset portal is hidden from normal navigation and requires backend validation.
+        </div>
+        <div style={{fontSize:12,color:'#777',marginBottom:10}}>
+          Reset service: <code>{apiBase}</code>
         </div>
         {!access || status === 'invalid' ? (
           <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>
@@ -723,8 +773,16 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
   const [editPwdC, setEditPwdC] = useState('');
   const [editPermsFor, setEditPermsFor] = useState(null);
   const [editPerms, setEditPerms] = useState([]);
+  const [resetApiInput, setResetApiInput] = useState(() => loadAdminResetApiBase());
+  const [resetApiState, setResetApiState] = useState({ kind:'idle', msg:'' });
 
-  useEffect(() => { if (open) { setStaff(loadStaff()); } }, [open]);
+  useEffect(() => {
+    if (open) {
+      setStaff(loadStaff());
+      setResetApiInput(loadAdminResetApiBase());
+      setResetApiState({ kind:'idle', msg:'' });
+    }
+  }, [open]);
 
   const TAB_DESC = {
     shopping: 'Build and export shopping lists',
@@ -789,6 +847,44 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     setEditPermsFor(null);
     showToast('Permissions saved for @' + uname);
     logActivity('update_permissions', 'Updated permissions for: ' + uname);
+  }
+
+  async function testResetApi(urlToTest) {
+    const chk = await probeResetApi(urlToTest);
+    if (chk.ok) {
+      setResetApiState({ kind:'ok', msg:`Connected: ${chk.base}` });
+      return true;
+    }
+    setResetApiState({ kind:'error', msg:chk.error || 'Health check failed' });
+    return false;
+  }
+  async function saveResetApi() {
+    const normalized = normalizeApiBase(resetApiInput);
+    if (!normalized) {
+      setResetApiState({ kind:'error', msg:'Enter a reset API URL first.' });
+      return;
+    }
+    setResetApiState({ kind:'checking', msg:'Checking connection...' });
+    const ok = await testResetApi(normalized);
+    if (!ok) return;
+    saveAdminResetApiBase(normalized);
+    showToast('Reset API endpoint saved.');
+  }
+  async function autoDetectResetApi() {
+    setResetApiState({ kind:'checking', msg:'Auto-detecting reset API...' });
+    const resolved = await resolveResetApiBase(resetApiInput);
+    if (!resolved.ok) {
+      setResetApiState({ kind:'error', msg:'No healthy reset API found.' });
+      return;
+    }
+    setResetApiInput(resolved.base);
+    setResetApiState({ kind:'ok', msg:`Using: ${resolved.base}` });
+    showToast('Reset API detected automatically.');
+  }
+  function resetResetApiDefault() {
+    saveAdminResetApiBase(ADMIN_RESET_API_BASE);
+    setResetApiInput(ADMIN_RESET_API_BASE);
+    setResetApiState({ kind:'idle', msg:'Reverted to default local URL.' });
   }
 
   async function doExport() {
@@ -983,6 +1079,31 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
         <div style={{fontSize:12.5,color:'#7a5c00',background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:6,padding:'10px 12px'}}>
           To request admin credential changes, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>.
         </div>
+      </div>
+
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:15}}>🛡️ Reset Service Endpoint</div>
+        <p style={{fontSize:13,color:'#666',lineHeight:1.6,marginBottom:10}}>
+          Keep this working for low-tech users. The app auto-checks health and falls back to known local endpoints.
+        </p>
+        <FI label="Reset API Base URL" value={resetApiInput} onChange={e=>{setResetApiInput(e.target.value); setResetApiState({kind:'idle',msg:''});}} placeholder="http://localhost:8787" />
+        <div className="flex gap-2 flex-wrap" style={{marginBottom:8}}>
+          <Btn className="btn-primary btn-sm" onClick={saveResetApi}>💾 Save Endpoint</Btn>
+          <Btn className="btn-outline btn-sm" onClick={autoDetectResetApi}>🧪 Auto Detect</Btn>
+          <Btn className="btn-outline btn-sm" onClick={()=>testResetApi(resetApiInput)}>🔍 Test Only</Btn>
+          <Btn className="btn-outline btn-sm" onClick={resetResetApiDefault}>↺ Default</Btn>
+        </div>
+        {resetApiState.msg && (
+          <div style={{
+            fontSize:12.5,
+            borderRadius:6,
+            padding:'8px 10px',
+            background: resetApiState.kind==='ok' ? '#dcfce7' : resetApiState.kind==='error' ? '#fee2e2' : '#E8F4FC',
+            color: resetApiState.kind==='ok' ? '#166534' : resetApiState.kind==='error' ? '#991b1b' : '#1e4f72'
+          }}>
+            {resetApiState.msg}
+          </div>
+        )}
       </div>
 
       <div style={{marginTop:4,textAlign:'right'}}>

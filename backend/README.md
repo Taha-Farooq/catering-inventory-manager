@@ -14,6 +14,7 @@ Edit `.env`:
 
 - `ADMIN_RESET_JWT_SECRET` - long random secret (required)
 - `ALLOWED_ORIGIN` - frontend origin (`https://taha-farooq.github.io` by default)
+- `ALLOWED_ORIGINS` - optional comma-separated extra origins (useful for local testing)
 - `ADMIN_RESET_TTL_MIN` - link expiry minutes
 
 ## 2) Run backend
@@ -23,6 +24,8 @@ npm run dev
 ```
 
 Backend starts on `http://localhost:8787`.
+
+For low-tech reliability, keep it running as a background service on the same machine where resets are performed.
 
 ## 3) Generate secure reset link (for Fatim)
 

@@ -11,6 +11,10 @@ const PORT = Number(process.env.PORT || 8787);
 const JWT_SECRET = process.env.ADMIN_RESET_JWT_SECRET || '';
 const RESET_TTL_MIN = Number(process.env.ADMIN_RESET_TTL_MIN || 30);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://taha-farooq.github.io';
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 const STORE_DIR = path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(STORE_DIR, 'used-reset-tokens.json');
 
@@ -48,7 +52,14 @@ function createAuditId() {
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+app.use(cors({
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    const allowed = new Set([ALLOWED_ORIGIN, ...ALLOWED_ORIGINS, 'http://localhost:5500', 'http://127.0.0.1:5500']);
+    if (allowed.has(origin)) return cb(null, true);
+    return cb(new Error(`Origin not allowed: ${origin}`));
+  }
+}));
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'admin-reset-backend' });
@@ -99,5 +110,6 @@ app.post('/api/admin-reset/complete', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Admin reset backend running on http://localhost:${PORT}`);
   console.log(`Allowed origin: ${ALLOWED_ORIGIN}`);
+  if (ALLOWED_ORIGINS.length) console.log(`Extra allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
   console.log(`Reset TTL: ${RESET_TTL_MIN} min`);
 });
