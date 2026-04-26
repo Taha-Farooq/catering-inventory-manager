@@ -129,6 +129,8 @@
     .text-muted  { color:#999; font-size:13px; }
     .divider { border:none; border-top:1px solid #EED9B0; margin:10px 0; }
     .empty-state { padding:48px 24px; text-align:center; color:#bbb; font-size:15px; line-height:1.6; }
+    .invoice-mark { display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:var(--brown);color:#fff;font-weight:800;font-size:13px;overflow:hidden;flex-shrink:0; }
+    .invoice-mark img { width:42px;height:42px;object-fit:cover;display:block; }
 
     /* ── Toggle ── */
     .toggle { position:relative; display:inline-block; width:42px; height:22px; flex-shrink:0; }
@@ -388,10 +390,10 @@ const downloadFailureLog = () => {
   URL.revokeObjectURL(url);
 };
 const BRANDING = {
-  degrill:  { mark:'DG', name:'DeGrill Inc', location:'Spring Valley, NY' },
-  parathas: { mark:'PP', name:'Parathas and Platters Inc', location:'Hackensack, NJ' },
-  dera:     { mark:'DMG', name:'Dera Masala Grill Inc', location:'Clifton, NJ' },
-  transfer: { mark:'PP', name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood' }
+  degrill:  { mark:'DG', name:'DeGrill Inc', location:'Spring Valley, NY', logo:'assets/logos/degrill.jpg' },
+  parathas: { mark:'PP', name:'Parathas and Platters Inc', location:'Hackensack, NJ', logo:'assets/logos/parathas.jpg' },
+  dera:     { mark:'DMG', name:'Dera Masala Grill Inc', location:'Clifton, NJ', logo:'assets/logos/dera.jpg' },
+  transfer: { mark:'PP', name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood', logo:'assets/logos/parathas.jpg' }
 };
 function getInvoiceBranding(inv) {
   if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return BRANDING.transfer;
@@ -400,11 +402,12 @@ function getInvoiceBranding(inv) {
 function printHtmlDocument(html, title='Invoice') {
   const w = window.open('', '_blank', 'width=1024,height=768');
   if (!w) { showToast('Pop-up blocked. Please allow pop-ups.', 'error'); return false; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>${title}</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><base href="${window.location.href}"/><title>${title}</title>
 <style>
   body{font-family:Segoe UI,Arial,sans-serif;margin:20px;color:#222}
   .print-wrap{max-width:900px;margin:0 auto}
-  .invoice-mark{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:#8B4513;color:#fff;font-weight:800;font-size:13px;margin-right:10px}
+  .invoice-mark{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:#8B4513;color:#fff;font-weight:800;font-size:13px;margin-right:10px;overflow:hidden}
+  .invoice-mark img{width:42px;height:42px;object-fit:cover}
   table{width:100%;border-collapse:collapse;margin-top:10px}
   th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px}
   th{background:#f7f7f7}
@@ -422,6 +425,16 @@ function printInvoiceById(sectionId, mode='print') {
   if (!el) { showToast('Invoice content not found.', 'error'); return; }
   const ok = printHtmlDocument(el.outerHTML, 'Invoice');
   if (ok && mode === 'pdf') showToast('In print dialog, choose "Save as PDF".', 'warning');
+}
+function BrandMark({ brand }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="invoice-mark">
+      {!failed && brand.logo
+        ? <img src={brand.logo} alt={`${brand.name} logo`} onError={()=>setFailed(true)} />
+        : <span>{brand.mark}</span>}
+    </div>
+  );
 }
 
 function logActivity(action, details='') {
@@ -1759,7 +1772,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
           <div id={`purchase-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <BrandMark brand={getInvoiceBranding(viewInv)} />
                 <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv).location}</div></div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}><div><strong>Invoice #:</strong> {viewInv.id}</div><div><strong>Date:</strong> {fmtDate(viewInv.date)}</div><div><strong>Supplier:</strong> {viewInv.supplier}</div></div>
@@ -1976,7 +1989,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
           <div id={`catering-view-${viewInv.id}`} style={{fontFamily:'Georgia,serif'}}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <BrandMark brand={getInvoiceBranding(viewInv)} />
                 <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv).location}</div></div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div><div><strong>Event:</strong> {viewInv.eventType}</div></div>
@@ -2407,7 +2420,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
           <div id={`archive-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <BrandMark brand={getInvoiceBranding(viewInv)} />
                 <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):getInvoiceBranding(viewInv).location}</div></div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.customerName||viewInv.supplier}</div><span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span></div>
@@ -2646,7 +2659,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
           <div id={`transfer-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div className="invoice-mark">{getInvoiceBranding(viewInv).mark}</div>
+                <BrandMark brand={getInvoiceBranding(viewInv)} />
                 <div>
                   <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div>
                   <div style={{fontSize:13,color:'#666'}}>{getInvoiceBranding(viewInv).location}</div>
