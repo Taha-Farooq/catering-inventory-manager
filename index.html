@@ -1475,6 +1475,8 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Shopping List');
     XLSX.writeFile(wb,'shopping-list-'+today()+'.xlsx');
+    showToast('Shopping list exported as Excel.');
+    logActivity('export_xlsx', 'Exported shopping list Excel');
   }
 
   function exportCsv() {
@@ -2248,10 +2250,57 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   }
 
   const filtTotal=filtered.reduce((s,i)=>s+(i.total||i.grandTotal||0),0);
+  const statusCounts = useMemo(() => ({
+    paid: filtered.filter(i=>i.status==='paid').length,
+    unpaid: filtered.filter(i=>i.status==='unpaid').length,
+    partial: filtered.filter(i=>i.status==='partial').length
+  }), [filtered]);
+
+  function toArchiveRow(inv) {
+    return {
+      'Invoice #': inv.id,
+      Type: inv._type,
+      Party: inv.customerName || inv.supplier || '',
+      Date: inv._date || '',
+      Status: inv.status || '',
+      Total: +(inv.total || inv.grandTotal || 0).toFixed(2)
+    };
+  }
+  function exportArchiveExcel() {
+    if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
+    const rows = filtered.map(toArchiveRow);
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [toArchiveRow({id:'',_type:'',customerName:'',supplier:'',_date:'',status:'',total:0,grandTotal:0})]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Archive');
+    XLSX.writeFile(wb, `invoice-archive-${today()}.xlsx`);
+    logActivity('export_xlsx', 'Exported invoice archive Excel');
+    showToast('Archive exported as Excel.');
+  }
+  function exportArchiveCsv() {
+    const rows = filtered.map(toArchiveRow);
+    const header = ['Invoice #','Type','Party','Date','Status','Total'];
+    const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+    const csv = [header.map(esc).join(',')]
+      .concat(rows.map(r => header.map(h => esc(r[h])).join(',')))
+      .join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `invoice-archive-${today()}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    logActivity('export_csv', 'Exported invoice archive CSV');
+    showToast('Archive exported as CSV.');
+  }
 
   return (
     <div>
-      <div className="section-title">Invoice Archive</div>
+      <div className="flex-between mb-3 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Invoice Archive</div>
+        <div className="flex gap-2">
+          <Btn className="btn-outline btn-sm" onClick={exportArchiveCsv}>⬇ Export CSV</Btn>
+          <Btn className="btn-success btn-sm" onClick={exportArchiveExcel}>⬇ Export Excel</Btn>
+        </div>
+      </div>
       <div className="card mb-4">
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:12}}>
           <div className="field" style={{margin:0}}><label>Type</label>
@@ -2270,6 +2319,9 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
         </div>
         <div style={{marginTop:10,fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <span>Showing <strong>{filtered.length}</strong> of {all.length} · Total: <strong style={{color:'var(--brown)'}}>{fmt$(filtTotal)}</strong></span>
+          <span>Paid: <strong>{statusCounts.paid}</strong></span>
+          <span>Unpaid: <strong>{statusCounts.unpaid}</strong></span>
+          <span>Partial: <strong>{statusCounts.partial}</strong></span>
           {(typeF!=='all'||statusF!=='all'||search||dateFrom||dateTo)&&
             <Btn className="btn-sm" style={{background:'#eee',color:'#666'}} onClick={()=>{setTypeF('all');setStatusF('all');setSearch('');setDateFrom('');setDateTo('');}}>✕ Clear Filters</Btn>}
         </div>
@@ -2461,7 +2513,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
       });
     }
     XLSX.writeFile(wb, `pp-hackensack-to-englewood-${today()}.xlsx`);
-    logActivity('export_csv', 'Exported transfer invoices Excel');
+    logActivity('export_xlsx', 'Exported transfer invoices Excel');
     showToast('Transfer invoices exported to Excel.');
   }
 
@@ -2809,7 +2861,7 @@ function ActivityLog() {
     return r;
   },[log,userF,dateFrom,dateTo]);
 
-  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',tab_change:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',edit_customer:'Edited Customer',delete_customer:'Deleted Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup',export_csv:'Exported CSV',admin_password_reset:'Admin Password Reset'};
+  const ACTION_LABELS = {login:'Logged In',logout:'Logged Out',view_tab:'Viewed Page',tab_change:'Viewed Page',update_prices:'Updated Prices',add_item:'Added Item',edit_item:'Edited Item',delete_item:'Deleted Item',create_invoice:'Created Invoice',delete_invoice:'Deleted Invoice',mark_paid:'Marked Paid',add_customer:'Added Customer',edit_customer:'Edited Customer',delete_customer:'Deleted Customer',profile_update:'Updated Profile',restore_backup:'Restored Backup',export_backup:'Exported Backup',export_csv:'Exported CSV',export_xlsx:'Exported Excel',admin_password_reset:'Admin Password Reset'};
   const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase()+a.slice(1) : '');
 
   return (
