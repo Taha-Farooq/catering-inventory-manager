@@ -225,6 +225,7 @@ const ADMIN_RESET_API_ENDPOINTS = [
 ];
 const ADMIN_RESET_API_BASE_KEY = '_adminResetApiBase';
 const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
+const FAILURE_LOG_KEY = '_failureLog';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -317,6 +318,73 @@ const pushAuditEvent = (action, details) => {
   log.push(entry);
   if (log.length > 2000) log.splice(0, log.length - 2000);
   save('_activityLog', log);
+};
+const trimText = (v, max=1000) => {
+  const s = String(v ?? '');
+  return s.length > max ? s.slice(0, max) + '...(truncated)' : s;
+};
+const parseErrorDetail = (errorLike) => {
+  if (!errorLike) return 'Unknown error';
+  if (typeof errorLike === 'string') return trimText(errorLike, 2000);
+  if (errorLike instanceof Error) return trimText(`${errorLike.name}: ${errorLike.message}\n${errorLike.stack || ''}`, 3000);
+  try { return trimText(JSON.stringify(errorLike), 2000); } catch { return trimText(String(errorLike), 2000); }
+};
+const appendFailureLog = (entry) => {
+  const logs = load(FAILURE_LOG_KEY, []);
+  logs.push(entry);
+  if (logs.length > 500) logs.splice(0, logs.length - 500);
+  save(FAILURE_LOG_KEY, logs);
+};
+const logFailure = ({ area='unknown', action='unknown', error=null, extra={} }) => {
+  const session = load('_session', null);
+  appendFailureLog({
+    id: uid(),
+    timestamp: new Date().toISOString(),
+    area,
+    action,
+    error: parseErrorDetail(error),
+    extra,
+    page: window.location.href,
+    userAgent: navigator.userAgent || '',
+    username: session?.username || 'anonymous'
+  });
+};
+const initGlobalFailureCapture = () => {
+  if (window.__failureCaptureInit) return;
+  window.__failureCaptureInit = true;
+  window.addEventListener('error', (ev) => {
+    logFailure({
+      area: 'global',
+      action: 'window_error',
+      error: ev.error || ev.message || 'Window error',
+      extra: { file: ev.filename, line: ev.lineno, col: ev.colno }
+    });
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    logFailure({
+      area: 'global',
+      action: 'unhandled_rejection',
+      error: ev.reason || 'Unhandled promise rejection'
+    });
+  });
+};
+const downloadFailureLog = () => {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    app: 'Catering Inventory Manager',
+    page: window.location.href,
+    userAgent: navigator.userAgent || '',
+    failures: load(FAILURE_LOG_KEY, [])
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cim-failure-log-${today()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
 
 function logActivity(action, details='') {
@@ -510,17 +578,23 @@ function LoginScreen({ onLogin }) {
   async function handleLogin(e) {
     e.preventDefault();
     setErr('');
-    const creds = load('credentials', null);
-    if (!creds) { setErr('App not configured yet. Please refresh.'); return; }
-    const key = uname.trim().toLowerCase();
-    if (!creds[key]) { setErr('Invalid username or password.'); return; }
-    setLoading(true);
-    const hash = await hashPwd(pwd);
-    if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
-    setTimeout(() => {
-      onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
-        name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key) });
-    }, 400);
+    try {
+      const creds = load('credentials', null);
+      if (!creds) { setErr('App not configured yet. Please refresh.'); return; }
+      const key = uname.trim().toLowerCase();
+      if (!creds[key]) { setErr('Invalid username or password.'); return; }
+      setLoading(true);
+      const hash = await hashPwd(pwd);
+      if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
+      setTimeout(() => {
+        onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
+          name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key) });
+      }, 400);
+    } catch (e2) {
+      logFailure({ area:'login', action:'handle_login_exception', error:e2 });
+      setLoading(false);
+      setErr('Login failed unexpectedly. Please try again.');
+    }
   }
 
   async function handleQuickAdminReset(e) {
@@ -587,6 +661,9 @@ function LoginScreen({ onLogin }) {
               🔐 Quick Admin Reset
             </Btn>
             <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
+            <Btn className="btn-outline btn-sm" style={{marginTop:8,marginLeft:8}} onClick={downloadFailureLog}>
+              ⬇ Download Failure Log
+            </Btn>
             {showQuickReset && (
               <form onSubmit={handleQuickAdminReset} style={{marginTop:10,paddingTop:10,borderTop:'1px solid #E7CFA6'}}>
                 <FI label="Reset Code" type="password" value={resetCode} onChange={e=>{setResetCode(e.target.value);setResetErr('');}} placeholder="Manager reset code" />
@@ -634,6 +711,7 @@ function AdminResetPortal() {
       setMeta(data);
       setStatus('valid');
     }).catch(e => {
+      logFailure({ area:'admin_reset_portal', action:'validate_link', error:e, extra:{ apiBase } });
       setErr(String(e.message || e));
       setStatus('invalid');
     });
@@ -654,6 +732,7 @@ function AdminResetPortal() {
     if (!resolved.ok) {
       setSaving(false);
       setErr('Reset service is unavailable. Please try again later.');
+      logFailure({ area:'admin_reset_portal', action:'complete_reset_precheck', error:'service unavailable', extra:{ apiBase } });
       return;
     }
     setApiBase(resolved.base);
@@ -671,6 +750,7 @@ function AdminResetPortal() {
     if (!r.ok || !data.ok) {
       setSaving(false);
       setErr(data.error || 'Reset failed.');
+      logFailure({ area:'admin_reset_portal', action:'complete_reset_api', error:data.error || `HTTP ${r.status}`, extra:{ requestId: access.requestId, apiBase: resolved.base } });
       return;
     }
     const creds = load('credentials', {});
@@ -900,6 +980,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
       setResetApiState({ kind:'ok', msg:`Connected: ${chk.base}` });
       return true;
     }
+    logFailure({ area:'settings', action:'test_reset_api', error:chk.error || 'health check failed', extra:{ apiBase: urlToTest } });
     setResetApiState({ kind:'error', msg:chk.error || 'Health check failed' });
     return false;
   }
@@ -1157,6 +1238,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
           <Btn className="btn-outline btn-sm" onClick={autoDetectResetApi}>🧪 Auto Detect</Btn>
           <Btn className="btn-outline btn-sm" onClick={()=>testResetApi(resetApiInput)}>🔍 Test Only</Btn>
           <Btn className="btn-outline btn-sm" onClick={resetResetApiDefault}>↺ Default</Btn>
+          <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Failure Log</Btn>
         </div>
         {resetApiState.msg && (
           <div style={{
@@ -2524,6 +2606,8 @@ function ActivityLog() {
 // ROOT APP
 // ═══════════════════════════════════════════════════════════
 function App() {
+  useEffect(() => { initGlobalFailureCapture(); }, []);
+
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
