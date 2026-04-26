@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$taskName = "CateringAdminResetBackend"
+$taskNameLogon = "CateringAdminResetBackend-AtLogon"
+$taskNameStartup = "CateringAdminResetBackend-AtStartup"
 $backendDir = Split-Path -Parent $PSScriptRoot
 $runtimeRoot = Join-Path $backendDir "runtime"
 $portableNodeDir = Join-Path $runtimeRoot "node"
@@ -88,11 +89,17 @@ function Ensure-Dependencies {
 
 function Ensure-Task {
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`""
-  $trigger = New-ScheduledTaskTrigger -AtLogOn
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-  $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel LeastPrivilege
-  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
-  Start-ScheduledTask -TaskName $taskName
+  $principalLogon = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel LeastPrivilege
+  $principalStartup = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+  $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
+  $triggerStartup = New-ScheduledTaskTrigger -AtStartup
+
+  Register-ScheduledTask -TaskName $taskNameLogon -Action $action -Trigger $triggerLogon -Settings $settings -Principal $principalLogon -Force | Out-Null
+  Register-ScheduledTask -TaskName $taskNameStartup -Action $action -Trigger $triggerStartup -Settings $settings -Principal $principalStartup -Force | Out-Null
+  Start-ScheduledTask -TaskName $taskNameLogon
+  Start-ScheduledTask -TaskName $taskNameStartup
 }
 
 function Wait-ForHealth {

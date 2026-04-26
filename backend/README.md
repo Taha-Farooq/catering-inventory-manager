@@ -49,6 +49,10 @@ This requires no preinstalled tools and will:
 - register/start Windows auto-start task for backend service
 - run backend health check automatically
 
+Auto-start tasks created:
+- `CateringAdminResetBackend-AtStartup` (runs at device boot)
+- `CateringAdminResetBackend-AtLogon` (runs at user sign-in)
+
 Then test:
 - `backend\windows\health-check.ps1`
 

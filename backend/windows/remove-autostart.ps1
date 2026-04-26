@@ -1,9 +1,11 @@
 $ErrorActionPreference = "Stop"
-$taskName = "CateringAdminResetBackend"
+$taskNames = @("CateringAdminResetBackend-AtLogon", "CateringAdminResetBackend-AtStartup")
 
-if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-  Write-Host "Removed scheduled task: $taskName"
-} else {
-  Write-Host "Task not found: $taskName"
+foreach ($taskName in $taskNames) {
+  if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    Write-Host "Removed scheduled task: $taskName"
+  } else {
+    Write-Host "Task not found: $taskName"
+  }
 }
