@@ -1656,7 +1656,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td style={{fontWeight:600}}>{inv.supplier}</td>
                       <td>{fmtDate(inv.date)}</td>
-                      <td style={{fontSize:12,color:'#777'}}>{BUSINESSES[inv.business]?.name}</td>
+                      <td style={{fontSize:12,color:'#777'}}>{inv._type==='transfer'?'P&P Internal Transfer':BUSINESSES[inv.business]?.name}</td>
                       <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
                       <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
                       <td style={{whiteSpace:'nowrap'}}>
