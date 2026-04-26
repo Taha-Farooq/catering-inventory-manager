@@ -204,6 +204,7 @@ const TABS_ADMIN = [
   { id:'archive',   label:'🗂️ Archive' },
   { id:'history',   label:'📈 Price History' },
   { id:'actlog',    label:'🔍 Activity Log' },
+  { id:'scanbeta',  label:'🧪 Scan DB (Beta)' },
 ];
 const ALL_USER_TABS = [
   { id:'shopping',  label:'🛒 Shopping List' },
@@ -230,6 +231,7 @@ const ADMIN_RESET_API_BASE_KEY = '_adminResetApiBase';
 const CENTRAL_AUTH_CONFIG_PATH = './auth-api-config.json';
 const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
 const FAILURE_LOG_KEY = '_failureLog';
+const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -378,6 +380,28 @@ async function syncCredentialsToBackend(credentials, preferredBase) {
     const data = await r.json().catch(()=>({}));
     if (!r.ok || !data.ok) return { ok:false, error:data.error || 'Sync failed' };
     return { ok:true };
+  } catch (e) {
+    return { ok:false, error:String(e.message || e) };
+  }
+}
+async function scanApiCall(pathName, { method='GET', body=null, currentUser, query=null, preferredBase=null } = {}) {
+  const resolved = await resolveResetApiBase(preferredBase);
+  if (!resolved.ok) return { ok:false, error:'Backend unavailable' };
+  const qs = query ? '?' + new URLSearchParams(query).toString() : '';
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-auth-user': String(currentUser?.username || ''),
+    'x-auth-hash': String(currentUser?.authHash || '')
+  };
+  try {
+    const r = await fetch(`${resolved.base}${pathName}${qs}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
+    return { ok:true, data, base:resolved.base };
   } catch (e) {
     return { ok:false, error:String(e.message || e) };
   }
@@ -838,7 +862,7 @@ function LoginScreen({ onLogin }) {
         if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
         setTimeout(() => {
           onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
-            name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key), permissions: creds[key].permissions || DEFAULT_USER_PERMS });
+            name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key), permissions: creds[key].permissions || DEFAULT_USER_PERMS, authHash: hash });
         }, 400);
         return;
       }
@@ -849,7 +873,7 @@ function LoginScreen({ onLogin }) {
         return;
       }
       setTimeout(() => {
-        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS });
+        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS, authHash: hash });
       }, 400);
     } catch (e2) {
       logFailure({ area:'login', action:'handle_login_exception', error:e2 });
@@ -3218,6 +3242,224 @@ function ActivityLog() {
   );
 }
 
+function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
+  const [pwd, setPwd] = useState('');
+  const [status, setStatus] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [config, setConfig] = useState({ inboxPath:'', libraryPath:'', enabled:false });
+  const [filters, setFilters] = useState({ q:'', sender:'', docType:'', year:'', month:'', businessTag:'', status:'' });
+  const [results, setResults] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkBusiness, setBulkBusiness] = useState('');
+  const [bulkType, setBulkType] = useState('');
+  const [bulkStatus, setBulkStatus] = useState('');
+
+  const hasAuth = !!currentUser?.authHash;
+
+  async function refreshStatus() {
+    if (!hasAuth) return;
+    const res = await scanApiCall('/api/scan/status', { currentUser });
+    if (!res.ok) { setErr(res.error || 'Failed to load scanner status'); return; }
+    setErr('');
+    setStatus(res.data);
+    setConfig(res.data.config || { inboxPath:'', libraryPath:'', enabled:false });
+  }
+  async function runSearch() {
+    if (!hasAuth) return;
+    const q = {};
+    Object.entries(filters).forEach(([k,v]) => { if (String(v||'').trim()) q[k] = v; });
+    const res = await scanApiCall('/api/scan/search', { currentUser, query:q });
+    if (!res.ok) { setErr(res.error || 'Search failed'); return; }
+    setErr('');
+    setResults(res.data.items || []);
+  }
+  useEffect(() => {
+    if (!hasAuth) return;
+    refreshStatus();
+    runSearch();
+    const t = setInterval(() => { refreshStatus(); }, 12000);
+    return () => clearInterval(t);
+  }, [hasAuth]);
+
+  async function unlockAdmin() {
+    setErr('');
+    if (!pwd) { setErr('Enter admin password.'); return; }
+    const authHash = await hashPwd(pwd);
+    const probeUser = { ...currentUser, authHash };
+    const probe = await scanApiCall('/api/scan/status', { currentUser: probeUser });
+    if (!probe.ok) { setErr('Admin authentication failed.'); return; }
+    onAuthHashSaved(authHash);
+    setPwd('');
+  }
+  async function saveConfig(nextEnabled = config.enabled) {
+    setBusy(true);
+    const res = await scanApiCall('/api/scan/config', {
+      currentUser,
+      method:'POST',
+      body:{ inboxPath: config.inboxPath, libraryPath: config.libraryPath, enabled: !!nextEnabled }
+    });
+    setBusy(false);
+    if (!res.ok) { setErr(res.error || 'Save failed'); return; }
+    setErr('');
+    setConfig(res.data.config);
+    refreshStatus();
+  }
+  async function scanNow() {
+    setBusy(true);
+    const res = await scanApiCall('/api/scan/scan-now', { currentUser, method:'POST' });
+    setBusy(false);
+    if (!res.ok) { setErr(res.error || 'Scan failed'); return; }
+    showToast('Scan completed.');
+    refreshStatus();
+    runSearch();
+  }
+  async function updateOne(item, patch) {
+    const res = await scanApiCall(`/api/scan/update/${item.id}`, { currentUser, method:'POST', body: patch });
+    if (!res.ok) { setErr(res.error || 'Update failed'); return; }
+    runSearch();
+  }
+  async function bulkApply() {
+    if (!selectedIds.length) return;
+    const res = await scanApiCall('/api/scan/bulk-tag', {
+      currentUser,
+      method:'POST',
+      body:{ ids:selectedIds, businessTag:bulkBusiness, docType:bulkType, status:bulkStatus }
+    });
+    if (!res.ok) { setErr(res.error || 'Bulk update failed'); return; }
+    showToast(`Updated ${res.data.updated} documents.`);
+    setSelectedIds([]);
+    runSearch();
+  }
+  async function exportDb() {
+    const res = await scanApiCall('/api/scan/export', { currentUser });
+    if (!res.ok) { setErr(res.error || 'Export failed'); return; }
+    const blob = new Blob([JSON.stringify(res.data.data, null, 2)], { type:'application/json;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `scan-db-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  async function importDb(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const res = await scanApiCall('/api/scan/import', { currentUser, method:'POST', body:{ data } });
+      if (!res.ok) { setErr(res.error || 'Import failed'); return; }
+      showToast('Backup imported.');
+      refreshStatus();
+      runSearch();
+    } catch {
+      setErr('Invalid backup file.');
+    }
+  }
+
+  return (
+    <div className="card">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:8}}>
+        <h2 style={{margin:0}}>Scanned Documents Database <span className="badge badge-user" style={{marginLeft:8}}>BETA · WIP</span></h2>
+        <div style={{fontSize:12,color:'#555'}}>Admin-only local-device scanner index</div>
+      </div>
+      {!hasAuth && (
+        <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontWeight:700,marginBottom:6}}>Unlock admin scanner controls</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <input className="input" type="password" placeholder="Enter admin password" value={pwd} onChange={e=>setPwd(e.target.value)} style={{maxWidth:280}} />
+            <Btn className="btn-primary btn-sm" onClick={unlockAdmin}>Unlock</Btn>
+          </div>
+        </div>
+      )}
+      {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:6,marginBottom:10,fontSize:12.5}}>{err}</div>}
+      {hasAuth && (
+        <>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10,marginBottom:12}}>
+            <FI label="Watch Inbox Folder" value={config.inboxPath || ''} onChange={e=>setConfig(c=>({ ...c, inboxPath:e.target.value }))} placeholder="C:\\Scans\\Inbox" />
+            <FI label="Library Root Folder" value={config.libraryPath || ''} onChange={e=>setConfig(c=>({ ...c, libraryPath:e.target.value }))} placeholder="C:\\Scans\\Library" />
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+            <Btn className="btn-outline btn-sm" disabled={busy} onClick={()=>saveConfig(config.enabled)}>💾 Save Config</Btn>
+            <Btn className="btn-primary btn-sm" disabled={busy} onClick={()=>saveConfig(!config.enabled)}>{config.enabled ? '⏸ Stop Watcher' : '▶ Start Watcher'}</Btn>
+            <Btn className="btn-outline btn-sm" disabled={busy} onClick={scanNow}>🔎 Scan Now</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportDb}>⬇ Export Backup</Btn>
+            <label className="btn btn-outline btn-sm" style={{margin:0,cursor:'pointer'}}>
+              ⬆ Import Backup
+              <input type="file" accept=".json" style={{display:'none'}} onChange={e=>{importDb(e.target.files?.[0]);e.target.value='';}} />
+            </label>
+          </div>
+          {status && (
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12,fontSize:12.5}}>
+              <span className="badge badge-admin">Total: {status.counts?.total || 0}</span>
+              <span className="badge badge-user">Needs Review: {status.counts?.needsReview || 0}</span>
+              <span className="badge badge-user">Failures: {status.counts?.failures || 0}</span>
+              <span className="badge badge-user">Polling: {status.pollMs}ms</span>
+            </div>
+          )}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8,marginBottom:10}}>
+            <input className="input" placeholder="Search text/sender/type" value={filters.q} onChange={e=>setFilters(f=>({ ...f, q:e.target.value }))} />
+            <input className="input" placeholder="Sender" value={filters.sender} onChange={e=>setFilters(f=>({ ...f, sender:e.target.value }))} />
+            <select className="input" value={filters.docType} onChange={e=>setFilters(f=>({ ...f, docType:e.target.value }))}>
+              <option value="">All Types</option>
+              {SCAN_DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input className="input" placeholder="Year (e.g. 2026)" value={filters.year} onChange={e=>setFilters(f=>({ ...f, year:e.target.value }))} />
+            <input className="input" placeholder="Month (e.g. March)" value={filters.month} onChange={e=>setFilters(f=>({ ...f, month:e.target.value }))} />
+            <select className="input" value={filters.businessTag} onChange={e=>setFilters(f=>({ ...f, businessTag:e.target.value }))}>
+              <option value="">All Businesses</option>
+              <option value="degrill">degrill</option>
+              <option value="parathas">parathas</option>
+              <option value="dera">dera</option>
+              <option value="unknown">unknown</option>
+            </select>
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+            <Btn className="btn-outline btn-sm" onClick={runSearch}>Search</Btn>
+            <select className="input" style={{maxWidth:160}} value={bulkType} onChange={e=>setBulkType(e.target.value)}>
+              <option value="">Bulk Type</option>
+              {SCAN_DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select className="input" style={{maxWidth:160}} value={bulkStatus} onChange={e=>setBulkStatus(e.target.value)}>
+              <option value="">Bulk Status</option>
+              <option value="classified">classified</option>
+              <option value="needs_review">needs_review</option>
+            </select>
+            <input className="input" style={{maxWidth:180}} placeholder="Bulk Business Tag" value={bulkBusiness} onChange={e=>setBulkBusiness(e.target.value)} />
+            <Btn className="btn-outline btn-sm" onClick={bulkApply}>Apply to Selected ({selectedIds.length})</Btn>
+          </div>
+          <div style={{maxHeight:440,overflow:'auto',border:'1px solid #eee',borderRadius:8}}>
+            <table className="table">
+              <thead>
+                <tr><th></th><th>Date</th><th>Sender</th><th>Type</th><th>Business</th><th>Status</th><th>File</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {results.map(item => {
+                  const checked = selectedIds.includes(item.id);
+                  return (
+                    <tr key={item.id}>
+                      <td><input type="checkbox" checked={checked} onChange={e=>setSelectedIds(ids=>e.target.checked?[...new Set([...ids,item.id])]:ids.filter(x=>x!==item.id))} /></td>
+                      <td>{fmtDate(String(item.importedAt||'').slice(0,10))}</td>
+                      <td>{item.sender}</td>
+                      <td>{item.docType}</td>
+                      <td>{item.businessTag || 'unknown'}</td>
+                      <td>{item.status}</td>
+                      <td style={{maxWidth:220,wordBreak:'break-word'}}>{item.fileName}</td>
+                      <td>
+                        <Btn className="btn-outline btn-sm" onClick={()=>updateOne(item, { status:'classified' })}>Mark OK</Btn>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!results.length && <tr><td colSpan={8}><div className="muted text-center">No scanned documents matched current filters.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════
 // ROOT APP
 // ═══════════════════════════════════════════════════════════
@@ -3307,6 +3549,12 @@ function App() {
     setProfile(data);
     showToast('Profile updated!');
   }
+  function handleScannerAuthHash(authHash) {
+    if (!currentUser) return;
+    const next = { ...currentUser, authHash };
+    setCurrentUser(next);
+    save('_session', next);
+  }
 
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
@@ -3385,6 +3633,7 @@ function App() {
         {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} userRole={currentUser.role} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}
+        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} />}
       </div>
 
       {/* ── Modals ── */}
