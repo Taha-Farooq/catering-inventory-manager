@@ -420,11 +420,10 @@ function printHtmlDocument(html, title='Invoice') {
   setTimeout(()=>w.print(), 300);
   return true;
 }
-function printInvoiceById(sectionId, mode='print') {
+function printInvoiceById(sectionId) {
   const el = document.getElementById(sectionId);
   if (!el) { showToast('Invoice content not found.', 'error'); return; }
-  const ok = printHtmlDocument(el.outerHTML, 'Invoice');
-  if (ok && mode === 'pdf') showToast('In print dialog, choose "Save as PDF".', 'warning');
+  printHtmlDocument(el.outerHTML, 'Invoice');
 }
 function BrandMark({ brand }) {
   const [failed, setFailed] = useState(false);
@@ -1793,8 +1792,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
-              <Btn className="btn-success" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -2018,8 +2016,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
             </div>
             {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
-              <Btn className="btn-success" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -2442,8 +2439,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
             </div>
             {viewInv._type==='catering'&&<div style={{marginTop:12,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}><strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
-              <Btn className="btn-success" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -2714,8 +2710,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
             </div>
             {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`, 'print')}>🖨 Print</Btn>
-              <Btn className="btn-success" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`, 'pdf')}>⬇ Download PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
             </div>
           </div>
