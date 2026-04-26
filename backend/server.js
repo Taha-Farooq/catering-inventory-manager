@@ -23,6 +23,9 @@ const USERS_FILE = path.join(STORE_DIR, 'credentials.json');
 const SCAN_DB_FILE = path.join(STORE_DIR, 'scan-db.json');
 const SCAN_POLL_MS = Number(process.env.SCAN_POLL_MS || 8000);
 const SCAN_MIN_FILE_AGE_MS = Number(process.env.SCAN_MIN_FILE_AGE_MS || 3000);
+const ATTENDANCE_FILE = path.join(STORE_DIR, 'attendance-db.json');
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://taha-farooq.github.io/catering-inventory-manager/';
+const ATT_QR_TTL_SEC = Number(process.env.ATTENDANCE_QR_TTL_SEC || 60);
 
 if (!JWT_SECRET || JWT_SECRET.length < 24) {
   console.error('ADMIN_RESET_JWT_SECRET is missing or too short.');
@@ -38,6 +41,14 @@ if (!fs.existsSync(SCAN_DB_FILE)) fs.writeFileSync(SCAN_DB_FILE, JSON.stringify(
   failures: [],
   known: {},
   activity: [],
+  updatedAt: new Date().toISOString()
+}, null, 2));
+if (!fs.existsSync(ATTENDANCE_FILE)) fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify({
+  sessions: [],
+  active: {},
+  payRates: {},
+  qrUsed: [],
+  createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
 }, null, 2));
 
@@ -90,6 +101,54 @@ function sanitizeCredentials(input) {
     };
   }
   return out;
+}
+function readAttendanceDb() {
+  try {
+    const v = JSON.parse(fs.readFileSync(ATTENDANCE_FILE, 'utf8'));
+    return {
+      sessions: Array.isArray(v.sessions) ? v.sessions : [],
+      active: v.active && typeof v.active === 'object' ? v.active : {},
+      payRates: v.payRates && typeof v.payRates === 'object' ? v.payRates : {},
+      qrUsed: Array.isArray(v.qrUsed) ? v.qrUsed : [],
+      createdAt: v.createdAt || new Date().toISOString(),
+      updatedAt: v.updatedAt || new Date().toISOString()
+    };
+  } catch {
+    return { sessions: [], active: {}, payRates: {}, qrUsed: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  }
+}
+function writeAttendanceDb(db) {
+  db.updatedAt = new Date().toISOString();
+  fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify(db, null, 2));
+}
+function verifyAnyUserFromRequest(req) {
+  const username = String(req.headers['x-auth-user'] || req.body?.auth?.username || '').trim().toLowerCase();
+  const passwordHash = String(req.headers['x-auth-hash'] || req.body?.auth?.passwordHash || '').trim();
+  if (!username || !passwordHash) return { ok: false, error: 'Missing auth' };
+  const users = readUsers();
+  const u = users[username];
+  if (!u) return { ok: false, error: 'Unknown user' };
+  if (u.password !== passwordHash) return { ok: false, error: 'Invalid auth hash' };
+  const role = u.role || (username === 'admin' ? 'admin' : 'user');
+  return { ok: true, username, role };
+}
+function authUser(req, res, next) {
+  const auth = verifyAnyUserFromRequest(req);
+  if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
+  req.authUser = auth;
+  return next();
+}
+function weekStartISO(dateLike) {
+  const d = new Date(dateLike || Date.now());
+  const day = d.getDay();
+  const diff = (day + 6) % 7;
+  d.setDate(d.getDate() - diff);
+  d.setHours(0,0,0,0);
+  return d.toISOString().slice(0, 10);
+}
+function hoursBetween(startIso, endIso) {
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  return Math.max(0, ms / (1000 * 60 * 60));
 }
 function readScanDb() {
   try {
@@ -367,6 +426,163 @@ app.post('/api/auth/sync', (req, res) => {
   if (!Object.keys(cleaned).length) return res.status(400).json({ ok: false, error: 'No valid credentials to sync' });
   writeUsers(cleaned);
   return res.json({ ok: true, userCount: Object.keys(cleaned).length });
+});
+
+app.post('/api/attendance/qr/create', adminOnly, (req, res) => {
+  const jti = crypto.randomUUID();
+  const payload = { jti, mode: 'attendance', source: 'admin_kiosk' };
+  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: ATT_QR_TTL_SEC });
+  const url = `${FRONTEND_URL}?attMode=1&attToken=${encodeURIComponent(token)}`;
+  const decoded = jwt.decode(token);
+  return res.json({ ok: true, token, url, expiresAt: decoded?.exp ? decoded.exp * 1000 : null, ttlSec: ATT_QR_TTL_SEC });
+});
+
+app.get('/api/attendance/qr/validate', authUser, (req, res) => {
+  const token = String(req.query.token || '');
+  if (!token) return res.status(400).json({ ok: false, error: 'token required' });
+  const db = readAttendanceDb();
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.mode !== 'attendance') return res.status(401).json({ ok: false, error: 'Invalid token mode' });
+    if (db.qrUsed.includes(decoded.jti)) return res.status(401).json({ ok: false, error: 'Token already used' });
+    return res.json({ ok: true, valid: true, expiresAt: decoded.exp ? decoded.exp * 1000 : null });
+  } catch (e) {
+    return res.status(401).json({ ok: false, error: e.message || 'Invalid token' });
+  }
+});
+
+app.get('/api/attendance/me', authUser, (req, res) => {
+  const db = readAttendanceDb();
+  const username = req.authUser.username;
+  const active = db.active[username] || null;
+  const recent = db.sessions.filter(s => s.username === username).slice(-20).reverse();
+  const weekStart = weekStartISO(new Date());
+  const weekHours = db.sessions
+    .filter(s => s.username === username && s.weekStart === weekStart)
+    .reduce((sum, s) => sum + Number(s.hours || 0), 0);
+  return res.json({ ok: true, username, active, weekStart, weekHours: +weekHours.toFixed(2), recent });
+});
+
+app.post('/api/attendance/check', authUser, (req, res) => {
+  const db = readAttendanceDb();
+  const { action = 'toggle', token = '', targetUser = '' } = req.body || {};
+  const caller = req.authUser.username;
+  const callerRole = req.authUser.role;
+  const username = targetUser ? String(targetUser).trim().toLowerCase() : caller;
+  if (targetUser && callerRole !== 'admin') return res.status(403).json({ ok: false, error: 'Admin only target override' });
+
+  if (!targetUser) {
+    if (!token) return res.status(400).json({ ok: false, error: 'QR token required for self check-in/out' });
+    try {
+      const decoded = jwt.verify(String(token), JWT_SECRET);
+      if (decoded.mode !== 'attendance') return res.status(401).json({ ok: false, error: 'Invalid attendance token' });
+      if (db.qrUsed.includes(decoded.jti)) return res.status(401).json({ ok: false, error: 'Token already used' });
+      db.qrUsed.push(decoded.jti);
+      if (db.qrUsed.length > 5000) db.qrUsed = db.qrUsed.slice(-5000);
+    } catch (e) {
+      return res.status(401).json({ ok: false, error: e.message || 'Invalid token' });
+    }
+  }
+
+  const now = new Date().toISOString();
+  const open = db.active[username];
+  const wantIn = action === 'in' || (action === 'toggle' && !open);
+  const wantOut = action === 'out' || (action === 'toggle' && !!open);
+
+  if (wantIn) {
+    if (open) return res.status(400).json({ ok: false, error: 'Already checked in' });
+    db.active[username] = { checkInAt: now, by: caller, method: targetUser ? 'admin_override' : 'qr_user' };
+    writeAttendanceDb(db);
+    return res.json({ ok: true, status: 'in', username, active: db.active[username] });
+  }
+  if (wantOut) {
+    if (!open) return res.status(400).json({ ok: false, error: 'Not currently checked in' });
+    const hours = hoursBetween(open.checkInAt, now);
+    const session = {
+      id: crypto.randomUUID(),
+      username,
+      checkInAt: open.checkInAt,
+      checkOutAt: now,
+      hours: +hours.toFixed(3),
+      weekStart: weekStartISO(open.checkInAt),
+      checkInBy: open.by || username,
+      checkOutBy: caller,
+      method: open.method || (targetUser ? 'admin_override' : 'qr_user')
+    };
+    db.sessions.push(session);
+    if (db.sessions.length > 20000) db.sessions = db.sessions.slice(-20000);
+    delete db.active[username];
+    writeAttendanceDb(db);
+    return res.json({ ok: true, status: 'out', username, session });
+  }
+  return res.status(400).json({ ok: false, error: 'Invalid action' });
+});
+
+app.get('/api/attendance/admin/summary', adminOnly, (req, res) => {
+  const db = readAttendanceDb();
+  const weekStart = String(req.query.weekStart || weekStartISO(new Date()));
+  const users = readUsers();
+  const sessions = db.sessions.filter(s => s.weekStart === weekStart);
+  const byUser = {};
+  for (const s of sessions) {
+    if (!byUser[s.username]) byUser[s.username] = { username: s.username, hours: 0, sessions: 0 };
+    byUser[s.username].hours += Number(s.hours || 0);
+    byUser[s.username].sessions += 1;
+  }
+  const rows = Object.values(byUser).map(r => {
+    const rate = Number(db.payRates[r.username] || 0);
+    const regular = Math.min(r.hours, 40);
+    const overtime = Math.max(0, r.hours - 40);
+    const pay = regular * rate + overtime * rate * 1.5;
+    return {
+      username: r.username,
+      displayName: users[r.username]?.displayName || r.username,
+      hours: +r.hours.toFixed(2),
+      regularHours: +regular.toFixed(2),
+      overtimeHours: +overtime.toFixed(2),
+      hourlyRate: rate,
+      weeklyPay: +pay.toFixed(2),
+      sessions: r.sessions
+    };
+  }).sort((a,b) => b.hours - a.hours);
+  return res.json({ ok: true, weekStart, active: db.active, rows, payRates: db.payRates });
+});
+
+app.post('/api/attendance/admin/pay-rate', adminOnly, (req, res) => {
+  const { username, hourlyRate } = req.body || {};
+  const u = String(username || '').trim().toLowerCase();
+  if (!u) return res.status(400).json({ ok: false, error: 'username required' });
+  const rate = Number(hourlyRate || 0);
+  if (!Number.isFinite(rate) || rate < 0) return res.status(400).json({ ok: false, error: 'hourlyRate must be a non-negative number' });
+  const db = readAttendanceDb();
+  db.payRates[u] = +rate.toFixed(2);
+  writeAttendanceDb(db);
+  return res.json({ ok: true, username: u, hourlyRate: db.payRates[u] });
+});
+
+app.post('/api/attendance/admin/force-out', adminOnly, (req, res) => {
+  const { username } = req.body || {};
+  const u = String(username || '').trim().toLowerCase();
+  if (!u) return res.status(400).json({ ok: false, error: 'username required' });
+  const db = readAttendanceDb();
+  const open = db.active[u];
+  if (!open) return res.status(400).json({ ok: false, error: 'User is not checked in' });
+  const now = new Date().toISOString();
+  const hours = hoursBetween(open.checkInAt, now);
+  db.sessions.push({
+    id: crypto.randomUUID(),
+    username: u,
+    checkInAt: open.checkInAt,
+    checkOutAt: now,
+    hours: +hours.toFixed(3),
+    weekStart: weekStartISO(open.checkInAt),
+    checkInBy: open.by || u,
+    checkOutBy: req.adminUser,
+    method: 'admin_force_out'
+  });
+  delete db.active[u];
+  writeAttendanceDb(db);
+  return res.json({ ok: true });
 });
 
 app.get('/api/scan/status', adminOnly, (_req, res) => {

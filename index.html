@@ -194,6 +194,7 @@ const BUSINESSES = {
 };
 
 const TABS_ADMIN = [
+  { id:'checkio',   label:'✅ Check In/Out' },
   { id:'items',     label:'📦 Items' },
   { id:'shopping',  label:'🛒 Shopping' },
   { id:'purchase',  label:'📋 Purchase Inv.' },
@@ -208,6 +209,7 @@ const TABS_ADMIN = [
   { id:'scanbeta',  label:'🧪 Scan DB (Beta)' },
 ];
 const ALL_USER_TABS = [
+  { id:'checkio',   label:'✅ Check In/Out' },
   { id:'shopping',  label:'🛒 Shopping List' },
   { id:'items',     label:'📦 Add Items' },
   { id:'pricer',    label:'💰 Price Updater' },
@@ -234,6 +236,7 @@ const CENTRAL_AUTH_CONFIG_PATH = './auth-api-config.json';
 const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
 const FAILURE_LOG_KEY = '_failureLog';
 const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
+const ATT_QR_QUERY_KEY = 'attToken';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -268,6 +271,17 @@ const parseAdminResetParams = () => {
     const requestId = q.get(ADMIN_RESET_REQ_KEY) || '';
     if (!token || !requestId) return null;
     return { token, requestId };
+  } catch {
+    return null;
+  }
+};
+const parseAttendanceParams = () => {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const token = q.get(ATT_QR_QUERY_KEY) || '';
+    const mode = q.get('attMode') === '1';
+    if (!mode || !token) return null;
+    return { token };
   } catch {
     return null;
   }
@@ -406,6 +420,28 @@ async function scanApiCall(pathName, { method='GET', body=null, currentUser, que
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
     return { ok:true, data, base:resolved.base };
+  } catch (e) {
+    return { ok:false, error:String(e.message || e) };
+  }
+}
+async function attendanceApiCall(pathName, { method='GET', body=null, currentUser, query=null, preferredBase=null } = {}) {
+  const resolved = await resolveResetApiBase(preferredBase);
+  if (!resolved.ok) return { ok:false, error:'Attendance backend unavailable' };
+  const qs = query ? '?' + new URLSearchParams(query).toString() : '';
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-auth-user': String(currentUser?.username || ''),
+    'x-auth-hash': String(currentUser?.authHash || '')
+  };
+  try {
+    const r = await fetch(`${resolved.base}${pathName}${qs}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
+    return { ok:true, data };
   } catch (e) {
     return { ok:false, error:String(e.message || e) };
   }
@@ -814,6 +850,8 @@ function LoginScreen({ onLogin }) {
   const [resetPwdC, setResetPwdC] = useState('');
   const [resetMsg, setResetMsg] = useState('');
   const [resetErr, setResetErr] = useState('');
+  const [rememberDevice, setRememberDevice] = useState(() => !!parseAttendanceParams());
+  const attParams = useMemo(() => parseAttendanceParams(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -843,6 +881,24 @@ function LoginScreen({ onLogin }) {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (!attParams) return;
+    const remembered = load('_rememberedCheckinLogin', null);
+    if (!remembered?.username || !remembered?.authHash) return;
+    setUname(String(remembered.username || ''));
+    setLoading(true);
+    loginViaBackend(String(remembered.username || ''), String(remembered.authHash || ''), authApiBase).then(remote => {
+      if (!remote.ok || !remote.user) { setLoading(false); return; }
+      onLogin({
+        username: remote.user.username,
+        role: remote.user.role,
+        name: remote.user.displayName,
+        permissions: remote.user.permissions || DEFAULT_USER_PERMS,
+        authHash: String(remembered.authHash || '')
+      });
+    }).catch(() => setLoading(false));
+  }, []);
+
   if (checkingSetup) {
     return (
       <div className="login-screen">
@@ -864,6 +920,8 @@ function LoginScreen({ onLogin }) {
       const hash = await hashPwd(pwd);
       if (!useCentralAuth && creds && creds[key]) {
         if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
+        if (rememberDevice) save('_rememberedCheckinLogin', { username: key, authHash: hash });
+        else save('_rememberedCheckinLogin', null);
         setTimeout(() => {
           onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
             name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key), permissions: creds[key].permissions || DEFAULT_USER_PERMS, authHash: hash });
@@ -876,6 +934,8 @@ function LoginScreen({ onLogin }) {
         setErr('Invalid username or password.');
         return;
       }
+      if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: hash });
+      else save('_rememberedCheckinLogin', null);
       setTimeout(() => {
         onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS, authHash: hash });
       }, 400);
@@ -933,6 +993,10 @@ function LoginScreen({ onLogin }) {
             <label>Password</label>
             <input className="input" type="password" placeholder="Enter password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} />
           </div>
+          <label style={{display:'flex',gap:8,alignItems:'center',fontSize:12.5,color:'#6b4b20',marginBottom:10}}>
+            <input type="checkbox" checked={rememberDevice} onChange={e=>setRememberDevice(e.target.checked)} />
+            Remember this device for faster Check In/Out login
+          </label>
           {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
           <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15,marginTop:4}} disabled={loading}>
             {loading ? 'Signing in…' : '🔐 Sign In'}
@@ -1203,6 +1267,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
   }, [open]);
 
   const TAB_DESC = {
+    checkio:  'Clock users in/out and run payroll summaries',
     shopping: 'Build and export shopping lists',
     items:    'Add new items to the database',
     pricer:   'Update supplier prices',
@@ -3464,6 +3529,231 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
   );
 }
 
+function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock }) {
+  const isAdmin = currentUser?.role === 'admin';
+  const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
+  const [me, setMe] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [qr, setQr] = useState(null);
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date();
+    const diff = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - diff);
+    return d.toISOString().slice(0, 10);
+  });
+  const [summary, setSummary] = useState({ rows: [], active: {}, payRates: {} });
+  const [rateDrafts, setRateDrafts] = useState({});
+  const [targetUser, setTargetUser] = useState('');
+
+  async function loadMe() {
+    const res = await attendanceApiCall('/api/attendance/me', { currentUser });
+    if (!res.ok) { setErr(res.error || 'Failed to load status'); return; }
+    setErr('');
+    setMe(res.data);
+  }
+  async function validateWorkGate() {
+    if (isAdmin) { setWorkGate({ loading:false, ok:true, reason:'' }); return; }
+    if (!attendanceToken) {
+      setWorkGate({ loading:false, ok:false, reason:'Missing live work QR token.' });
+      return false;
+    }
+    const res = await attendanceApiCall('/api/attendance/qr/validate', {
+      currentUser,
+      query: { token: attendanceToken }
+    });
+    if (!res.ok) {
+      setWorkGate({ loading:false, ok:false, reason:res.error || 'Invalid or expired work token.' });
+      return false;
+    }
+    setWorkGate({ loading:false, ok:true, reason:'' });
+    return true;
+  }
+  async function loadSummary() {
+    if (!isAdmin) return;
+    const res = await attendanceApiCall('/api/attendance/admin/summary', { currentUser, query: { weekStart } });
+    if (!res.ok) { setErr(res.error || 'Failed to load payroll summary'); return; }
+    setSummary(res.data);
+  }
+  useEffect(() => {
+    validateWorkGate().then(ok => {
+      if (!ok && !isAdmin) return;
+      loadMe();
+      loadSummary();
+    });
+  }, [weekStart, currentUser?.username, attendanceToken]);
+
+  async function checkAction(action, overrideUser = '') {
+    setBusy(true);
+    const res = await attendanceApiCall('/api/attendance/check', {
+      currentUser,
+      method: 'POST',
+      body: { action, token: attendanceToken || '', targetUser: overrideUser || undefined }
+    });
+    setBusy(false);
+    if (!res.ok) { setErr(res.error || 'Action failed'); return; }
+    setErr('');
+    showToast(`Checked ${res.data.status === 'in' ? 'in' : 'out'} successfully.`);
+    loadMe();
+    loadSummary();
+  }
+  async function createQr() {
+    const res = await attendanceApiCall('/api/attendance/qr/create', { currentUser, method:'POST' });
+    if (!res.ok) { setErr(res.error || 'Failed to generate QR'); return; }
+    setQr(res.data);
+    setErr('');
+  }
+  async function saveRate(username) {
+    const val = rateDrafts[username];
+    const res = await attendanceApiCall('/api/attendance/admin/pay-rate', {
+      currentUser,
+      method: 'POST',
+      body: { username, hourlyRate: Number(val || 0) }
+    });
+    if (!res.ok) { setErr(res.error || 'Failed to save rate'); return; }
+    showToast(`Pay rate saved for ${username}.`);
+    loadSummary();
+  }
+  async function forceOut(username) {
+    const res = await attendanceApiCall('/api/attendance/admin/force-out', { currentUser, method:'POST', body:{ username } });
+    if (!res.ok) { setErr(res.error || 'Force out failed'); return; }
+    showToast(`${username} checked out by admin.`);
+    loadSummary();
+  }
+  function exportPayrollCsv() {
+    const header = ['Week Start','Username','Display Name','Hours','Regular Hours','Overtime Hours','Hourly Rate','Weekly Pay','Sessions'];
+    const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+    const lines = (summary.rows || []).map(r => [
+      weekStart, r.username, r.displayName || r.username, r.hours, r.regularHours, r.overtimeHours, r.hourlyRate, r.weeklyPay, r.sessions
+    ].map(esc).join(','));
+    const csv = [header.map(esc).join(','), ...lines].join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `payroll-${weekStart}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+  const qrImageUrl = qr?.url ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qr.url)}` : '';
+
+  if (workGate.loading) {
+    return (
+      <div className="card">
+        <div className="empty-state">Verifying work access…</div>
+      </div>
+    );
+  }
+  if (!workGate.ok) {
+    return (
+      <div className="card" style={{maxWidth:760,margin:'10px auto',border:'1px solid #fecaca',background:'#fff7f7'}}>
+        <div style={{fontWeight:800,color:'#991b1b',fontSize:20,marginBottom:8}}>Error: you are not at work!</div>
+        <div style={{color:'#7f1d1d',fontSize:13,lineHeight:1.6}}>
+          Access to Check In/Out is only allowed from a valid live QR check-in station session.
+          <br />
+          Details: {workGate.reason || 'Work verification failed.'}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex-between mb-3 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Check In / Out</div>
+        {isAdmin && <Btn className="btn-outline btn-sm" onClick={onEnterKiosk}>{kioskLock ? 'Kiosk Locked (Logout to Exit)' : 'Open Kiosk Station Mode'}</Btn>}
+      </div>
+      <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72'}}>
+        Scan QR -> login (remembered on device) -> one tap to Check In or Check Out.
+      </div>
+      {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:6,marginBottom:10,fontSize:12.5}}>{err}</div>}
+
+      <div className="card mb-4">
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8}}>My Status</div>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+          <span className={`badge ${me?.active ? 'badge-admin' : 'badge-user'}`}>{me?.active ? 'Currently Checked In' : 'Currently Checked Out'}</span>
+          <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me?.weekHours || 0} hours</strong></span>
+          {attendanceToken ? <span className="badge badge-user">QR token detected</span> : <span className="badge badge-user">Scan QR for action token</span>}
+        </div>
+        <div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Btn className="btn-primary btn-sm" disabled={busy || !attendanceToken} onClick={()=>checkAction('in')}>✅ Check In</Btn>
+          <Btn className="btn-outline btn-sm" disabled={busy || !attendanceToken} onClick={()=>checkAction('out')}>⏹ Check Out</Btn>
+        </div>
+      </div>
+
+      {isAdmin && (
+        <>
+          <div className="card mb-4">
+            <div className="flex-between mb-2">
+              <div style={{fontWeight:700,color:'var(--brown)'}}>Admin QR Station</div>
+              <Btn className="btn-primary btn-sm" onClick={createQr}>Generate Fresh QR</Btn>
+            </div>
+            <div style={{fontSize:12.5,color:'#666',marginBottom:8}}>QR is short-lived and one-time-use, reducing screenshot/photo replay abuse.</div>
+            {qr && (
+              <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+                <img src={qrImageUrl} alt="Attendance QR" style={{width:220,height:220,border:'1px solid #EED9B0',borderRadius:8,background:'#fff'}} />
+                <div style={{maxWidth:460}}>
+                  <div style={{fontWeight:700,marginBottom:4}}>Expires:</div>
+                  <div style={{fontSize:13,marginBottom:8}}>{qr.expiresAt ? new Date(qr.expiresAt).toLocaleString() : 'Soon'}</div>
+                  <div style={{fontWeight:700,marginBottom:4}}>Scan URL:</div>
+                  <div style={{fontSize:12,wordBreak:'break-all',background:'#f9f9f9',padding:8,borderRadius:6}}>{qr.url}</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="card mb-4">
+            <div className="flex-between mb-2 flex-wrap gap-2">
+              <div style={{fontWeight:700,color:'var(--brown)'}}>Manual Admin Override</div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input className="input" placeholder="username" value={targetUser} onChange={e=>setTargetUser(e.target.value)} style={{maxWidth:180}} />
+                <Btn className="btn-outline btn-sm" onClick={()=>checkAction('in', targetUser)}>Check In User</Btn>
+                <Btn className="btn-outline btn-sm" onClick={()=>checkAction('out', targetUser)}>Check Out User</Btn>
+              </div>
+            </div>
+            <div style={{fontSize:12.5,color:'#666'}}>Admins can check users in/out if needed (audited in backend records).</div>
+          </div>
+
+          <div className="card">
+            <div className="flex-between mb-2 flex-wrap gap-2">
+              <div style={{fontWeight:700,color:'var(--brown)'}}>Weekly Payroll</div>
+              <div style={{display:'flex',gap:8}}>
+                <input className="input" type="date" value={weekStart} onChange={e=>setWeekStart(e.target.value)} />
+                <Btn className="btn-outline btn-sm" onClick={loadSummary}>Refresh</Btn>
+                <Btn className="btn-success btn-sm" onClick={exportPayrollCsv}>Export CSV</Btn>
+              </div>
+            </div>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>User</th><th>Hours</th><th>Regular</th><th>OT</th><th>Rate</th><th>Weekly Pay</th><th>Open Shift</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {(summary.rows || []).map(r => (
+                    <tr key={r.username}>
+                      <td>{r.displayName || r.username} <span style={{fontSize:11,color:'#777'}}>@{r.username}</span></td>
+                      <td>{r.hours}</td>
+                      <td>{r.regularHours}</td>
+                      <td>{r.overtimeHours}</td>
+                      <td style={{minWidth:130}}>
+                        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                          <input className="input" type="number" min="0" step="0.01" style={{maxWidth:80}} value={rateDrafts[r.username] ?? r.hourlyRate ?? 0}
+                            onChange={e=>setRateDrafts(prev=>({ ...prev, [r.username]: e.target.value }))} />
+                          <Btn className="btn-outline btn-sm" onClick={()=>saveRate(r.username)}>Save</Btn>
+                        </div>
+                      </td>
+                      <td style={{fontWeight:700}}>{fmt$(r.weeklyPay)}</td>
+                      <td>{summary.active?.[r.username] ? <span className="badge badge-admin">In</span> : '—'}</td>
+                      <td>{summary.active?.[r.username] && <Btn className="btn-danger btn-sm" onClick={()=>forceOut(r.username)}>Force Out</Btn>}</td>
+                    </tr>
+                  ))}
+                  {!(summary.rows || []).length && <tr><td colSpan={8}><div className="empty-state">No attendance sessions for this week yet.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
   const [menuItems, setMenuItems] = useState(() => load('_menuItems', []));
   const [recipes, setRecipes] = useState(() => load('_menuRecipes', []));
@@ -3836,6 +4126,7 @@ function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
 // ═══════════════════════════════════════════════════════════
 function App() {
   useEffect(() => { initGlobalFailureCapture(); }, []);
+  const attendanceParams = useMemo(() => parseAttendanceParams(), []);
 
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
@@ -3850,6 +4141,7 @@ function App() {
   const [customers, setCustomers] = useState(()=>load('customers',[]));
   const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
+  const [kioskLock, setKioskLock] = useState(()=>load('_kioskLock', false));
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
     return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
@@ -3859,11 +4151,20 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
     const isAdmin = currentUser.role === 'admin';
-    const available = isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+    const available = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
     if (!available.find(t => t.id === tab)) {
       setTab(available[0]?.id || 'shopping');
     }
-  }, [userPerms, currentUser]);
+  }, [userPerms, currentUser, kioskLock]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'admin' || !kioskLock) return;
+    setTab('checkio');
+    const onPop = () => { setTab('checkio'); window.history.pushState(null, '', window.location.href); };
+    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [currentUser, kioskLock]);
 
   // One-time in-place migration so older transfer invoice shapes keep working.
   useEffect(() => {
@@ -3897,7 +4198,8 @@ function App() {
     setUserPerms(perms);
     const isAdmin = user.role === 'admin';
     const firstTab = isAdmin ? TABS_ADMIN[0].id : (ALL_USER_TABS.find(t => perms.includes(t.id))?.id || 'shopping');
-    setTab(firstTab);
+    if (attendanceParams) setTab('checkio');
+    else setTab(firstTab);
     logActivity('login', 'Signed in as ' + user.role);
   }
 
@@ -3906,11 +4208,14 @@ function App() {
     logActivity('logout', 'Signed out');
     setCurrentUser(null);
     save('_session', null);
+    setKioskLock(false);
+    save('_kioskLock', false);
   }
 
   function handleBizChange(k) { setBiz(k); save('_lastBiz', k); }
 
   function handleTabChange(id) {
+    if (kioskLock && currentUser?.role === 'admin' && id !== 'checkio') return;
     setTab(id);
     logActivity('tab_change', 'Navigated to ' + id);
   }
@@ -3926,11 +4231,18 @@ function App() {
     setCurrentUser(next);
     save('_session', next);
   }
+  function enterKioskMode() {
+    if (currentUser?.role !== 'admin') return;
+    if (!window.confirm('Enter Check-In Kiosk mode? You must logout/login to return to admin tools.')) return;
+    setKioskLock(true);
+    save('_kioskLock', true);
+    setTab('checkio');
+  }
 
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
   const isAdmin = currentUser.role === 'admin';
-  const TABS = isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+  const TABS = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
   const bizInfo = BUSINESSES[biz];
 
   const appState = { items, shopping, purchaseInv, cateringInv, customers, priceHist,
@@ -3944,17 +4256,17 @@ function App() {
       <div className="app-header no-print">
         <div className="header-row">
           <div>
-            <h1>🍽️ Catering Inventory Manager</h1>
+            <h1>🍽️ DMG Software Suite</h1>
             <div className="sub">{bizInfo.name} · {bizInfo.location} · Tax: {(bizInfo.taxRate*100).toFixed(3)}%</div>
           </div>
           <div className="header-actions">
-            {isAdmin&&(
+            {isAdmin && !kioskLock &&(
               <select style={{padding:'6px 10px',borderRadius:5,border:'none',background:'rgba(255,255,255,0.92)',color:'var(--brown)',fontWeight:700,fontSize:13,cursor:'pointer'}}
                 value={biz} onChange={e=>handleBizChange(e.target.value)}>
                 {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
               </select>
             )}
-            {isAdmin&&<Btn className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙ Settings</Btn>}
+            {isAdmin && !kioskLock && <Btn className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙ Settings</Btn>}
             <div
               title="Click to edit your profile"
               onClick={()=>setShowProfile(true)}
@@ -3983,7 +4295,7 @@ function App() {
 
       {/* ── Content ── */}
       <div className="content-area">
-        {isAdmin && (
+        {isAdmin && !kioskLock && (
           <div className="mb-3">
             <SetupQuickActions
               itemsCount={items.length}
@@ -3995,6 +4307,7 @@ function App() {
         )}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
+        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
         {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} />}
