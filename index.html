@@ -469,6 +469,43 @@ function nextTransferId(dateStr) {
   save('_seq', _seq);
   return `PPH-ENG-${d}-${String(_seq.transfer).padStart(4,'0')}`;
 }
+function normalizeTransferInvoice(inv) {
+  const date = inv?.date || today();
+  const lineItems = Array.isArray(inv?.lineItems) ? inv.lineItems : [];
+  const normalizedLines = lineItems.map(li => {
+    const price = +((li?.price ?? li?.unitPrice ?? 0) || 0);
+    const commission = +(li?.commission ?? (price * 0.15)).toFixed(2);
+    const total = +(li?.total ?? (price + commission)).toFixed(2);
+    return {
+      quantity: li?.quantity ?? li?.qty ?? '',
+      item: li?.item ?? li?.description ?? '',
+      price: +price.toFixed(2),
+      commission,
+      total
+    };
+  });
+  const subTotal = +(inv?.subTotal ?? normalizedLines.reduce((s, l) => s + (l.price || 0), 0)).toFixed(2);
+  const commissionTotal = +(inv?.commissionTotal ?? normalizedLines.reduce((s, l) => s + (l.commission || 0), 0)).toFixed(2);
+  const grandTotal = +(inv?.grandTotal ?? (subTotal + commissionTotal)).toFixed(2);
+  return {
+    ...inv,
+    id: inv?.id || nextTransferId(date),
+    invoiceType: inv?.invoiceType || 'pp_transfer',
+    status: inv?.status || 'unpaid',
+    date,
+    from: inv?.from || 'Parathas & Platters - Hackensack',
+    fromContact: inv?.fromContact || 'Hackensack Branch',
+    to: inv?.to || 'Parathas & Platters - Englewood',
+    toContact: inv?.toContact || 'Englewood Branch',
+    notes: inv?.notes || '',
+    lineItems: normalizedLines,
+    commissionRate: inv?.commissionRate ?? 0.15,
+    subTotal,
+    commissionTotal,
+    grandTotal,
+    createdAt: inv?.createdAt || new Date().toISOString()
+  };
+}
 
 // ═══════════════════════════════════════════════════════════
 // TOAST NOTIFICATIONS
@@ -2578,7 +2615,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
     showToast('Transfer invoices exported to Excel.');
   }
 
-  const sorted = useMemo(() => [...transferInvoices].sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
+  const sorted = useMemo(() => [...transferInvoices].map(normalizeTransferInvoice).sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
   const viewInv = sorted.find(x => x.id === viewId);
 
   return (
@@ -3027,6 +3064,17 @@ function App() {
       setTab(available[0]?.id || 'shopping');
     }
   }, [userPerms, currentUser]);
+
+  // One-time in-place migration so older transfer invoice shapes keep working.
+  useEffect(() => {
+    const src = Array.isArray(transferInv) ? transferInv : [];
+    const normalized = src.map(normalizeTransferInvoice);
+    const changed = JSON.stringify(src) !== JSON.stringify(normalized);
+    if (changed) {
+      setTransferInv(normalized);
+      save('transferInvoices', normalized);
+    }
+  }, []);
 
   function handleLogin(user) {
     setCurrentUser(user);
