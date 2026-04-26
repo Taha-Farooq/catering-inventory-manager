@@ -216,7 +216,8 @@ const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Sp
 const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
 const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
 const ADMIN_RESET_QUERY_KEY = 'adminReset';
-const ADMIN_RESET_TOKEN = 'cim-admin-reset-2026-04-private';
+const ADMIN_RESET_EMAIL = 'fatimfarooq@yahoo.com';
+const ADMIN_RESET_LINK_TTL_MIN = 30;
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -244,32 +245,74 @@ const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
 const safeQty = v => { const n=parseFloat(v); return (!isNaN(n)&&n>=0)?n:0; };
 const sellerKey = n => String(n ?? '').trim().toLowerCase();
-const hasAdminResetAccess = () => {
+const safeB64Encode = (v) => {
+  try { return btoa(unescape(encodeURIComponent(v))); } catch { return ''; }
+};
+const safeB64Decode = (v) => {
+  try { return decodeURIComponent(escape(atob(v))); } catch { return ''; }
+};
+const makeResetToken = () => {
   try {
-    const q = new URLSearchParams(window.location.search);
-    return q.get(ADMIN_RESET_QUERY_KEY) === ADMIN_RESET_TOKEN;
+    const arr = new Uint8Array(24);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
   } catch {
-    return false;
+    return uid().replace('_', '') + uid().replace('_', '');
   }
 };
-const buildAdminResetLink = () => {
+const parseAdminResetAccess = () => {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const raw = q.get(ADMIN_RESET_QUERY_KEY);
+    if (!raw) return null;
+    const payload = JSON.parse(safeB64Decode(raw));
+    if (!payload || !payload.token || !payload.requestId || !payload.expiresAt) return null;
+    if (Date.now() > Number(payload.expiresAt)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+};
+const buildAdminResetLink = (payload) => {
   const u = new URL(window.location.href);
-  u.searchParams.set(ADMIN_RESET_QUERY_KEY, ADMIN_RESET_TOKEN);
+  u.searchParams.set(ADMIN_RESET_QUERY_KEY, safeB64Encode(JSON.stringify(payload)));
   return u.toString();
 };
-const buildAdminResetRequestMailto = () => {
-  const resetLink = buildAdminResetLink();
+const buildAdminResetRequestMailto = (requestSource = 'app') => {
+  const payload = {
+    requestId: 'APR-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.random().toString(36).slice(2,8).toUpperCase(),
+    token: makeResetToken(),
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + (ADMIN_RESET_LINK_TTL_MIN * 60 * 1000),
+    source: requestSource,
+    userAgent: navigator.userAgent || 'unknown',
+  };
+  const resetLink = buildAdminResetLink(payload);
   const subject = 'Admin Password Change Request';
   const body =
 `Hello,
 
 Please reset the admin password for Catering Inventory Manager.
 
+Request ID: ${payload.requestId}
+Requested from: ${payload.source}
+Link expires in: ${ADMIN_RESET_LINK_TTL_MIN} minutes
+
 Reset link (private):
 ${resetLink}
 
 Requested by: `;
-  return `mailto:fatimfarooq@yahoo.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `mailto:${ADMIN_RESET_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+};
+const requestAdminResetEmail = (requestSource = 'app') => {
+  window.location.href = buildAdminResetRequestMailto(requestSource);
+};
+const pushAuditEvent = (action, details) => {
+  const entry = { id:uid(), username:'system', action, details, timestamp:new Date().toISOString() };
+  const log = load('_activityLog', []);
+  log.push(entry);
+  if (log.length > 2000) log.splice(0, log.length - 2000);
+  save('_activityLog', log);
 };
 
 function logActivity(action, details='') {
@@ -505,7 +548,7 @@ function LoginScreen({ onLogin }) {
             <div>🔐 <strong>Admin password:</strong> To reset, email{' '}
               <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>
             </div>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8}} onClick={()=>{window.location.href = buildAdminResetRequestMailto();}}>
+            <Btn className="btn-outline btn-sm" style={{marginTop:8}} onClick={()=>requestAdminResetEmail('login_forgot_password')}>
               ✉️ Send Admin Password Reset Request
             </Btn>
             <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
@@ -518,8 +561,11 @@ function LoginScreen({ onLogin }) {
 }
 
 function AdminResetPortal() {
+  const access = useMemo(() => parseAdminResetAccess(), []);
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [approver, setApprover] = useState('');
+  const [authorized, setAuthorized] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
@@ -528,6 +574,9 @@ function AdminResetPortal() {
     e.preventDefault();
     setErr('');
     setMsg('');
+    if (!access) { setErr('Reset link is invalid or expired. Request a new one.'); return; }
+    if (!authorized) { setErr('Please confirm this reset is authorized.'); return; }
+    if (!approver.trim()) { setErr('Enter approver name for audit logging.'); return; }
     if (pwd.length < 6) { setErr('Password must be at least 6 characters.'); return; }
     if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
     setSaving(true);
@@ -535,10 +584,13 @@ function AdminResetPortal() {
     if (!creds.admin) creds.admin = { role: 'admin', displayName: 'Administrator', password: '' };
     creds.admin.password = await hashPwd(pwd);
     save('credentials', creds);
+    pushAuditEvent('admin_password_reset', `Completed ${access.requestId} by ${approver.trim()}`);
     setPwd('');
     setConfirm('');
+    setApprover('');
+    setAuthorized(false);
     setSaving(false);
-    setMsg('Admin password has been reset successfully.');
+    setMsg('Admin password has been reset successfully. This link should not be reused.');
   }
 
   function closePortal() {
@@ -558,12 +610,29 @@ function AdminResetPortal() {
         <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#7a5c00'}}>
           This reset portal is hidden from normal navigation and only opens from the private reset link.
         </div>
+        {!access && (
+          <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>
+            Reset link is missing, invalid, or expired. Request a fresh reset email link.
+          </div>
+        )}
+        {access && (
+          <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72',lineHeight:1.6}}>
+            <div><strong>Request ID:</strong> {access.requestId}</div>
+            <div><strong>Source:</strong> {access.source || 'app'}</div>
+            <div><strong>Expires:</strong> {new Date(Number(access.expiresAt)).toLocaleString()}</div>
+          </div>
+        )}
         <form onSubmit={handleReset}>
+          <FI label="Approver Name" value={approver} onChange={e=>{setApprover(e.target.value);setErr('');}} placeholder="e.g. Saba" />
           <FI label="New Admin Password" type="password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} placeholder="Min 6 characters" />
           <FI label="Confirm New Password" type="password" value={confirm} onChange={e=>{setConfirm(e.target.value);setErr('');}} placeholder="Re-enter password" />
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:'#5a3010',marginBottom:10}}>
+            <input type="checkbox" checked={authorized} onChange={e=>{setAuthorized(e.target.checked);setErr('');}} />
+            I confirm this reset is approved by management.
+          </label>
           {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
           {msg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{msg}</div>}
-          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15}} disabled={saving}>
+          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15}} disabled={saving || !access}>
             {saving ? 'Saving…' : '💾 Reset Admin Password'}
           </button>
         </form>
@@ -899,7 +968,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
         <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:8}}>
           Admin credentials are managed centrally and cannot be changed from inside the app.
         </p>
-        <Btn className="btn-outline btn-sm" style={{marginBottom:10}} onClick={()=>{window.location.href = buildAdminResetRequestMailto();}}>
+        <Btn className="btn-outline btn-sm" style={{marginBottom:10}} onClick={()=>requestAdminResetEmail('settings_admin_credentials')}>
           ✉️ Send Admin Password Reset Request
         </Btn>
         <div style={{fontSize:12.5,color:'#7a5c00',background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:6,padding:'10px 12px'}}>
@@ -2260,7 +2329,8 @@ function ActivityLog() {
 // ROOT APP
 // ═══════════════════════════════════════════════════════════
 function App() {
-  if (hasAdminResetAccess()) return <AdminResetPortal />;
+  const resetAccess = parseAdminResetAccess();
+  if (resetAccess) return <AdminResetPortal />;
 
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
