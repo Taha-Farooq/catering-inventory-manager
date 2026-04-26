@@ -215,6 +215,8 @@ const PROFILE_ICONS = ['👤','👨‍🍳','👩‍🍳','🧑‍💼','👨‍
 const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Spices','Beverages','Bakery','Supplies','Other'];
 const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
 const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
+const ADMIN_RESET_QUERY_KEY = 'adminReset';
+const ADMIN_RESET_TOKEN = 'cim-admin-reset-2026-04-private';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
@@ -242,6 +244,33 @@ const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
 const safeQty = v => { const n=parseFloat(v); return (!isNaN(n)&&n>=0)?n:0; };
 const sellerKey = n => String(n ?? '').trim().toLowerCase();
+const hasAdminResetAccess = () => {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return q.get(ADMIN_RESET_QUERY_KEY) === ADMIN_RESET_TOKEN;
+  } catch {
+    return false;
+  }
+};
+const buildAdminResetLink = () => {
+  const u = new URL(window.location.href);
+  u.searchParams.set(ADMIN_RESET_QUERY_KEY, ADMIN_RESET_TOKEN);
+  return u.toString();
+};
+const buildAdminResetRequestMailto = () => {
+  const resetLink = buildAdminResetLink();
+  const subject = 'Admin Password Change Request';
+  const body =
+`Hello,
+
+Please reset the admin password for Catering Inventory Manager.
+
+Reset link (private):
+${resetLink}
+
+Requested by: `;
+  return `mailto:fatimfarooq@yahoo.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+};
 
 function logActivity(action, details='') {
   try {
@@ -476,10 +505,69 @@ function LoginScreen({ onLogin }) {
             <div>🔐 <strong>Admin password:</strong> To reset, email{' '}
               <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>
             </div>
+            <Btn className="btn-outline btn-sm" style={{marginTop:8}} onClick={()=>{window.location.href = buildAdminResetRequestMailto();}}>
+              ✉️ Send Admin Password Reset Request
+            </Btn>
             <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
           </div>
         )}
 
+      </div>
+    </div>
+  );
+}
+
+function AdminResetPortal() {
+  const [pwd, setPwd] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleReset(e) {
+    e.preventDefault();
+    setErr('');
+    setMsg('');
+    if (pwd.length < 6) { setErr('Password must be at least 6 characters.'); return; }
+    if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
+    setSaving(true);
+    const creds = load('credentials', {});
+    if (!creds.admin) creds.admin = { role: 'admin', displayName: 'Administrator', password: '' };
+    creds.admin.password = await hashPwd(pwd);
+    save('credentials', creds);
+    setPwd('');
+    setConfirm('');
+    setSaving(false);
+    setMsg('Admin password has been reset successfully.');
+  }
+
+  function closePortal() {
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete(ADMIN_RESET_QUERY_KEY);
+    window.location.href = clean.toString();
+  }
+
+  return (
+    <div className="login-screen">
+      <div className="login-card">
+        <div className="login-logo">
+          <div className="icon">🔐</div>
+          <h1>Private Admin Reset</h1>
+          <p>Use this page only for approved admin password resets.</p>
+        </div>
+        <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#7a5c00'}}>
+          This reset portal is hidden from normal navigation and only opens from the private reset link.
+        </div>
+        <form onSubmit={handleReset}>
+          <FI label="New Admin Password" type="password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr('');}} placeholder="Min 6 characters" />
+          <FI label="Confirm New Password" type="password" value={confirm} onChange={e=>{setConfirm(e.target.value);setErr('');}} placeholder="Re-enter password" />
+          {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{err}</div>}
+          {msg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:5,marginBottom:12,fontSize:13}}>{msg}</div>}
+          <button type="submit" className="btn btn-primary" style={{width:'100%',padding:'10px',fontSize:15}} disabled={saving}>
+            {saving ? 'Saving…' : '💾 Reset Admin Password'}
+          </button>
+        </form>
+        <Btn className="btn-outline" style={{width:'100%',marginTop:10}} onClick={closePortal}>Back to Login</Btn>
       </div>
     </div>
   );
@@ -811,6 +899,9 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
         <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:8}}>
           Admin credentials are managed centrally and cannot be changed from inside the app.
         </p>
+        <Btn className="btn-outline btn-sm" style={{marginBottom:10}} onClick={()=>{window.location.href = buildAdminResetRequestMailto();}}>
+          ✉️ Send Admin Password Reset Request
+        </Btn>
         <div style={{fontSize:12.5,color:'#7a5c00',background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:6,padding:'10px 12px'}}>
           To request admin credential changes, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>.
         </div>
@@ -2169,6 +2260,8 @@ function ActivityLog() {
 // ROOT APP
 // ═══════════════════════════════════════════════════════════
 function App() {
+  if (hasAdminResetAccess()) return <AdminResetPortal />;
+
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
