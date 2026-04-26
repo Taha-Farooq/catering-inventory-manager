@@ -227,6 +227,7 @@ const ADMIN_RESET_API_ENDPOINTS = [
   'http://127.0.0.1:8787'
 ];
 const ADMIN_RESET_API_BASE_KEY = '_adminResetApiBase';
+const CENTRAL_AUTH_CONFIG_PATH = './auth-api-config.json';
 const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
 const FAILURE_LOG_KEY = '_failureLog';
 
@@ -274,10 +275,39 @@ const loadAdminResetApiBase = () => {
 };
 const saveAdminResetApiBase = (url) => save(ADMIN_RESET_API_BASE_KEY, String(url || '').trim());
 const normalizeApiBase = (url) => String(url || '').trim().replace(/\/+$/, '');
+const parseUrlSafe = (url) => { try { return new URL(url); } catch { return null; } };
+const isLoopbackHost = (host) => host === 'localhost' || host === '127.0.0.1' || host === '::1';
+const shouldSkipApiCandidate = (base) => {
+  if (!base) return true;
+  const parsed = parseUrlSafe(base);
+  if (!parsed) return true;
+  // GitHub Pages runs on HTTPS. Avoid mixed-content blocked HTTP targets except localhost loopback.
+  if (window.location.protocol === 'https:' && parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) return true;
+  return false;
+};
+const readApiBaseFromUrl = () => {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return normalizeApiBase(q.get('apiBase') || q.get('authApi') || '');
+  } catch {
+    return '';
+  }
+};
+async function readSharedApiBaseConfig() {
+  try {
+    const r = await withTimeout(fetch(`${CENTRAL_AUTH_CONFIG_PATH}?v=${Date.now()}`, { method:'GET', cache:'no-store' }), 2500);
+    if (!r.ok) return '';
+    const data = await r.json().catch(() => ({}));
+    return normalizeApiBase((data && typeof data.apiBase === 'string') ? data.apiBase : '');
+  } catch {
+    return '';
+  }
+}
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), ms))]);
 async function probeResetApi(baseUrl) {
   const base = normalizeApiBase(baseUrl);
   if (!base) return { ok:false, base, error:'Empty URL' };
+  if (shouldSkipApiCandidate(base)) return { ok:false, base, error:'Blocked by browser security (HTTPS page cannot call this HTTP host)' };
   try {
     const r = await withTimeout(fetch(`${base}/health`, { method:'GET' }), 3500);
     if (!r.ok) return { ok:false, base, error:`HTTP ${r.status}` };
@@ -289,7 +319,14 @@ async function probeResetApi(baseUrl) {
   }
 }
 async function resolveResetApiBase(preferredBase) {
-  const candidates = [preferredBase, loadAdminResetApiBase(), ...ADMIN_RESET_API_ENDPOINTS].map(normalizeApiBase).filter(Boolean);
+  const sharedConfigBase = await readSharedApiBaseConfig();
+  const candidates = [
+    preferredBase,
+    readApiBaseFromUrl(),
+    loadAdminResetApiBase(),
+    sharedConfigBase,
+    ...ADMIN_RESET_API_ENDPOINTS
+  ].map(normalizeApiBase).filter(Boolean);
   const uniq = [...new Set(candidates)];
   for (const c of uniq) {
     const chk = await probeResetApi(c);
@@ -299,6 +336,51 @@ async function resolveResetApiBase(preferredBase) {
     }
   }
   return { ok:false, base:normalizeApiBase(preferredBase || loadAdminResetApiBase() || ADMIN_RESET_API_BASE) };
+}
+async function getAuthStatus(preferredBase) {
+  const resolved = await resolveResetApiBase(preferredBase);
+  if (!resolved.ok) return { ok:false, error:'Auth backend unavailable' };
+  try {
+    const r = await fetch(`${resolved.base}/api/auth/status`);
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
+    return { ok:true, base:resolved.base, ...data };
+  } catch (e) {
+    return { ok:false, error:String(e.message || e) };
+  }
+}
+async function loginViaBackend(username, passwordHash, preferredBase) {
+  const resolved = await resolveResetApiBase(preferredBase);
+  if (!resolved.ok) return { ok:false, error:'Auth backend unavailable' };
+  try {
+    const r = await fetch(`${resolved.base}/api/auth/login`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ username, passwordHash })
+    });
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok || !data.ok) return { ok:false, error:data.error || 'Login failed' };
+    if (data.credentialsSnapshot) save('credentials', data.credentialsSnapshot);
+    return { ok:true, user:data.user };
+  } catch (e) {
+    return { ok:false, error:String(e.message || e) };
+  }
+}
+async function syncCredentialsToBackend(credentials, preferredBase) {
+  const resolved = await resolveResetApiBase(preferredBase);
+  if (!resolved.ok) return { ok:false, error:'Auth backend unavailable' };
+  try {
+    const r = await fetch(`${resolved.base}/api/auth/sync`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ credentials })
+    });
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok || !data.ok) return { ok:false, error:data.error || 'Sync failed' };
+    return { ok:true };
+  } catch (e) {
+    return { ok:false, error:String(e.message || e) };
+  }
 }
 const buildAdminResetRequestMailto = (requestSource = 'app') => {
   const subject = 'Admin Password Change Request';
@@ -625,7 +707,7 @@ function Btn({ className='', children, ...p }) {
 // ═══════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ═══════════════════════════════════════════════════════════
-function FirstRunSetup({ onDone }) {
+function FirstRunSetup({ onDone, apiBase }) {
   const [err, setErr] = useState('');
   const [importMsg, setImportMsg] = useState('');
   const importRef = useRef();
@@ -648,6 +730,11 @@ function FirstRunSetup({ onDone }) {
         if (k === 'credentials' && v && typeof v === 'object') loadedCredentials = true;
       }
       if (loadedCredentials) {
+        const creds = load('credentials', {});
+        const syncResult = await syncCredentialsToBackend(creds, apiBase);
+        if (!syncResult.ok) {
+          logFailure({ area:'setup', action:'sync_credentials_backend', error:syncResult.error });
+        }
         setImportMsg('Starter file imported. You can sign in now.');
         onDone();
       } else {
@@ -685,6 +772,9 @@ function FirstRunSetup({ onDone }) {
 
 function LoginScreen({ onLogin }) {
   const [needsSetup, setNeedsSetup] = useState(() => load('credentials', null) === null);
+  const [checkingSetup, setCheckingSetup] = useState(true);
+  const [authApiBase, setAuthApiBase] = useState(() => loadAdminResetApiBase());
+  const [useCentralAuth, setUseCentralAuth] = useState(false);
   const [uname, setUname] = useState('');
   const [pwd, setPwd] = useState('');
   const [err, setErr] = useState('');
@@ -697,22 +787,69 @@ function LoginScreen({ onLogin }) {
   const [resetMsg, setResetMsg] = useState('');
   const [resetErr, setResetErr] = useState('');
 
-  if (needsSetup) return <FirstRunSetup onDone={() => setNeedsSetup(false)} />;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const st = await getAuthStatus(authApiBase);
+      if (cancelled) return;
+      if (st.ok && st.hasUsers) {
+        setNeedsSetup(false);
+        setUseCentralAuth(true);
+        if (st.base) setAuthApiBase(st.base);
+        setCheckingSetup(false);
+        return;
+      }
+      const localCreds = load('credentials', null);
+      if (localCreds && Object.keys(localCreds).length) {
+        if (!cancelled) {
+          setNeedsSetup(false);
+          setUseCentralAuth(false);
+          setCheckingSetup(false);
+        }
+        return;
+      }
+      setNeedsSetup(true);
+      setUseCentralAuth(false);
+      setCheckingSetup(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (checkingSetup) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="text-center" style={{color:'#777'}}>Checking account setup...</div>
+        </div>
+      </div>
+    );
+  }
+  if (needsSetup) return <FirstRunSetup apiBase={authApiBase} onDone={() => setNeedsSetup(false)} />;
 
   async function handleLogin(e) {
     e.preventDefault();
     setErr('');
     try {
       const creds = load('credentials', null);
-      if (!creds) { setErr('App not configured yet. Please refresh.'); return; }
       const key = uname.trim().toLowerCase();
-      if (!creds[key]) { setErr('Invalid username or password.'); return; }
       setLoading(true);
       const hash = await hashPwd(pwd);
-      if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
+      if (!useCentralAuth && creds && creds[key]) {
+        if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
+        setTimeout(() => {
+          onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
+            name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key), permissions: creds[key].permissions || DEFAULT_USER_PERMS });
+        }, 400);
+        return;
+      }
+      const remote = await loginViaBackend(key, hash, authApiBase);
+      if (!remote.ok || !remote.user) {
+        setLoading(false);
+        setErr('Invalid username or password.');
+        return;
+      }
       setTimeout(() => {
-        onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
-          name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key) });
+        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS });
       }, 400);
     } catch (e2) {
       logFailure({ area:'login', action:'handle_login_exception', error:e2 });
@@ -736,6 +873,10 @@ function LoginScreen({ onLogin }) {
     if (!creds.admin) creds.admin = { role:'admin', displayName:'Administrator', password:'' };
     creds.admin.password = await hashPwd(resetPwd);
     save('credentials', creds);
+    const syncResult = await syncCredentialsToBackend(creds, authApiBase);
+    if (!syncResult.ok) {
+      logFailure({ area:'login', action:'quick_admin_reset_sync', error:syncResult.error });
+    }
     pushAuditEvent('admin_password_reset', 'Quick reset completed from login screen');
     setResetCode('');
     setResetPwd('');
@@ -752,7 +893,7 @@ function LoginScreen({ onLogin }) {
           <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
         </div>
         <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color:'#7a5c00'}}>
-          Tip: Enter the username/password provided by your admin. If this device is brand new, the first screen allows starter-file import.
+          Tip: Enter the username/password provided by your admin. Most devices will go straight to login. Starter-file import only appears when no central accounts are available yet.
         </div>
 
         <form onSubmit={handleLogin}>
@@ -1040,6 +1181,16 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     catering: 'View and create catering invoices',
     archive:  'Browse and search past invoices',
   };
+  async function syncCredsBestEffort(action) {
+    const creds = load('credentials', {});
+    const result = await syncCredentialsToBackend(creds, resetApiInput);
+    if (!result.ok) {
+      logFailure({ area:'settings', action:`sync_credentials_${action}`, error:result.error });
+      showToast('Saved locally. Central login sync is currently unavailable.', 'warning');
+      return false;
+    }
+    return true;
+  }
 
   async function addUser() {
     setAddErr('');
@@ -1056,6 +1207,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     const displayName = newDisplay.trim() || uname;
     creds[uname] = { password: hash, role: 'user', displayName, permissions: newPerms };
     save('credentials', creds);
+    await syncCredsBestEffort('add_user');
     setStaff(s => [...s, { username: uname, displayName, permissions: newPerms }]);
     setNewUname(''); setNewDisplay(''); setNewPwd(''); setNewPwdC(''); setNewPerms([...DEFAULT_USER_PERMS]);
     setShowAdd(false);
@@ -1068,6 +1220,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     const creds = load('credentials', {});
     delete creds[uname];
     save('credentials', creds);
+    syncCredsBestEffort('delete_user');
     setStaff(s => s.filter(x => x.username !== uname));
     showToast('User removed.');
     logActivity('delete_user', 'Deleted staff user: ' + uname);
@@ -1080,6 +1233,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     if (!creds[uname]) return;
     creds[uname].password = await hashPwd(editPwd);
     save('credentials', creds);
+    await syncCredsBestEffort('reset_password');
     setEditPwdFor(null); setEditPwd(''); setEditPwdC('');
     showToast('Password updated for @' + uname);
     logActivity('reset_password', 'Reset password for: ' + uname);
@@ -1091,6 +1245,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     if (!creds[uname]) return;
     creds[uname].permissions = editPerms;
     save('credentials', creds);
+    syncCredsBestEffort('update_permissions');
     setStaff(s => s.map(x => x.username === uname ? { ...x, permissions: editPerms } : x));
     onPermsChange(editPerms, uname);
     setEditPermsFor(null);
@@ -3108,13 +3263,24 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    const creds = load('credentials', {});
+    if (!creds || !Object.keys(creds).length) return;
+    syncCredentialsToBackend(creds, loadAdminResetApiBase()).then(result => {
+      if (!result.ok) {
+        logFailure({ area:'app', action:'admin_login_sync_credentials', error:result.error });
+      }
+    });
+  }, [currentUser]);
+
   function handleLogin(user) {
     setCurrentUser(user);
     save('_session', user);
     const p = getProfile(user.username);
     setProfile(p);
     const creds = load('credentials', {});
-    const perms = creds[user.username]?.permissions || DEFAULT_USER_PERMS;
+    const perms = user.permissions || creds[user.username]?.permissions || DEFAULT_USER_PERMS;
     setUserPerms(perms);
     const isAdmin = user.role === 'admin';
     const firstTab = isAdmin ? TABS_ADMIN[0].id : (ALL_USER_TABS.find(t => perms.includes(t.id))?.id || 'shopping');

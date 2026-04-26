@@ -17,6 +17,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean);
 const STORE_DIR = path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(STORE_DIR, 'used-reset-tokens.json');
+const USERS_FILE = path.join(STORE_DIR, 'credentials.json');
 
 if (!JWT_SECRET || JWT_SECRET.length < 24) {
   console.error('ADMIN_RESET_JWT_SECRET is missing or too short.');
@@ -25,6 +26,7 @@ if (!JWT_SECRET || JWT_SECRET.length < 24) {
 
 if (!fs.existsSync(STORE_DIR)) fs.mkdirSync(STORE_DIR, { recursive: true });
 if (!fs.existsSync(STORE_FILE)) fs.writeFileSync(STORE_FILE, JSON.stringify({ used: [] }, null, 2));
+if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify({}, null, 2));
 
 function readUsedStore() {
   try {
@@ -49,6 +51,33 @@ function isUsed(jti) {
 function createAuditId() {
   return 'AUD-' + Date.now().toString(36).toUpperCase();
 }
+function readUsers() {
+  try {
+    const v = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    return (v && typeof v === 'object') ? v : {};
+  } catch {
+    return {};
+  }
+}
+function writeUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+function sanitizeCredentials(input) {
+  const src = (input && typeof input === 'object') ? input : {};
+  const out = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (!v || typeof v !== 'object') continue;
+    if (!/^[a-z0-9_]+$/i.test(k)) continue;
+    if (!v.password || typeof v.password !== 'string') continue;
+    out[k.toLowerCase()] = {
+      password: v.password,
+      role: v.role === 'admin' ? 'admin' : 'user',
+      displayName: typeof v.displayName === 'string' ? v.displayName : k,
+      permissions: Array.isArray(v.permissions) ? v.permissions : undefined
+    };
+  }
+  return out;
+}
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -63,6 +92,39 @@ app.use(cors({
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'admin-reset-backend' });
+});
+
+app.get('/api/auth/status', (_req, res) => {
+  const users = readUsers();
+  res.json({ ok: true, hasUsers: Object.keys(users).length > 0, userCount: Object.keys(users).length });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, passwordHash } = req.body || {};
+  if (!username || !passwordHash) return res.status(400).json({ ok: false, error: 'username and passwordHash required' });
+  const users = readUsers();
+  const key = String(username).trim().toLowerCase();
+  const u = users[key];
+  if (!u) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+  if (u.password !== passwordHash) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+  return res.json({
+    ok: true,
+    user: {
+      username: key,
+      role: u.role || (key === 'admin' ? 'admin' : 'user'),
+      displayName: u.displayName || key,
+      permissions: u.permissions || []
+    },
+    credentialsSnapshot: users
+  });
+});
+
+app.post('/api/auth/sync', (req, res) => {
+  const { credentials } = req.body || {};
+  const cleaned = sanitizeCredentials(credentials);
+  if (!Object.keys(cleaned).length) return res.status(400).json({ ok: false, error: 'No valid credentials to sync' });
+  writeUsers(cleaned);
+  return res.json({ ok: true, userCount: Object.keys(cleaned).length });
 });
 
 app.post('/api/admin-reset/validate', (req, res) => {

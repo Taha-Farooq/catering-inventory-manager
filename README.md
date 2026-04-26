@@ -45,6 +45,30 @@ For easiest Windows reliability, use:
 
 This installs and auto-starts the backend reset service on login.
 
+## Free Hosted Central Login (Recommended)
+
+You can keep the website on GitHub Pages and host the auth backend for free on Render.
+
+1. Push this repo to GitHub.
+2. In Render, create a new Web Service from this repo.
+3. Render will auto-detect `render.yaml` in this project and provision the backend service.
+4. After deploy, copy the backend URL (for example `https://catering-inventory-auth.onrender.com`).
+5. Set `auth-api-config.json`:
+
+```json
+{
+  "apiBase": "https://your-backend-url.onrender.com"
+}
+```
+
+6. Commit and publish to GitHub Pages.
+
+Result:
+- first-time setup screen appears only when no central users exist
+- once admin imports users, all devices become login-only
+- admin credentials open admin features; staff credentials open only allowed tabs
+- invalid credentials show a generic login error
+
 ## License
 
 MIT

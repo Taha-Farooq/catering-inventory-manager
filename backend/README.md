@@ -1,6 +1,6 @@
-# Admin Reset Backend
+# Auth + Admin Reset Backend
 
-Secure companion API for admin password reset approval when frontend is hosted on GitHub Pages.
+Secure companion API for centralized login and admin password reset approval when frontend is hosted on GitHub Pages.
 
 ## 1) Setup
 
@@ -24,6 +24,15 @@ npm run dev
 ```
 
 Backend starts on `http://localhost:8787`.
+
+API includes:
+
+- `GET /health`
+- `GET /api/auth/status`
+- `POST /api/auth/login`
+- `POST /api/auth/sync`
+- `POST /api/admin-reset/validate`
+- `POST /api/admin-reset/complete`
 
 For low-tech reliability, keep it running as a background service on the same machine where resets are performed.
 
@@ -88,14 +97,35 @@ Logs are written to:
 
 The app is configured to call:
 
-- `POST /api/admin-reset/validate`
-- `POST /api/admin-reset/complete`
+- centralized auth endpoints (`/api/auth/*`)
+- admin reset endpoints (`/api/admin-reset/*`)
 
 at `http://localhost:8787`.
 
-If you deploy this backend, update `ADMIN_RESET_API_BASE` in `index.html` to your hosted API URL.
+If you deploy this backend, set `auth-api-config.json` in the project root:
+
+```json
+{
+  "apiBase": "https://your-hosted-backend-url"
+}
+```
+
+The frontend also supports temporary override via URL query:
+
+- `?apiBase=https://your-hosted-backend-url`
 
 ## Notes
 
 - Token reuse is blocked using `backend/data/used-reset-tokens.json`.
 - Password hash write remains in browser local data by design (static app architecture).
+
+## Free Render Deploy (Automated)
+
+This repo includes a root `render.yaml` for one-click free-tier deploy.
+
+In Render:
+
+1. New Web Service -> connect GitHub repo.
+2. Keep defaults from blueprint (`render.yaml`).
+3. Deploy.
+4. Copy service URL and set it in root `auth-api-config.json`.
