@@ -2276,7 +2276,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   const all=useMemo(()=>{
     const p=purchaseInvoices.map(i=>({...i,_type:'purchase',_date:i.date}));
     const c=cateringInvoices.map(i=>({...i,_type:'catering',_date:i.date||i.dateStart}));
-    const t=transferInvoices.map(i=>({...i,_type:'transfer',_date:i.date, supplier:`${i.from} -> ${i.to}`}));
+    const t=transferInvoices.map(i=>({...i,_type:'transfer',_date:i.date, supplier:`${i.from}${i.fromContact?` (${i.fromContact})`:''} -> ${i.to}${i.toContact?` (${i.toContact})`:''}`}));
     return [...p,...c,...t].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   },[purchaseInvoices,cateringInvoices,transferInvoices]);
 
@@ -2462,7 +2462,9 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
   const blankForm = () => ({
     date: today(),
     from: 'Parathas & Platters - Hackensack',
+    fromContact: 'Hackensack Branch',
     to: 'Parathas & Platters - Englewood',
+    toContact: 'Englewood Branch',
     notes: '',
     lineItems: [{ quantity:'', item:'', price:'' }]
   });
@@ -2513,7 +2515,9 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
       status: 'unpaid',
       date: form.date,
       from: form.from,
+      fromContact: form.fromContact.trim(),
       to: form.to,
+      toContact: form.toContact.trim(),
       notes: form.notes.trim(),
       lineItems: lines,
       commissionRate: COMMISSION_RATE,
@@ -2601,6 +2605,10 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
             <FI label="From" value={form.from} onChange={e=>setForm(f=>({...f,from:e.target.value}))} />
             <FI label="To" value={form.to} onChange={e=>setForm(f=>({...f,to:e.target.value}))} />
           </div>
+          <div className="grid-2">
+            <FI label="From Contact (phone/email/name)" value={form.fromContact} onChange={e=>setForm(f=>({...f,fromContact:e.target.value}))} placeholder="Optional contact details" />
+            <FI label="To Contact (phone/email/name)" value={form.toContact} onChange={e=>setForm(f=>({...f,toContact:e.target.value}))} placeholder="Optional contact details" />
+          </div>
           <FI label="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
 
           <div className="flex-between mb-2">
@@ -2673,8 +2681,14 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
             </div>
             <div className="card" style={{padding:12,marginBottom:12,background:'#fffdf8'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,fontSize:13}}>
-                <div><strong>From:</strong> {viewInv.from}</div>
-                <div><strong>To:</strong> {viewInv.to}</div>
+                <div>
+                  <strong>From:</strong> {viewInv.from}
+                  {viewInv.fromContact && <div style={{color:'#666',fontSize:12,marginTop:2}}>{viewInv.fromContact}</div>}
+                </div>
+                <div>
+                  <strong>To:</strong> {viewInv.to}
+                  {viewInv.toContact && <div style={{color:'#666',fontSize:12,marginTop:2}}>{viewInv.toContact}</div>}
+                </div>
               </div>
             </div>
             <div className="tbl-wrap mb-3">
