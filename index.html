@@ -11,7 +11,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Catering Inventory Manager</title>
+  <title>DMG Software Suite</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
@@ -160,10 +160,19 @@
       background:linear-gradient(135deg,#4a1800 0%,var(--brown-dk) 40%, var(--brown) 100%); padding:20px; }
     .login-card { background:white; border-radius:14px; padding:clamp(24px,5vw,44px);
       width:100%; max-width:400px; box-shadow:0 24px 80px rgba(0,0,0,.4); }
-    .login-logo { text-align:center; margin-bottom:28px; }
+    .login-logo { text-align:center; margin-bottom:20px; }
     .login-logo .icon { font-size:52px; line-height:1; }
     .login-logo h1 { font-size:22px; font-weight:700; color:var(--brown); margin-top:8px; }
     .login-logo p { font-size:13px; color:#888; margin-top:4px; }
+    .login-brand-row { display:flex; justify-content:center; gap:10px; margin:0 auto 10px; flex-wrap:wrap; }
+    .login-brand-logo {
+      width:48px; height:48px; border-radius:50%; object-fit:cover; border:2px solid #EED9B0; background:#fff;
+      box-shadow:0 4px 10px rgba(0,0,0,.08);
+    }
+    .header-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .header-title-logo {
+      width:34px; height:34px; border-radius:50%; object-fit:cover; border:2px solid rgba(255,255,255,.55); background:#fff;
+    }
 
     /* ── Scrollbar styling ── */
     ::-webkit-scrollbar { width:7px; height:7px; }
@@ -543,7 +552,7 @@ const initGlobalFailureCapture = () => {
 const downloadFailureLog = () => {
   const payload = {
     exportedAt: new Date().toISOString(),
-    app: 'Catering Inventory Manager',
+    app: 'DMG Software Suite',
     page: window.location.href,
     userAgent: navigator.userAgent || '',
     failures: load(FAILURE_LOG_KEY, [])
@@ -602,6 +611,7 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
   const hasBackup = log.some(e => e?.action === 'export_backup');
   const doneCount = [hasStarterData, hasResetCode, hasBackup].filter(Boolean).length;
   const allDone = doneCount === 3;
+  if (allDone) return null;
 
   return (
     <div className="card" style={{border:'1.5px solid #EED9B0',background:'#fffdf8'}}>
@@ -609,8 +619,7 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
         <div style={{fontWeight:800,color:'var(--brown)',fontSize:16}}>✅ First-Time Setup Checklist</div>
         <span className="badge badge-user">{doneCount}/3 complete</span>
       </div>
-      {!allDone && <div style={{fontSize:13,color:'#6b4b20',marginBottom:10}}>Complete these once to reduce support issues.</div>}
-      {allDone && <div style={{fontSize:13,color:'#166534',marginBottom:10}}>All essential setup steps are complete.</div>}
+      <div style={{fontSize:13,color:'#6b4b20',marginBottom:10}}>Complete these once to reduce support issues.</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr',gap:6,fontSize:13,marginBottom:12}}>
         <div>{hasStarterData ? '✅' : '⬜'} Starter data imported (admin + items available)</div>
         <div>{hasResetCode ? '✅' : '⬜'} Quick Reset Code configured (Settings -> Admin Credentials)</div>
@@ -999,8 +1008,12 @@ function LoginScreen({ onLogin }) {
     <div className="login-screen">
       <div className="login-card">
         <div className="login-logo">
-          <div className="icon">🍽️</div>
-          <h1>Catering Inventory Manager</h1>
+          <div className="login-brand-row">
+            <img className="login-brand-logo" src={BRANDING.degrill.logo} alt="DeGrill logo" />
+            <img className="login-brand-logo" src={BRANDING.parathas.logo} alt="Parathas and Platters logo" />
+            <img className="login-brand-logo" src={BRANDING.dera.logo} alt="Dera Masala Grill logo" />
+          </div>
+          <h1>DMG Software Suite</h1>
           <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
         </div>
         <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color:'#7a5c00'}}>
@@ -4305,6 +4318,11 @@ function App() {
     setTab(id);
     logActivity('tab_change', 'Navigated to ' + id);
   }
+  function goToTab(id) {
+    const owner = navGroups.find(g => g.tabs.includes(id));
+    if (owner) setNavGroup(owner.id);
+    handleTabChange(id);
+  }
 
   function handleProfileSave(data) {
     saveProfileData(currentUser.username, data);
@@ -4366,7 +4384,10 @@ function App() {
       <div className="app-header no-print">
         <div className="header-row">
           <div>
-            <h1>🍽️ DMG Software Suite</h1>
+            <div className="header-title">
+              <img className="header-title-logo" src={(BRANDING[biz]?.logo || BRANDING.degrill.logo)} alt={`${bizInfo.name} logo`} />
+              <h1 style={{margin:0}}>DMG Software Suite</h1>
+            </div>
             <div className="sub">{bizInfo.name} · {bizInfo.location} · Tax: {(bizInfo.taxRate*100).toFixed(3)}%</div>
           </div>
           <div className="header-actions">
@@ -4397,7 +4418,14 @@ function App() {
       {/* ── Tabs ── */}
       <div className="group-bar no-print">
         {navGroups.map(g => (
-          <button key={g.id} className={`group-btn${navGroup===g.id?' active':''}`} onClick={()=>setNavGroup(g.id)}>
+          <button
+            key={g.id}
+            className={`group-btn${navGroup===g.id?' active':''}`}
+            onClick={()=>{
+              setNavGroup(g.id);
+              if (!g.tabs.includes(tab) && g.tabs[0]) handleTabChange(g.tabs[0]);
+            }}
+          >
             {g.label}
           </button>
         ))}
@@ -4425,8 +4453,8 @@ function App() {
             <SetupQuickActions
               itemsCount={items.length}
               onOpenSettings={()=>setShowSettings(true)}
-              onGoTransfer={()=>setTab('transfer')}
-              onGoArchive={()=>setTab('archive')}
+              onGoTransfer={()=>goToTab('transfer')}
+              onGoArchive={()=>goToTab('archive')}
             />
           </div>
         )}
