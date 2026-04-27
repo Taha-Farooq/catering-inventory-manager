@@ -219,6 +219,7 @@ const TABS_ADMIN = [
   { id:'catering',  label:'🍽️ Catering Inv.' },
   { id:'customers', label:'👥 Customers' },
   { id:'analytics', label:'📊 Analytics' },
+  { id:'dailyfin',  label:'🧾 Daily Income & Expense' },
   { id:'archive',   label:'🗂️ Archive' },
   { id:'history',   label:'📈 Price History' },
   { id:'margins',   label:'💹 Menu Margins' },
@@ -246,7 +247,7 @@ const NAV_GROUPS_ADMIN = [
   { id:'ops', label:'Stock', tabs:['items','shopping','pricer'] },
   { id:'inv', label:'Invoices', tabs:['purchase','catering','transfer','archive'] },
   { id:'people', label:'Staff', tabs:['checkio','customers','actlog'] },
-  { id:'finance', label:'Money', tabs:['analytics','margins','history'] },
+  { id:'finance', label:'Money', tabs:['analytics','dailyfin','margins','history'] },
   { id:'admin', label:'Tools', tabs:['scanbeta','help'] }
 ];
 const NAV_GROUPS_USER = [
@@ -2516,12 +2517,286 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// TAB 6 — ANALYTICS
+// TAB 6 — DAILY INCOME / EXPENSE
 // ═══════════════════════════════════════════════════════════
-function Analytics({ cateringInvoices, purchaseInvoices }) {
+function DailyIncomeExpense({ entries, setEntries, selectedBusiness }) {
+  const importRef = useRef();
+  const [form, setForm] = useState(() => ({
+    date: today(),
+    business: selectedBusiness || 'degrill',
+    income: '',
+    expense: '',
+    salesTaxCollected: '',
+    taxPaid: '',
+    notes: ''
+  }));
+  const [monthF, setMonthF] = useState('');
+  const [yearF, setYearF] = useState('');
+
+  useEffect(() => {
+    setForm(f => ({ ...f, business: selectedBusiness || f.business || 'degrill' }));
+  }, [selectedBusiness]);
+
+  const sorted = useMemo(
+    () => [...entries].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    [entries]
+  );
+
+  const filtered = useMemo(() => sorted.filter(r => {
+    if (monthF && (r.date || '').slice(5,7) !== monthF) return false;
+    if (yearF && (r.date || '').slice(0,4) !== yearF) return false;
+    return true;
+  }), [sorted, monthF, yearF]);
+
+  const totals = useMemo(() => filtered.reduce((acc, r) => {
+    acc.income += +(r.income || 0);
+    acc.expense += +(r.expense || 0);
+    acc.salesTaxCollected += +(r.salesTaxCollected || 0);
+    acc.taxPaid += +(r.taxPaid || 0);
+    return acc;
+  }, { income:0, expense:0, salesTaxCollected:0, taxPaid:0 }), [filtered]);
+
+  const net = +(totals.income - totals.expense).toFixed(2);
+  const estimatedIncomeTax = +(Math.max(net, 0) * 0.22).toFixed(2);
+  const salesTaxDue = +(totals.salesTaxCollected - totals.taxPaid).toFixed(2);
+
+  const monthly = useMemo(() => {
+    const m = {};
+    entries.forEach(r => {
+      const d = (r.date || '').slice(0,7);
+      if (!d) return;
+      if (!m[d]) m[d] = { month: d, income:0, expense:0, tax:0 };
+      m[d].income += +(r.income || 0);
+      m[d].expense += +(r.expense || 0);
+      m[d].tax += +((r.salesTaxCollected || 0) - (r.taxPaid || 0));
+    });
+    return Object.values(m).sort((a,b)=>a.month.localeCompare(b.month)).slice(-18).map(x => ({
+      ...x,
+      net: +(x.income - x.expense).toFixed(2),
+      label: `${x.month.slice(5)}/${x.month.slice(2,4)}`
+    }));
+  }, [entries]);
+
+  function parseNum(v) {
+    if (v === '' || v == null) return 0;
+    const n = parseFloat(String(v).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) ? +n.toFixed(2) : 0;
+  }
+
+  function saveRow() {
+    if (!form.date) { showToast('Date is required.', 'error'); return; }
+    const row = {
+      id: uid(),
+      date: form.date,
+      business: form.business || selectedBusiness || 'degrill',
+      income: parseNum(form.income),
+      expense: parseNum(form.expense),
+      salesTaxCollected: parseNum(form.salesTaxCollected),
+      taxPaid: parseNum(form.taxPaid),
+      notes: String(form.notes || '').trim(),
+      createdAt: new Date().toISOString()
+    };
+    const next = [...entries, row];
+    setEntries(next);
+    save('_dailyFinanceEntries', next);
+    setForm(f => ({ ...f, income:'', expense:'', salesTaxCollected:'', taxPaid:'', notes:'' }));
+    logActivity('add_item', `Added daily finance row ${row.date}`);
+    showToast('Daily finance entry saved.');
+  }
+
+  function deleteRow(id) {
+    const next = entries.filter(x => x.id !== id);
+    setEntries(next);
+    save('_dailyFinanceEntries', next);
+    showToast('Entry deleted.');
+  }
+
+  function toExcelRows(rows) {
+    return rows.map(r => ({
+      Date: r.date || '',
+      Business: BUSINESSES[r.business]?.name || r.business || '',
+      Income: +(r.income || 0).toFixed(2),
+      Expense: +(r.expense || 0).toFixed(2),
+      'Net Profit': +((r.income || 0) - (r.expense || 0)).toFixed(2),
+      'Sales Tax Collected': +(r.salesTaxCollected || 0).toFixed(2),
+      'Tax Paid': +(r.taxPaid || 0).toFixed(2),
+      'Sales Tax Due': +((r.salesTaxCollected || 0) - (r.taxPaid || 0)).toFixed(2),
+      Notes: r.notes || ''
+    }));
+  }
+
+  function exportExcel() {
+    if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
+    const wb = XLSX.utils.book_new();
+    const dataRows = toExcelRows(filtered);
+    const summaryRows = [{
+      Scope: `${yearF || 'All years'} ${monthF ? `month ${monthF}` : ''}`.trim(),
+      Income: +totals.income.toFixed(2),
+      Expense: +totals.expense.toFixed(2),
+      'Net Profit': +net.toFixed(2),
+      'Estimated Income Tax (22%)': +estimatedIncomeTax.toFixed(2),
+      'Sales Tax Collected': +totals.salesTaxCollected.toFixed(2),
+      'Tax Paid': +totals.taxPaid.toFixed(2),
+      'Sales Tax Due': +salesTaxDue.toFixed(2),
+      'Generated At': new Date().toLocaleString()
+    }];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dataRows.length ? dataRows : [{ Date:'', Business:'', Income:'', Expense:'', 'Net Profit':'', 'Sales Tax Collected':'', 'Tax Paid':'', 'Sales Tax Due':'', Notes:'' }]), 'Daily Ledger');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Tax Summary');
+    XLSX.writeFile(wb, `daily-income-expense-${today()}.xlsx`);
+    logActivity('export_xlsx', 'Exported daily income/expense Excel');
+    showToast('Daily finance + tax summary exported.');
+  }
+
+  function normalizeDate(v) {
+    if (typeof v === 'number' && Number.isFinite(v) && window.XLSX?.SSF?.parse_date_code) {
+      const p = XLSX.SSF.parse_date_code(v);
+      if (p && p.y && p.m && p.d) return `${String(p.y).padStart(4,'0')}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+    }
+    const s = String(v || '').trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0,10);
+    return '';
+  }
+
+  function pick(row, keys) {
+    const norm = {};
+    Object.keys(row || {}).forEach(k => { norm[String(k).toLowerCase().replace(/[^a-z0-9]/g,'')] = row[k]; });
+    for (const key of keys) {
+      const n = key.toLowerCase().replace(/[^a-z0-9]/g,'');
+      if (Object.prototype.hasOwnProperty.call(norm, n)) return norm[n];
+    }
+    return '';
+  }
+
+  async function importExcel(file) {
+    try {
+      if (!file) return;
+      if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+      if (!rows.length) { showToast('No rows found in uploaded file.', 'error'); return; }
+      const mapped = rows.map(r => {
+        const date = normalizeDate(pick(r, ['date','day','transaction date','entry date']));
+        const bizRaw = String(pick(r, ['business','store','location']) || '').toLowerCase();
+        const business = Object.keys(BUSINESSES).find(k => bizRaw.includes(k) || bizRaw.includes(BUSINESSES[k].name.toLowerCase())) || selectedBusiness || 'degrill';
+        return {
+          id: uid(),
+          date: date || today(),
+          business,
+          income: parseNum(pick(r, ['income','revenue','sales','cashin'])),
+          expense: parseNum(pick(r, ['expense','expenses','cost','spend','cashout'])),
+          salesTaxCollected: parseNum(pick(r, ['salestaxcollected','taxcollected','sales tax'])),
+          taxPaid: parseNum(pick(r, ['taxpaid','tax payment','tax remitted'])),
+          notes: String(pick(r, ['notes','memo','description']) || '').trim(),
+          createdAt: new Date().toISOString()
+        };
+      }).filter(r => r.date);
+      if (!mapped.length) { showToast('No valid rows detected.', 'error'); return; }
+      const next = [...entries, ...mapped];
+      setEntries(next);
+      save('_dailyFinanceEntries', next);
+      logActivity('restore_backup', `Imported ${mapped.length} daily finance rows from Excel`);
+      showToast(`Imported ${mapped.length} rows from Excel.`);
+    } catch (e) {
+      logFailure({ area:'daily_finance', action:'import_excel', error:e });
+      showToast('Excel import failed. Check column names and try again.', 'error');
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex-between mb-3 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Daily Income & Expense</div>
+        <div className="flex gap-2">
+          <Btn className="btn-outline btn-sm" onClick={()=>importRef.current?.click()}>⬆ Upload Excel (2025/2026)</Btn>
+          <input ref={importRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={e=>{importExcel(e.target.files?.[0]); e.target.value='';}} />
+          <Btn className="btn-success btn-sm" onClick={exportExcel}>⬇ Export Excel</Btn>
+        </div>
+      </div>
+      <div className="hint-card">Use this for daily accounting, backfill old records via Excel, and auto-generate tax-ready summaries.</div>
+
+      <div className="card mb-3">
+        <div className="grid-3">
+          <FI label="Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
+          <div className="field"><label>Business</label><select className="input" value={form.business} onChange={e=>setForm(f=>({...f,business:e.target.value}))}>{Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}</select></div>
+          <FI label="Daily Income" type="number" step="0.01" value={form.income} onChange={e=>setForm(f=>({...f,income:e.target.value}))} />
+          <FI label="Daily Expense" type="number" step="0.01" value={form.expense} onChange={e=>setForm(f=>({...f,expense:e.target.value}))} />
+          <FI label="Sales Tax Collected" type="number" step="0.01" value={form.salesTaxCollected} onChange={e=>setForm(f=>({...f,salesTaxCollected:e.target.value}))} />
+          <FI label="Tax Paid" type="number" step="0.01" value={form.taxPaid} onChange={e=>setForm(f=>({...f,taxPaid:e.target.value}))} />
+        </div>
+        <FI label="Notes" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
+        <div className="flex" style={{justifyContent:'flex-end'}}><Btn className="btn-primary" onClick={saveRow}>Save Daily Entry</Btn></div>
+      </div>
+
+      <div className="card mb-3" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}>
+        <div className="field" style={{margin:0}}><label>Year</label><input className="input" placeholder="e.g. 2026" value={yearF} onChange={e=>setYearF(e.target.value.replace(/[^0-9]/g,'').slice(0,4))} /></div>
+        <div className="field" style={{margin:0}}><label>Month</label><select className="input" value={monthF} onChange={e=>setMonthF(e.target.value)}><option value="">All</option>{Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0')).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+      </div>
+
+      <div className="stat-grid">
+        {[{v:fmt$(totals.income),l:'Income'},{v:fmt$(totals.expense),l:'Expense'},{v:fmt$(net),l:'Net Profit'},{v:fmt$(estimatedIncomeTax),l:'Estimated Income Tax'},{v:fmt$(salesTaxDue),l:'Sales Tax Due'},{v:filtered.length,l:'Daily Entries'}].map((s,i)=><div key={i} className="stat-card"><div className="stat-val">{s.v}</div><div className="stat-lbl">{s.l}</div></div>)}
+      </div>
+
+      {monthly.length > 1 && LineChart && (
+        <div className="card mb-3">
+          <h3 style={{marginBottom:12,color:'var(--brown)',fontSize:15}}>Monthly Income vs Expense vs Net</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={monthly}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
+              <XAxis dataKey="label" tick={{fontSize:11}} />
+              <YAxis tickFormatter={v=>'$'+Number(v).toLocaleString()} tick={{fontSize:11}} width={70} />
+              <Tooltip formatter={v=>fmt$(v)} />
+              <Legend />
+              <Line type="monotone" dataKey="income" stroke="#16a34a" strokeWidth={2.3} dot={{r:3}} name="Income" />
+              <Line type="monotone" dataKey="expense" stroke="#dc2626" strokeWidth={2.3} dot={{r:3}} name="Expense" />
+              <Line type="monotone" dataKey="net" stroke="#8B4513" strokeWidth={2.6} dot={{r:3}} name="Net" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <div className="card" style={{padding:0}}>
+        <div className="tbl-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Business</th><th>Income</th><th>Expense</th><th>Net</th><th>Tax Collected</th><th>Tax Paid</th><th>Tax Due</th><th>Notes</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map(r=>(
+                <tr key={r.id}>
+                  <td>{fmtDate(r.date)}</td>
+                  <td>{BUSINESSES[r.business]?.name || r.business}</td>
+                  <td>{fmt$(r.income||0)}</td>
+                  <td>{fmt$(r.expense||0)}</td>
+                  <td style={{fontWeight:700,color:(r.income-r.expense)>=0?'var(--success)':'var(--danger)'}}>{fmt$((r.income||0)-(r.expense||0))}</td>
+                  <td>{fmt$(r.salesTaxCollected||0)}</td>
+                  <td>{fmt$(r.taxPaid||0)}</td>
+                  <td>{fmt$((r.salesTaxCollected||0)-(r.taxPaid||0))}</td>
+                  <td>{r.notes || '—'}</td>
+                  <td><Btn className="btn-danger btn-sm" onClick={()=>deleteRow(r.id)}>Delete</Btn></td>
+                </tr>
+              ))}
+              {filtered.length===0 && <tr><td colSpan={10} style={{textAlign:'center',padding:20,color:'#999'}}>No daily finance records yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TAB 7 — ANALYTICS
+// ═══════════════════════════════════════════════════════════
+function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) {
   const totalRevenue=useMemo(()=>cateringInvoices.reduce((s,i)=>s+(i.grandTotal||0),0),[cateringInvoices]);
   const totalSpending=useMemo(()=>purchaseInvoices.reduce((s,i)=>s+(i.total||0),0),[purchaseInvoices]);
   const outstanding=useMemo(()=>cateringInvoices.reduce((s,i)=>s+(i.balanceDue||0),0),[cateringInvoices]);
+  const manualIncome=useMemo(()=>dailyFinanceEntries.reduce((s,i)=>s+(i.income||0),0),[dailyFinanceEntries]);
+  const manualExpense=useMemo(()=>dailyFinanceEntries.reduce((s,i)=>s+(i.expense||0),0),[dailyFinanceEntries]);
+  const taxDue=useMemo(()=>dailyFinanceEntries.reduce((s,i)=>s+((i.salesTaxCollected||0)-(i.taxPaid||0)),0),[dailyFinanceEntries]);
 
   const monthRevenue=useMemo(()=>{
     const m={};
@@ -2548,9 +2823,10 @@ function Analytics({ cateringInvoices, purchaseInvoices }) {
       <div className="section-title">Analytics Dashboard</div>
       <div className="stat-grid">
         {[
-          {v:fmt$(totalRevenue),l:'Total Revenue'},
+          {v:fmt$(totalRevenue + manualIncome),l:'Total Revenue (Invoices + Daily)'},
           {v:fmt$(outstanding),l:'Outstanding Balance'},
-          {v:fmt$(totalSpending),l:'Total Purchases'},
+          {v:fmt$(totalSpending + manualExpense),l:'Total Expenses (Purchases + Daily)'},
+          {v:fmt$(taxDue),l:'Sales Tax Due (Daily Ledger)'},
           {v:cateringInvoices.length,l:'Catering Invoices'},
           {v:purchaseInvoices.length,l:'Purchase Orders'},
           {v:cateringInvoices.length>0?fmt$(totalRevenue/cateringInvoices.length):'—',l:'Avg Invoice Value'},
@@ -2613,7 +2889,7 @@ function Analytics({ cateringInvoices, purchaseInvoices }) {
 // ═══════════════════════════════════════════════════════════
 // TAB 7 — INVOICE ARCHIVE
 // ═══════════════════════════════════════════════════════════
-function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, userRole }) {
+function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, payrollInvoices, setPayrollInvoices, userRole }) {
   const isAdmin=userRole==='admin';
   const [typeF,setTypeF]=useState('all');
   const [statusF,setStatusF]=useState('all');
@@ -2627,8 +2903,9 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
     const p=purchaseInvoices.map(i=>({...i,_type:'purchase',_date:i.date}));
     const c=cateringInvoices.map(i=>({...i,_type:'catering',_date:i.date||i.dateStart}));
     const t=transferInvoices.map(i=>({...i,_type:'transfer',_date:i.date, supplier:`${i.from}${i.fromContact?` (${i.fromContact})`:''} -> ${i.to}${i.toContact?` (${i.toContact})`:''}`}));
-    return [...p,...c,...t].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-  },[purchaseInvoices,cateringInvoices,transferInvoices]);
+    const y=(payrollInvoices||[]).map(i=>({...i,_type:'payroll',_date:i.date, customerName:i.employeeName || i.employeeUsername || ''}));
+    return [...p,...c,...t,...y].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  },[purchaseInvoices,cateringInvoices,transferInvoices,payrollInvoices]);
 
   const filtered=useMemo(()=>all.filter(inv=>{
     if(typeF!=='all'&&inv._type!==typeF) return false;
@@ -2643,14 +2920,16 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   function markPaid(inv){
     if(inv._type==='purchase'){const u=purchaseInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
     else if(inv._type==='catering'){const u=cateringInvoices.map(x=>x.id===inv.id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
-    else{const u=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setTransferInvoices(u);save('transferInvoices',u);}
+    else if(inv._type==='transfer'){const u=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setTransferInvoices(u);save('transferInvoices',u);}
+    else {const u=(payrollInvoices||[]).map(x=>x.id===inv.id?{...x,status:'paid'}:x);setPayrollInvoices(u);save('payrollInvoices',u);}
     showToast('Invoice marked paid.');
     logActivity('mark_paid', 'Marked '+inv._type+' invoice paid '+inv.id);
   }
   function deleteInv({id,_type}){
     if(_type==='purchase'){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);}
     else if(_type==='catering'){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);}
-    else{const u=transferInvoices.filter(x=>x.id!==id);setTransferInvoices(u);save('transferInvoices',u);}
+    else if(_type==='transfer'){const u=transferInvoices.filter(x=>x.id!==id);setTransferInvoices(u);save('transferInvoices',u);}
+    else{const u=(payrollInvoices||[]).filter(x=>x.id!==id);setPayrollInvoices(u);save('payrollInvoices',u);}
     setConfirmObj(null);
     showToast('Invoice deleted.');
     logActivity('delete_invoice', 'Deleted '+_type+' invoice '+id);
@@ -2712,7 +2991,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:12}}>
           <div className="field" style={{margin:0}}><label>Type</label>
             <select className="input" value={typeF} onChange={e=>setTypeF(e.target.value)}>
-              <option value="all">All Types</option><option value="catering">Catering</option><option value="purchase">Purchase</option><option value="transfer">Transfer</option>
+              <option value="all">All Types</option><option value="catering">Catering</option><option value="purchase">Purchase</option><option value="transfer">Transfer</option><option value="payroll">Payroll</option>
             </select>
           </div>
           <div className="field" style={{margin:0}}><label>Status</label>
@@ -2748,7 +3027,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
                       <td><span style={{fontSize:11,padding:'2px 7px',borderRadius:10,fontWeight:600,background:inv._type==='catering'?'#E8F4FC':inv._type==='transfer'?'#EEF9F1':'#FFF0E0',color:inv._type==='catering'?'#2980b9':inv._type==='transfer'?'#1e7a3b':'var(--choc)'}}>{inv._type}</span></td>
                       <td style={{fontWeight:600}}>{inv.customerName||inv.supplier}</td>
                       <td style={{fontSize:12}}>{inv._type==='catering'&&inv.useRange?`${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`:fmtDate(inv._date)}</td>
-                      <td style={{fontSize:12,color:'#777'}}>{BUSINESSES[inv.business]?.name}</td>
+                      <td style={{fontSize:12,color:'#777'}}>{inv._type==='payroll' ? ((inv.invoiceStandard || 'PAYROLL_WEEKLY_V1') + ` · @${inv.employeeUsername || ''}`) : BUSINESSES[inv.business]?.name}</td>
                       <td style={{fontWeight:600}}>{fmt$(inv.total||inv.grandTotal)}</td>
                       <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
                       <td style={{whiteSpace:'nowrap'}}>
@@ -2791,6 +3070,14 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
               {viewInv.balanceDue!==undefined&&<div style={{color:viewInv.balanceDue>0?'var(--danger)':'var(--success)',fontWeight:600}}>Balance Due: {fmt$(viewInv.balanceDue)}</div>}
             </div>
             {viewInv._type==='catering'&&<div style={{marginTop:12,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}><strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}</div>}
+            {viewInv._type==='payroll'&&(
+              <div style={{marginTop:12,padding:10,background:'#E8F4FC',borderRadius:6,fontSize:12,color:'#1e4f72'}}>
+                <strong>Payroll Standard:</strong> {viewInv.invoiceStandard || 'PAYROLL_WEEKLY_V1'}
+                <br /><strong>Employee:</strong> {viewInv.employeeName || viewInv.customerName} (@{viewInv.employeeUsername || 'user'})
+                <br /><strong>Hours:</strong> {viewInv.hours || 0} (Regular {viewInv.regularHours || 0}, OT {viewInv.overtimeHours || 0})
+                <br /><strong>Rate:</strong> {fmt$(viewInv.hourlyRate || 0)} / hour
+              </div>
+            )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
@@ -3565,7 +3852,7 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
   );
 }
 
-function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock }) {
+function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices }) {
   const isAdmin = currentUser?.role === 'admin';
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
   const [me, setMe] = useState(null);
@@ -3669,6 +3956,111 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock 
     a.href = url; a.download = `payroll-${weekStart}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   }
+  function exportPayrollPackExcel() {
+    if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
+    const rows = (summary.rows || []);
+    const generatedDocs = rows.map((r, idx) => {
+      const id = `PAY-${weekStart}-${r.username}`;
+      return {
+        id,
+        invoiceStandard: 'PAYROLL_WEEKLY_V1',
+        _type: 'payroll',
+        date: weekStart,
+        _date: weekStart,
+        business: selectedBusiness || 'degrill',
+        employeeUsername: r.username,
+        employeeName: r.displayName || r.username,
+        regularHours: +(r.regularHours || 0),
+        overtimeHours: +(r.overtimeHours || 0),
+        hours: +(r.hours || 0),
+        hourlyRate: +(r.hourlyRate || 0),
+        sessions: +(r.sessions || 0),
+        total: +(r.weeklyPay || 0),
+        status: 'unpaid',
+        createdAt: new Date().toISOString(),
+        notes: `Weekly salary invoice #${idx+1} for ${weekStart}`
+      };
+    });
+    const mergedDocs = [
+      ...(payrollInvoices || []).filter(x => !(x._type === 'payroll' && x.date === weekStart)),
+      ...generatedDocs
+    ];
+    setPayrollInvoices(mergedDocs);
+    save('payrollInvoices', mergedDocs);
+    const payrollRows = rows.map(r => ({
+      'Week Start': weekStart,
+      Username: r.username,
+      'Display Name': r.displayName || r.username,
+      Hours: +(r.hours || 0),
+      'Regular Hours': +(r.regularHours || 0),
+      'Overtime Hours': +(r.overtimeHours || 0),
+      'Hourly Rate': +(r.hourlyRate || 0),
+      'Weekly Salary': +(r.weeklyPay || 0),
+      Sessions: +(r.sessions || 0),
+      'Open Shift': summary.active?.[r.username] ? 'Yes' : 'No'
+    }));
+    const docsSummary = [{
+      'Week Start': weekStart,
+      Employees: rows.length,
+      'Total Hours': +rows.reduce((s, r) => s + (+r.hours || 0), 0).toFixed(2),
+      'Total Payroll': +rows.reduce((s, r) => s + (+r.weeklyPay || 0), 0).toFixed(2),
+      'Generated At': new Date().toLocaleString()
+    }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(payrollRows.length ? payrollRows : [{ 'Week Start': weekStart, Username:'', 'Display Name':'', Hours:'', 'Regular Hours':'', 'Overtime Hours':'', 'Hourly Rate':'', 'Weekly Salary':'', Sessions:'', 'Open Shift':'' }]), 'Payroll Register');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(docsSummary), 'Payroll Summary');
+    rows.forEach(r => {
+      const detail = [{
+        Document: 'Weekly Salary Invoice',
+        'Week Start': weekStart,
+        Username: r.username,
+        'Display Name': r.displayName || r.username,
+        'Regular Hours': +(r.regularHours || 0),
+        'Overtime Hours': +(r.overtimeHours || 0),
+        'Hourly Rate': +(r.hourlyRate || 0),
+        'Total Hours': +(r.hours || 0),
+        'Weekly Salary Due': +(r.weeklyPay || 0),
+        Sessions: +(r.sessions || 0),
+        'Open Shift': summary.active?.[r.username] ? 'Yes' : 'No'
+      }];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detail), (`INV-${r.username}`).slice(0, 31));
+    });
+    XLSX.writeFile(wb, `payroll-pack-${weekStart}.xlsx`);
+    logActivity('export_xlsx', 'Exported weekly payroll pack Excel');
+    showToast('Weekly salary invoices and employee docs exported.');
+  }
+  function printSalaryInvoices() {
+    const rows = summary.rows || [];
+    if (!rows.length) { showToast('No payroll rows to print.', 'error'); return; }
+    const html = `
+      <div>
+        <h2 style="margin:0 0 10px;color:#8B4513;">Weekly Salary Invoices</h2>
+        <div style="margin-bottom:12px;color:#555;">Week Start: ${weekStart}</div>
+        ${rows.map((r, idx) => `
+          <div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:0 0 10px;">
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <div>
+                <div style="font-size:16px;font-weight:700;color:#8B4513;">${r.displayName || r.username}</div>
+                <div style="font-size:12px;color:#666;">@${r.username}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:12px;color:#666;">Invoice # PAY-${weekStart}-${idx+1}</div>
+                <div style="font-size:12px;color:#666;">Generated ${new Date().toLocaleDateString()}</div>
+              </div>
+            </div>
+            <table style="margin-top:10px;width:100%;border-collapse:collapse;">
+              <tr><td style="padding:6px;border:1px solid #eee;">Regular Hours</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.regularHours || 0}</td></tr>
+              <tr><td style="padding:6px;border:1px solid #eee;">Overtime Hours</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.overtimeHours || 0}</td></tr>
+              <tr><td style="padding:6px;border:1px solid #eee;">Hourly Rate</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${fmt$(r.hourlyRate || 0)}</td></tr>
+              <tr><td style="padding:6px;border:1px solid #eee;">Attendance Sessions</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.sessions || 0}</td></tr>
+              <tr><td style="padding:6px;border:1px solid #eee;font-weight:700;">Weekly Salary Due</td><td style="padding:6px;border:1px solid #eee;text-align:right;font-weight:700;">${fmt$(r.weeklyPay || 0)}</td></tr>
+            </table>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    printHtmlDocument(html, `Weekly Salary Invoices ${weekStart}`);
+  }
   const qrImageUrl = qr?.url ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qr.url)}` : '';
 
   if (workGate.loading) {
@@ -3762,6 +4154,8 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock 
                 <input className="input" type="date" value={weekStart} onChange={e=>setWeekStart(e.target.value)} />
                 <Btn className="btn-outline btn-sm" onClick={loadSummary}>Refresh</Btn>
                 <Btn className="btn-success btn-sm" onClick={exportPayrollCsv}>Export CSV</Btn>
+                <Btn className="btn-success btn-sm" onClick={exportPayrollPackExcel}>Export Payroll Pack</Btn>
+                <Btn className="btn-outline btn-sm" onClick={printSalaryInvoices}>Print Salary Invoices</Btn>
               </div>
             </div>
             <div className="tbl-wrap">
@@ -4226,8 +4620,10 @@ function App() {
   const [shopping, setShopping] = useState(()=>load('shoppingList',[]));
   const [purchaseInv, setPurchaseInv] = useState(()=>load('purchaseInvoices',[]));
   const [transferInv, setTransferInv] = useState(()=>load('transferInvoices',[]));
+  const [payrollInvoices, setPayrollInvoices] = useState(()=>load('payrollInvoices',[]));
   const [cateringInv, setCateringInv] = useState(()=>load('cateringInvoices',[]));
   const [customers, setCustomers] = useState(()=>load('customers',[]));
+  const [dailyFinanceEntries, setDailyFinanceEntries] = useState(()=>load('_dailyFinanceEntries', []));
   const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
   const [kioskLock, setKioskLock] = useState(()=>load('_kioskLock', false));
@@ -4460,14 +4856,15 @@ function App() {
         )}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
-        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} />}
+        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
         {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} />}
         {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
-        {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} />}
-        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} userRole={currentUser.role} />}
+        {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
+        {tab==='dailyfin'  && isAdmin && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} />}
+        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}
