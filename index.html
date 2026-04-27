@@ -244,6 +244,17 @@ const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Sp
 const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
 const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
 const MENU_UNITS = ['each','oz','lb','g','kg','ml','l'];
+const INTERNAL_SELLER_NAME_KEYS = new Set([
+  'degrill inc',
+  'degrill',
+  'parathas and platters inc',
+  'parathas & platters',
+  'parathas and platters',
+  'dera masala grill inc',
+  'dera masala grill',
+  'dmg software suite',
+  'dmg',
+]);
 const NAV_GROUPS_ADMIN = [
   { id:'ops', label:'Stock', tabs:['items','shopping','pricer'] },
   { id:'inv', label:'Invoices', tabs:['purchase','catering','transfer','archive'] },
@@ -1707,6 +1718,10 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
       const sellerName = (s.name || '').trim();
       if (!sellerName) continue;
       const sk = sellerKey(sellerName);
+      if (INTERNAL_SELLER_NAME_KEYS.has(sk)) {
+        alert(`"${sellerName}" looks like one of your own companies, not an external supplier. Please use the actual vendor name.`);
+        return;
+      }
       if (seenSellerKeys.has(sk)) { alert(`Duplicate seller "${sellerName}" for this item. Use unique seller names.`); return; }
       seenSellerKeys.add(sk);
       const p = safePrice(s.price);
@@ -1734,12 +1749,32 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
   }
 
   function deleteItem(id) { const u=items.filter(x=>x.id!==id); setItems(u); save('items',u); setConfirmId(null); showToast('Item deleted.'); logActivity('delete_item','Deleted item'); }
+  function cleanupInternalSellers() {
+    let removed = 0;
+    const next = items.map(it => {
+      const sellers = Array.isArray(it.sellers) ? it.sellers : [];
+      const filteredSellers = sellers.filter(s => {
+        const keep = !INTERNAL_SELLER_NAME_KEYS.has(sellerKey(s?.name || ''));
+        if (!keep) removed += 1;
+        return keep;
+      });
+      return filteredSellers.length === sellers.length ? it : { ...it, sellers: filteredSellers };
+    });
+    if (!removed) { showToast('No internal company names found in sellers list.'); return; }
+    setItems(next);
+    save('items', next);
+    logActivity('edit_item', `Cleaned ${removed} internal-name sellers from catalog`);
+    showToast(`Removed ${removed} internal-name sellers from items.`);
+  }
 
   return (
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Item Database ({items.length})</div>
-        <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setShowForm(true);}}>＋ Add New Item</Btn>
+        <div className="flex gap-2">
+          {isAdmin && <Btn className="btn-outline" onClick={cleanupInternalSellers}>🧹 Clean Seller List</Btn>}
+          <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setShowForm(true);}}>＋ Add New Item</Btn>
+        </div>
       </div>
       <input className="input mb-4" placeholder="Search by name, category, or UPC…" value={search} onChange={e=>setSearch(e.target.value)} />
       {!isAdmin && <div style={{background:'#dbeafe',color:'#1d4ed8',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13}}>💡 Tip: You can add new items using the button above. To edit or delete items, contact your admin.</div>}
@@ -3858,11 +3893,13 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
 
 function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices }) {
   const isAdmin = currentUser?.role === 'admin';
+  const isKioskStation = isAdmin && kioskLock;
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
   const [me, setMe] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState(null);
+  const [qrCountdown, setQrCountdown] = useState(0);
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date();
     const diff = (d.getDay() + 6) % 7;
@@ -4067,6 +4104,28 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
   }
   const qrImageUrl = qr?.url ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qr.url)}` : '';
 
+  useEffect(() => {
+    if (!isKioskStation) return;
+    createQr();
+  }, [isKioskStation, currentUser?.username]);
+
+  useEffect(() => {
+    if (!isKioskStation || !qr?.expiresAt) return;
+    const tick = () => {
+      const left = Math.max(0, Math.floor((new Date(qr.expiresAt).getTime() - Date.now()) / 1000));
+      setQrCountdown(left);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [isKioskStation, qr?.expiresAt]);
+
+  useEffect(() => {
+    if (!isKioskStation || !qr?.expiresAt) return;
+    if (qrCountdown > 5) return;
+    createQr();
+  }, [isKioskStation, qrCountdown, qr?.expiresAt]);
+
   if (workGate.loading) {
     return (
       <div className="card">
@@ -4082,6 +4141,27 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
           Access to Check In/Out is only allowed from a valid live QR check-in station session.
           <br />
           Details: {workGate.reason || 'Work verification failed.'}
+        </div>
+      </div>
+    );
+  }
+
+  if (isKioskStation) {
+    return (
+      <div className="card" style={{maxWidth:760,margin:'0 auto',textAlign:'center'}}>
+        <div className="section-title" style={{marginBottom:6}}>Check-In Kiosk Station</div>
+        <div style={{fontSize:13,color:'#666',marginBottom:10}}>QR refreshes automatically. Users scan and check in/out.</div>
+        {!qrImageUrl && <div className="empty-state" style={{padding:'24px 12px'}}>Generating secure QR…</div>}
+        {qrImageUrl && (
+          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:12}}>
+            <img src={qrImageUrl} alt="Attendance QR" style={{width:320,height:320,border:'1px solid #EED9B0',borderRadius:12,background:'#fff'}} />
+            <div style={{fontSize:18,fontWeight:700,color:qrCountdown <= 10 ? '#b91c1c' : '#166534'}}>
+              Refreshes in {qrCountdown}s
+            </div>
+          </div>
+        )}
+        <div style={{marginTop:12,fontSize:12.5,color:'#7f1d1d',background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'8px 10px'}}>
+          Kiosk is locked. Logout/login is required to exit this screen.
         </div>
       </div>
     );
