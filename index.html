@@ -233,6 +233,7 @@ const ALL_USER_TABS = [
   { id:'items',     label:'📦 Add Items' },
   { id:'pricer',    label:'💰 Price Updater' },
   { id:'catering',  label:'🍽️ Catering Invoices' },
+  { id:'dailyfin',  label:'🧾 Daily Income & Expense' },
   { id:'archive',   label:'🗂️ Invoice Archive' },
   { id:'help',      label:'❓ Help' },
 ];
@@ -254,6 +255,7 @@ const NAV_GROUPS_USER = [
   { id:'ops', label:'Stock', tabs:['shopping','items','pricer'] },
   { id:'work', label:'Work', tabs:['checkio'] },
   { id:'inv', label:'Invoices', tabs:['catering','archive'] },
+  { id:'money', label:'Money', tabs:['dailyfin'] },
   { id:'help', label:'Help', tabs:['help'] }
 ];
 const ADMIN_RESET_QUERY_KEY = 'adminResetToken';
@@ -1309,7 +1311,9 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
     items:    'Add new items to the database',
     pricer:   'Update supplier prices',
     catering: 'View and create catering invoices',
+    dailyfin: 'Track daily income/expenses with tax summaries',
     archive:  'Browse and search past invoices',
+    help:     'View role-based help and troubleshooting',
   };
   async function syncCredsBestEffort(action) {
     const creds = load('credentials', {});
@@ -4863,7 +4867,7 @@ function App() {
         {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
-        {tab==='dailyfin'  && isAdmin && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} />}
+        {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} />}
         {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
