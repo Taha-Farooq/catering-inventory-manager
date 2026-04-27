@@ -61,6 +61,14 @@
 
     /* ── Tabs ── */
     .tab-bar { background: #5a2c0e; padding: 6px 12px; display: flex; flex-wrap: wrap; gap: 3px; flex-shrink: 0; }
+    .group-bar { background:#4a240b; padding:6px 12px; display:flex; flex-wrap:wrap; gap:6px; border-bottom:1px solid rgba(255,255,255,.1); }
+    .group-btn {
+      padding:6px 10px; border:none; border-radius:5px;
+      background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.9);
+      font-size:12px; font-weight:600; cursor:pointer;
+    }
+    .group-btn.active { background: var(--cream); color: var(--brown); }
+    .hint-card { background:#fffdf8; border:1px solid #EED9B0; border-radius:8px; padding:10px 12px; margin-bottom:10px; font-size:12.5px; color:#6b4b20; }
     .tab-btn { padding: 7px 12px; border: none; background: rgba(255,255,255,0.11); color: rgba(255,255,255,0.86);
       border-radius: 5px; font-size: clamp(11px, 1.4vw, 13px); transition: all .18s; white-space: nowrap; }
     .tab-btn.active { background: var(--cream); color: var(--brown); font-weight: 700; }
@@ -207,6 +215,7 @@ const TABS_ADMIN = [
   { id:'margins',   label:'💹 Menu Margins' },
   { id:'actlog',    label:'🔍 Activity Log' },
   { id:'scanbeta',  label:'🧪 Scan DB (Beta)' },
+  { id:'help',      label:'❓ Help' },
 ];
 const ALL_USER_TABS = [
   { id:'checkio',   label:'✅ Check In/Out' },
@@ -215,6 +224,7 @@ const ALL_USER_TABS = [
   { id:'pricer',    label:'💰 Price Updater' },
   { id:'catering',  label:'🍽️ Catering Invoices' },
   { id:'archive',   label:'🗂️ Invoice Archive' },
+  { id:'help',      label:'❓ Help' },
 ];
 const DEFAULT_USER_PERMS = ['shopping','items','pricer'];
 const PROFILE_ICONS = ['👤','👨‍🍳','👩‍🍳','🧑‍💼','👨‍💼','👩‍💼','🍴','🍽️','🥘','🧑','👨','👩','🙋','🤵','👷','💼','⭐','🌟','🔑','📋','✨','🎯','🏆','🥇'];
@@ -223,6 +233,19 @@ const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Sp
 const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
 const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
 const MENU_UNITS = ['each','oz','lb','g','kg','ml','l'];
+const NAV_GROUPS_ADMIN = [
+  { id:'ops', label:'Stock', tabs:['items','shopping','pricer'] },
+  { id:'inv', label:'Invoices', tabs:['purchase','catering','transfer','archive'] },
+  { id:'people', label:'Staff', tabs:['checkio','customers','actlog'] },
+  { id:'finance', label:'Money', tabs:['analytics','margins','history'] },
+  { id:'admin', label:'Tools', tabs:['scanbeta','help'] }
+];
+const NAV_GROUPS_USER = [
+  { id:'ops', label:'Stock', tabs:['shopping','items','pricer'] },
+  { id:'work', label:'Work', tabs:['checkio'] },
+  { id:'inv', label:'Invoices', tabs:['catering','archive'] },
+  { id:'help', label:'Help', tabs:['help'] }
+];
 const ADMIN_RESET_QUERY_KEY = 'adminResetToken';
 const ADMIN_RESET_REQ_KEY = 'adminResetReq';
 const ADMIN_RESET_EMAIL = 'fatimfarooq@yahoo.com';
@@ -3659,24 +3682,31 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock 
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Check In / Out</div>
-        {isAdmin && <Btn className="btn-outline btn-sm" onClick={onEnterKiosk}>{kioskLock ? 'Kiosk Locked (Logout to Exit)' : 'Open Kiosk Station Mode'}</Btn>}
+        {isAdmin && <Btn className="btn-outline btn-sm" onClick={onEnterKiosk}>{kioskLock ? 'Kiosk Locked (logout required)' : 'Open Kiosk Station Mode'}</Btn>}
       </div>
       <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72'}}>
-        Scan QR -> login (remembered on device) -> one tap to Check In or Check Out.
+        Scan QR, log in, then tap Check In or Check Out.
       </div>
+      <div className="hint-card">Tip: If a phone is used daily, enable “Remember this device” at login.</div>
       {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:6,marginBottom:10,fontSize:12.5}}>{err}</div>}
 
       <div className="card mb-4">
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8}}>My Status</div>
         <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
-          <span className={`badge ${me?.active ? 'badge-admin' : 'badge-user'}`}>{me?.active ? 'Currently Checked In' : 'Currently Checked Out'}</span>
-          <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me?.weekHours || 0} hours</strong></span>
-          {attendanceToken ? <span className="badge badge-user">QR token detected</span> : <span className="badge badge-user">Scan QR for action token</span>}
+          {isAdmin
+            ? <span style={{fontSize:13,color:'#555'}}>Admins are excluded from attendance tracking.</span>
+            : <span style={{fontSize:13,color:'#555'}}>Status: <strong>{me?.active ? 'Currently Checked In' : 'Currently Checked Out'}</strong></span>}
+          {!isAdmin && <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me?.weekHours || 0} hours</strong></span>}
+          {!isAdmin && <span style={{fontSize:13,color: attendanceToken ? '#166534' : '#9a3412'}}>
+            {attendanceToken ? 'Work QR verified for this session.' : 'Scan work QR to enable check in/out.'}
+          </span>}
         </div>
-        <div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>
-          <Btn className="btn-primary btn-sm" disabled={busy || !attendanceToken} onClick={()=>checkAction('in')}>✅ Check In</Btn>
-          <Btn className="btn-outline btn-sm" disabled={busy || !attendanceToken} onClick={()=>checkAction('out')}>⏹ Check Out</Btn>
-        </div>
+        {!isAdmin && (
+          <div style={{marginTop:10,display:'flex',gap:8,flexWrap:'wrap'}}>
+            <Btn className="btn-primary btn-sm" disabled={busy || !attendanceToken} onClick={()=>checkAction('in')}>✅ Check In</Btn>
+            <Btn className="btn-outline btn-sm" disabled={busy || !attendanceToken} onClick={()=>checkAction('out')}>⏹ Check Out</Btn>
+          </div>
+        )}
       </div>
 
       {isAdmin && (
@@ -3686,7 +3716,7 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock 
               <div style={{fontWeight:700,color:'var(--brown)'}}>Admin QR Station</div>
               <Btn className="btn-primary btn-sm" onClick={createQr}>Generate Fresh QR</Btn>
             </div>
-            <div style={{fontSize:12.5,color:'#666',marginBottom:8}}>QR is short-lived and one-time-use, reducing screenshot/photo replay abuse.</div>
+            <div style={{fontSize:12.5,color:'#666',marginBottom:8}}>QR is one-time and short-lived for safer attendance check-in.</div>
             {qr && (
               <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
                 <img src={qrImageUrl} alt="Attendance QR" style={{width:220,height:220,border:'1px solid #EED9B0',borderRadius:8,background:'#fff'}} />
@@ -3750,6 +3780,51 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock 
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function HelpCenter({ currentUser }) {
+  const isAdmin = currentUser?.role === 'admin';
+  return (
+    <div>
+      <div className="section-title">Help</div>
+      <div className="card mb-3">
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8}}>Daily Basics</div>
+        <div style={{fontSize:13,lineHeight:1.8,color:'#555'}}>
+          1) Log in with your assigned username and password.<br />
+          2) Use the tabs at the top for your tasks.<br />
+          3) Save your work before closing the browser.<br />
+          4) Ask admin if your access or menu options are missing.
+        </div>
+      </div>
+      <div className="card mb-3">
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8}}>Check In / Out</div>
+        <div style={{fontSize:13,lineHeight:1.8,color:'#555'}}>
+          1) Scan the live work QR code.<br />
+          2) Log in (you can use Remember Device for faster repeat use).<br />
+          3) Tap Check In or Check Out once.<br />
+          4) If you see “you are not at work”, ask admin for a fresh QR.
+        </div>
+      </div>
+      {isAdmin && (
+        <div className="card mb-3">
+          <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8}}>Admin Notes</div>
+          <div style={{fontSize:13,lineHeight:1.8,color:'#555'}}>
+            - Admin has full panel access from any device.<br />
+            - Some features are local-device dependent (scanner automation, local kiosk station mode).<br />
+            - Use Settings and Activity Log to diagnose issues quickly.
+          </div>
+        </div>
+      )}
+      <div className="card">
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8}}>If Something Fails</div>
+        <div style={{fontSize:13,lineHeight:1.8,color:'#555'}}>
+          - Refresh once and retry.<br />
+          - Confirm backend health if a tool depends on local service.<br />
+          - Download failure logs and share with admin support.
+        </div>
+      </div>
     </div>
   );
 }
@@ -4133,6 +4208,7 @@ function App() {
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [navGroup, setNavGroup] = useState('ops');
   const [items, setItems] = useState(()=>load('items',[]));
   const [shopping, setShopping] = useState(()=>load('shoppingList',[]));
   const [purchaseInv, setPurchaseInv] = useState(()=>load('purchaseInvoices',[]));
@@ -4142,6 +4218,7 @@ function App() {
   const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
   const [kioskLock, setKioskLock] = useState(()=>load('_kioskLock', false));
+  const [localFeatureWarning, setLocalFeatureWarning] = useState('');
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
     return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
@@ -4165,6 +4242,16 @@ function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [currentUser, kioskLock]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    probeResetApi('http://localhost:8787').then(chk => {
+      if (chk.ok) setLocalFeatureWarning('');
+      else setLocalFeatureWarning('Local backend is not reachable on this device. Scanner folder automation and local kiosk attendance station features may not work here.');
+    }).catch(() => {
+      setLocalFeatureWarning('Local backend is not reachable on this device. Scanner folder automation and local kiosk attendance station features may not work here.');
+    });
+  }, [currentUser?.username]);
 
   // One-time in-place migration so older transfer invoice shapes keep working.
   useEffect(() => {
@@ -4198,7 +4285,7 @@ function App() {
     setUserPerms(perms);
     const isAdmin = user.role === 'admin';
     const firstTab = isAdmin ? TABS_ADMIN[0].id : (ALL_USER_TABS.find(t => perms.includes(t.id))?.id || 'shopping');
-    if (attendanceParams) setTab('checkio');
+    if (attendanceParams && user.role !== 'admin') setTab('checkio');
     else setTab(firstTab);
     logActivity('login', 'Signed in as ' + user.role);
   }
@@ -4208,8 +4295,7 @@ function App() {
     logActivity('logout', 'Signed out');
     setCurrentUser(null);
     save('_session', null);
-    setKioskLock(false);
-    save('_kioskLock', false);
+    if (kioskLock) { setKioskLock(false); save('_kioskLock', false); }
   }
 
   function handleBizChange(k) { setBiz(k); save('_lastBiz', k); }
@@ -4238,11 +4324,35 @@ function App() {
     save('_kioskLock', true);
     setTab('checkio');
   }
-
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
   const isAdmin = currentUser.role === 'admin';
   const TABS = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+  const navGroups = useMemo(() => {
+    const allowed = new Set(TABS.map(t => t.id));
+    const src = (isAdmin && kioskLock)
+      ? [{ id:'work', label:'Work', tabs:['checkio'] }]
+      : (isAdmin ? NAV_GROUPS_ADMIN : NAV_GROUPS_USER);
+    const groups = src
+      .map(g => ({ ...g, tabs: g.tabs.filter(id => allowed.has(id)) }))
+      .filter(g => g.tabs.length > 0);
+    return groups.length ? groups : [{ id:'all', label:'All', tabs:[...allowed] }];
+  }, [isAdmin, kioskLock, TABS, userPerms]);
+  const visibleTabIds = useMemo(() => {
+    const g = navGroups.find(x => x.id === navGroup) || navGroups[0];
+    return g ? g.tabs : TABS.map(t=>t.id);
+  }, [navGroups, navGroup, TABS]);
+  const visibleTabs = TABS.filter(t => visibleTabIds.includes(t.id));
+
+  useEffect(() => {
+    if (!navGroups.find(g => g.id === navGroup)) setNavGroup(navGroups[0]?.id || 'ops');
+  }, [navGroups, navGroup]);
+  useEffect(() => {
+    if (!visibleTabIds.includes(tab)) {
+      const g = navGroups.find(gx => gx.tabs.includes(tab));
+      if (g) setNavGroup(g.id);
+    }
+  }, [tab, visibleTabIds, navGroups]);
   const bizInfo = BUSINESSES[biz];
 
   const appState = { items, shopping, purchaseInv, cateringInv, customers, priceHist,
@@ -4285,8 +4395,15 @@ function App() {
       </div>
 
       {/* ── Tabs ── */}
+      <div className="group-bar no-print">
+        {navGroups.map(g => (
+          <button key={g.id} className={`group-btn${navGroup===g.id?' active':''}`} onClick={()=>setNavGroup(g.id)}>
+            {g.label}
+          </button>
+        ))}
+      </div>
       <div className="tab-bar no-print">
-        {TABS.map(t=>(
+        {visibleTabs.map(t=>(
           <button key={t.id} className={`tab-btn${tab===t.id?' active':''}`} onClick={()=>handleTabChange(t.id)}>
             {t.label}
           </button>
@@ -4295,6 +4412,14 @@ function App() {
 
       {/* ── Content ── */}
       <div className="content-area">
+        <div className="hint-card no-print">
+          {isAdmin ? 'Use top groups to find tools faster. Start with Stock or Invoices for daily work.' : 'Use top groups to find what you need quickly. Start with Work or Stock.'}
+        </div>
+        {isAdmin && localFeatureWarning && (
+          <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#9a3412'}}>
+            Note: {localFeatureWarning}
+          </div>
+        )}
         {isAdmin && !kioskLock && (
           <div className="mb-3">
             <SetupQuickActions
@@ -4319,6 +4444,7 @@ function App() {
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}
         {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} />}
+        {tab==='help'      && <HelpCenter currentUser={currentUser} />}
       </div>
 
       {/* ── Modals ── */}

@@ -470,6 +470,7 @@ app.post('/api/attendance/check', authUser, (req, res) => {
   const callerRole = req.authUser.role;
   const username = targetUser ? String(targetUser).trim().toLowerCase() : caller;
   if (targetUser && callerRole !== 'admin') return res.status(403).json({ ok: false, error: 'Admin only target override' });
+  if (!targetUser && callerRole === 'admin') return res.status(403).json({ ok: false, error: 'Admins are not tracked for check in/out' });
 
   if (!targetUser) {
     if (!token) return res.status(400).json({ ok: false, error: 'QR token required for self check-in/out' });
