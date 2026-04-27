@@ -90,7 +90,8 @@ function Ensure-Dependencies {
 function Ensure-Task {
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`""
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-  $principalLogon = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel LeastPrivilege
+  # Some Windows builds use "Limited" instead of "LeastPrivilege" for RunLevel enum.
+  $principalLogon = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
   $principalStartup = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
   $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
