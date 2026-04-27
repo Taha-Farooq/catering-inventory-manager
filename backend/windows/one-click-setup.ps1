@@ -2,7 +2,19 @@ $ErrorActionPreference = "Stop"
 
 $taskNameLogon = "CateringAdminResetBackend-AtLogon"
 $taskNameStartup = "CateringAdminResetBackend-AtStartup"
-$backendDir = Split-Path -Parent $PSScriptRoot
+function Resolve-BackendDir {
+  $cursor = $PSScriptRoot
+  for ($i = 0; $i -lt 5; $i++) {
+    $hasPackage = Test-Path (Join-Path $cursor "package.json")
+    $hasWindowsScripts = (Test-Path (Join-Path $cursor "windows\start-backend.ps1")) -and (Test-Path (Join-Path $cursor "windows\health-check.ps1"))
+    if ($hasPackage -and $hasWindowsScripts) { return $cursor }
+    $parent = Split-Path -Parent $cursor
+    if (-not $parent -or $parent -eq $cursor) { break }
+    $cursor = $parent
+  }
+  throw "Could not locate backend root from $PSScriptRoot. Keep this file under backend\windows."
+}
+$backendDir = Resolve-BackendDir
 $runtimeRoot = Join-Path $backendDir "runtime"
 $portableNodeDir = Join-Path $runtimeRoot "node"
 $portableNodeExe = Join-Path $portableNodeDir "node.exe"
@@ -15,6 +27,22 @@ $healthScript = Join-Path $backendDir "windows\health-check.ps1"
 $nodeVersion = "v22.14.0"
 $nodeZipUrl = "https://nodejs.org/dist/$nodeVersion/node-$nodeVersion-win-x64.zip"
 $nodeZipFile = Join-Path $runtimeRoot "node.zip"
+$defaultEnvTemplate = @(
+  "PORT=8787"
+  "ADMIN_RESET_JWT_SECRET=replace-with-long-random-secret"
+  "ADMIN_RESET_TTL_MIN=30"
+  "ALLOWED_ORIGIN=https://taha-farooq.github.io"
+  "ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500"
+  "SCAN_POLL_MS=8000"
+  "SCAN_MIN_FILE_AGE_MS=3000"
+  "FRONTEND_URL=https://taha-farooq.github.io/catering-inventory-manager/"
+  "ATTENDANCE_QR_TTL_SEC=60"
+)
+
+function Assert-Paths {
+  if (-not (Test-Path $startScript)) { throw "Missing required file: $startScript" }
+  if (-not (Test-Path $healthScript)) { throw "Missing required file: $healthScript" }
+}
 
 function Ensure-PortableNode {
   if (Test-Path $portableNodeExe) { return }
@@ -36,8 +64,13 @@ function Ensure-PortableNode {
 
 function Ensure-EnvFile {
   if (-not (Test-Path $envFile)) {
-    Copy-Item $exampleEnv $envFile
-    Write-Host "Created backend\.env"
+    if (Test-Path $exampleEnv) {
+      Copy-Item $exampleEnv $envFile
+      Write-Host "Created backend\.env from .env.example"
+    } else {
+      Set-Content -Path $envFile -Value $defaultEnvTemplate
+      Write-Host "Created backend\.env from built-in defaults."
+    }
   }
 }
 
@@ -48,7 +81,7 @@ function New-RandomSecret {
 }
 
 function Ensure-Secret {
-  $lines = Get-Content $envFile
+  $lines = @(Get-Content $envFile)
   $secretLineIdx = -1
   for ($i = 0; $i -lt $lines.Count; $i++) {
     if ($lines[$i] -match '^ADMIN_RESET_JWT_SECRET=') { $secretLineIdx = $i; break }
@@ -114,6 +147,7 @@ function Wait-ForHealth {
   return $false
 }
 
+Assert-Paths
 Ensure-PortableNode
 Ensure-EnvFile
 Ensure-Secret
