@@ -41,7 +41,7 @@
 
     /* ── Tables ── */
     .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); }
-    table { border-collapse: collapse; width: 100%; min-width: 540px; }
+    table { border-collapse: collapse; width: 100%; min-width: 580px; }
     th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid #EED9B0; font-size: 13.5px; }
     th { background: var(--brown); color: white; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
     tr:nth-child(even) { background: rgba(222,184,135,0.09); }
@@ -137,6 +137,13 @@
     .text-muted  { color:#999; font-size:13px; }
     .divider { border:none; border-top:1px solid #EED9B0; margin:10px 0; }
     .empty-state { padding:48px 24px; text-align:center; color:#bbb; font-size:15px; line-height:1.6; }
+
+    /* Shopping list row reorder */
+    .shopping-drag-handle {
+      cursor: grab; user-select: none; -webkit-user-select: none; color: #a0522d;
+      font-size: 15px; line-height: 1; letter-spacing: -2px; text-align: center; vertical-align: middle;
+    }
+    .shopping-drag-handle:active { cursor: grabbing; }
     .invoice-mark { display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:var(--brown);color:#fff;font-weight:800;font-size:13px;overflow:hidden;flex-shrink:0; }
     .invoice-mark img { width:42px;height:42px;object-fit:cover;display:block; }
 
@@ -196,7 +203,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useMemo, useRef, useCallback } = React;
+const { useState, useEffect, useMemo, useRef, useCallback, useId } = React;
 const RC = window.Recharts || {};
 const { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
         XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = RC;
@@ -299,6 +306,29 @@ function load(key, def) {
 function save(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); return true; }
   catch(e) { alert('Storage error: ' + (e.message||'Could not save data.')); return false; }
+}
+
+/*
+ * Data compatibility (GitHub Pages / localStorage):
+ * — Keys like `items`, `shoppingList`, `credentials` are stable API surface for users’ backups.
+ * — Prefer additive fields (optional props on objects) over renames; use migrate* helpers when normalizing.
+ * — `load()` returns the default if JSON is missing or corrupt — never throws to the UI.
+ */
+function migrateShoppingList(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(e => e && typeof e === 'object' && e.id && (e.itemId || e.itemName))
+    .map(e => ({
+      ...e,
+      itemName: e.itemName != null ? String(e.itemName) : '',
+      itemId: e.itemId != null ? e.itemId : '',
+      unit: e.unit != null ? String(e.unit) : '',
+      upc: e.upc != null ? String(e.upc) : '',
+      selectedSeller: e.selectedSeller != null ? String(e.selectedSeller) : '',
+      quantity: e.quantity !== undefined && e.quantity !== '' ? e.quantity : 1,
+      sellers: Array.isArray(e.sellers) ? e.sellers : [],
+      notes: e.notes != null ? String(e.notes) : ''
+    }));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -581,6 +611,108 @@ const downloadFailureLog = () => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+
+/** GitHub repo for issue templates from Settings → diagnostics */
+const DIAGNOSTICS_ISSUES_NEW_URL = 'https://github.com/Taha-Farooq/catering-inventory-manager/issues/new';
+const SUPPORT_CONTACT_EMAIL = 'fatimfarooq@yahoo.com';
+
+async function getStorageQuotaHint() {
+  if (!navigator.storage?.estimate) return { ok: true, pct: null, msg: 'Storage usage estimate not available in this browser.' };
+  try {
+    const est = await navigator.storage.estimate();
+    const used = est.usage || 0;
+    const quota = est.quota || 1;
+    const pct = Math.min(100, Math.round((100 * used) / quota));
+    if (pct > 92) return { ok: false, level: 'error', pct, msg: `Browser storage is nearly full (~${pct}% used). Export a backup (ZIP above) before you lose space.` };
+    if (pct > 82) return { ok: false, level: 'warning', pct, msg: `Browser storage is getting full (~${pct}% used). Consider exporting a backup soon.` };
+    return { ok: true, pct, msg: `Browser storage OK (~${pct}% used, ~${(used / 1e6).toFixed(1)} MB).` };
+  } catch {
+    return { ok: true, pct: null, msg: 'Could not read storage usage.' };
+  }
+}
+
+async function gatherDiagnosticsPayload(localFeatureWarning) {
+  const healthResetApi = await probeResetApi(loadAdminResetApiBase());
+  const storageHint = await getStorageQuotaHint();
+  const failures = load(FAILURE_LOG_KEY, []);
+  return {
+    generatedAt: new Date().toISOString(),
+    app: 'DMG Software Suite',
+    pageUrl: window.location.href,
+    userAgent: navigator.userAgent || '',
+    username: load('_session', null)?.username || 'anonymous',
+    resetApiUrl: loadAdminResetApiBase(),
+    healthResetApi,
+    storageHint,
+    localFeatureWarning: localFeatureWarning || '',
+    failuresRecent: failures.slice(-40)
+  };
+}
+
+function diagnosticsPlainText(payload) {
+  let s = `=== Catering Inventory Manager — Diagnostics ===
+Generated: ${payload.generatedAt}
+User: ${payload.username}
+Page: ${payload.pageUrl}
+Browser: ${payload.userAgent}
+
+Reset API URL: ${payload.resetApiUrl}
+Backend /health: ${payload.healthResetApi?.ok ? `OK (${payload.healthResetApi.base})` : `FAIL — ${payload.healthResetApi?.error || 'unknown'}`}
+${payload.storageHint?.msg || ''}
+`;
+  if (payload.localFeatureWarning) s += `\nBanner warning on main screen:\n${payload.localFeatureWarning}\n`;
+  s += `\n--- Logged errors (last ${payload.failuresRecent?.length || 0}) ---\n`;
+  (payload.failuresRecent || []).slice().reverse().forEach((f, i) => {
+    s += `\n[${i + 1}] ${f.timestamp}\n  ${f.area} / ${f.action} | ${f.username}\n  ${f.error}\n`;
+  });
+  return s;
+}
+
+async function copyDiagnosticsReport(localFeatureWarning) {
+  const p = await gatherDiagnosticsPayload(localFeatureWarning);
+  const text = diagnosticsPlainText(p);
+  try {
+    await navigator.clipboard.writeText(text);
+    return { ok: true, text, payload: p };
+  } catch {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return { ok: true, text, payload: p };
+    } catch (e) {
+      return { ok: false, error: String(e.message || e), text, payload: p };
+    }
+  }
+}
+
+function openSupportDiagnosticsEmail(localFeatureWarning) {
+  copyDiagnosticsReport(localFeatureWarning).then(({ ok, text }) => {
+    showToast(ok ? 'Diagnostics copied. Continue in your email app…' : 'Could not auto-copy; use 📋 Copy first, then send email.', ok ? 'success' : 'warning');
+    const subj = encodeURIComponent('Catering Inventory Manager — diagnostics / error report');
+    const intro = 'A full diagnostics report was copied to your clipboard.\n\nPlease paste it below this line and send.\n\n---------- PASTE REPORT HERE ----------\n\n';
+    const clipHint = ok ? intro : 'Could not auto-copy — open Settings → copy diagnostics manually.\n\n';
+    const body = encodeURIComponent(clipHint + text.slice(0, 2800) + (text.length > 2800 ? '\n\n[…report truncated in email — use Copy button for full text…]' : ''));
+    window.location.href = `mailto:${SUPPORT_CONTACT_EMAIL}?subject=${subj}&body=${body}`;
+  });
+}
+
+function openDiagnosticsGitHubIssue(localFeatureWarning) {
+  copyDiagnosticsReport(localFeatureWarning).then(({ ok }) => {
+    showToast(ok ? 'Diagnostics copied. Paste into the GitHub issue if needed.' : 'Use 📋 Copy diagnostics, then paste on GitHub.', ok ? 'success' : 'warning');
+    const title = encodeURIComponent('Diagnostics / issue report');
+    const body = encodeURIComponent(
+      (ok ? '**Full diagnostics were copied to your clipboard when you clicked this button.**\n\nPaste them below.\n\n---\n\n' : '**Copy diagnostics from Settings (📋 Copy diagnostics report) and paste below.**\n\n---\n\n') +
+      '_Developer: fixes require publishing the site; users should reload (F5) after deploy._\n'
+    );
+    window.open(`${DIAGNOSTICS_ISSUES_NEW_URL}?title=${title}&body=${body}`, '_blank', 'noopener,noreferrer');
+  });
+}
+
 const BRANDING = {
   degrill:  { mark:'DG', name:'DeGrill Inc', location:'Spring Valley, NY', logo:'assets/logos/degrill.jpg' },
   parathas: { mark:'PP', name:'Parathas and Platters Inc', location:'Hackensack, NJ', logo:'assets/logos/parathas.jpg' },
@@ -682,6 +814,17 @@ function saveProfileData(username, data) {
 }
 const safePrice = v => { if(v===''||v==null) return null; const n=parseFloat(v); return(!isNaN(n)&&n>=0)?n:null; };
 
+/** Dedupe + sort for datalist / autocomplete */
+function uniqSuggestions(...vals) {
+  const set = new Set();
+  for (const v of vals) {
+    if (v == null || v === '') continue;
+    const s = String(v).trim();
+    if (s) set.add(s);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
 let _seq = load('_seq',{purchase:0,catering:0});
 function nextId(type) {
   _seq[type]=(_seq[type]||0)+1; save('_seq',_seq);
@@ -762,11 +905,11 @@ function ToastContainer() {
 // ═══════════════════════════════════════════════════════════
 // UI PRIMITIVES
 // ═══════════════════════════════════════════════════════════
-function Modal({ open, onClose, title, children, wide, maxW }) {
+function Modal({ open, onClose, title, children, wide, maxW, closeOnBackdrop = false }) {
   if (!open) return null;
   return (
-    <div className="modal-overlay no-print" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal" style={{maxWidth:maxW||(wide?840:560)}}>
+    <div className="modal-overlay no-print" onClick={closeOnBackdrop ? (e=>{ if (e.target===e.currentTarget) onClose(); }) : undefined}>
+      <div className="modal" style={{maxWidth:maxW||(wide?840:560)}} onClick={e=>e.stopPropagation()}>
         <div className="flex-between mb-4">
           <h2 style={{color:'var(--brown)',fontSize:'clamp(15px,2vw,18px)',fontWeight:700}}>{title}</h2>
           <button onClick={onClose} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb',lineHeight:1}}>✕</button>
@@ -804,8 +947,21 @@ function Confirm({ open, message, onConfirm, onCancel, confirmLabel='Delete', co
   );
 }
 
-function FI({ label, ...props }) {
-  return <div className="field">{label&&<label>{label}</label>}<input className="input" {...props} /></div>;
+function FI({ label, suggestions, fieldStyle, ...props }) {
+  const listId = useId();
+  const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
+  const baseFieldStyle = label ? {} : { marginBottom: 0 };
+  return (
+    <div className="field" style={{ ...baseFieldStyle, ...fieldStyle }}>
+      {label&&<label>{label}</label>}
+      <input className="input" {...props} list={hasSuggestions ? listId : undefined} />
+      {hasSuggestions && (
+        <datalist id={listId}>
+          {suggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
+      )}
+    </div>
+  );
 }
 function FS({ label, children, ...props }) {
   return <div className="field">{label&&<label>{label}</label>}<select className="input" {...props}>{children}</select></div>;
@@ -1277,10 +1433,12 @@ function ProfileModal({ open, onClose, username, profile, onSave }) {
 // ═══════════════════════════════════════════════════════════
 // SETTINGS MODAL (admin only)
 // ═══════════════════════════════════════════════════════════
-function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) {
+function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning }) {
   const { items, shopping, purchaseInv, cateringInv, customers, priceHist,
           setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz } = appState;
   const importRef = useRef();
+  const [diagPayload, setDiagPayload] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   // Staff user management
   const loadStaff = () => {
@@ -1315,6 +1473,25 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
       setResetApiState({ kind:'idle', msg:'' });
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setDiagLoading(true);
+    gatherDiagnosticsPayload(localFeatureWarning || '').then(p => {
+      if (!cancelled) {
+        setDiagPayload(p);
+        setDiagLoading(false);
+      }
+    }).catch(() => { if (!cancelled) setDiagLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, localFeatureWarning]);
+
+  async function handleCopyDiagnostics() {
+    const r = await copyDiagnosticsReport(localFeatureWarning || '');
+    if (r.ok) showToast('Diagnostics copied. Paste into email or GitHub.', 'success');
+    else showToast('Copy failed — use ⬇ Failure Log.', 'error');
+  }
 
   const TAB_DESC = {
     checkio:  'Clock users in/out and run payroll summaries',
@@ -1520,6 +1697,73 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
         </div>
       </div>
 
+      {/* System health & warnings */}
+      <div style={{border:'1.5px solid #f59e0b',borderRadius:8,padding:16,marginBottom:20,background:'linear-gradient(180deg,#fffbeb 0%,#fff7ed 100%)'}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:15}}>⚠️ System health &amp; warnings</div>
+        <p style={{fontSize:13,color:'#78350f',lineHeight:1.65,marginBottom:10}}>
+          The app records errors automatically (failed logins, backend checks, and unexpected crashes). Use the buttons below to share a <strong>full report</strong> with support so they can suggest a fix.
+          This website cannot push code changes by itself — updates are published on GitHub; after that, users only need to <strong>reload the page</strong> (F5).
+        </p>
+        {diagLoading && <div style={{fontSize:13,color:'#92400e',marginBottom:8}}>Checking backend and storage…</div>}
+        {!diagLoading && diagPayload && (
+          <div style={{marginBottom:12}}>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:8}}>
+              {localFeatureWarning && (
+                <span style={{background:'#fef3c7',border:'1px solid #fcd34d',color:'#92400e',padding:'6px 10px',borderRadius:20,fontSize:12.5}}>
+                  Scanner / local tools: {localFeatureWarning}
+                </span>
+              )}
+              {!diagPayload.healthResetApi?.ok && (
+                <span style={{background:'#fee2e2',border:'1px solid #fca5a5',color:'#991b1b',padding:'6px 10px',borderRadius:20,fontSize:12.5}}>
+                  Reset / login server not reachable ({diagPayload.healthResetApi?.error || 'unknown'})
+                </span>
+              )}
+              {diagPayload.healthResetApi?.ok && (
+                <span style={{background:'#dcfce7',border:'1px solid #86efac',color:'#166534',padding:'6px 10px',borderRadius:20,fontSize:12.5}}>
+                  Reset API OK ({diagPayload.healthResetApi.base})
+                </span>
+              )}
+              {!diagPayload.storageHint?.ok && (
+                <span style={{background:diagPayload.storageHint?.level==='error'?'#fee2e2':'#fef3c7',border:'1px solid #fcd34d',color:'#92400e',padding:'6px 10px',borderRadius:20,fontSize:12.5}}>
+                  {diagPayload.storageHint?.msg}
+                </span>
+              )}
+              {diagPayload.storageHint?.ok && diagPayload.storageHint?.pct != null && (
+                <span style={{background:'#e0f2fe',border:'1px solid #7dd3fc',color:'#0369a1',padding:'6px 10px',borderRadius:20,fontSize:12.5}}>
+                  {diagPayload.storageHint.msg}
+                </span>
+              )}
+            </div>
+            {(diagPayload.failuresRecent || []).length > 0 && (
+              <div style={{background:'white',border:'1px solid #EED9B0',borderRadius:6,padding:'10px 12px',maxHeight:140,overflowY:'auto',fontSize:12,color:'#444'}}>
+                <div style={{fontWeight:600,color:'var(--brown)',marginBottom:6,fontSize:12.5}}>Recent logged issues (newest first)</div>
+                {[...(diagPayload.failuresRecent || [])].reverse().slice(0, 6).map((f, fi) => (
+                  <div key={f.id || `f-${fi}-${f.timestamp}`} style={{marginBottom:8,paddingBottom:8,borderBottom:'1px solid #f5ead5',lineHeight:1.45}}>
+                    <span style={{color:'#888',fontSize:11}}>{f.timestamp?.slice(0, 19).replace('T', ' ')}</span>
+                    {' · '}{f.area}/{f.action}
+                    <div style={{color:'#991b1b',marginTop:2}}>{f.error}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(diagPayload.failuresRecent || []).length === 0 && !localFeatureWarning && diagPayload.healthResetApi?.ok && diagPayload.storageHint?.ok && (
+              <div style={{fontSize:13,color:'#166534'}}>No recent errors logged. If something still feels wrong, copy a report anyway.</div>
+            )}
+          </div>
+        )}
+        <div className="flex gap-2 flex-wrap" style={{marginBottom:10}}>
+          <Btn className="btn-primary btn-sm" onClick={handleCopyDiagnostics}>📋 Copy diagnostics report</Btn>
+          <Btn className="btn-outline btn-sm" onClick={()=>openSupportDiagnosticsEmail(localFeatureWarning || '')}>✉️ Email support ({SUPPORT_CONTACT_EMAIL})</Btn>
+          <Btn className="btn-outline btn-sm" onClick={()=>openDiagnosticsGitHubIssue(localFeatureWarning || '')}>🐙 Open GitHub issue</Btn>
+          <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Raw failure log (.json)</Btn>
+        </div>
+        <div style={{fontSize:12,color:'#57534e',background:'#fff',border:'1px dashed #d6d3d1',borderRadius:6,padding:'10px 12px',lineHeight:1.55}}>
+          <strong>After a fix is released:</strong> Close nothing permanently — just press <strong>F5</strong> (Refresh) or tap your browser&apos;s reload button.
+          If the page looks unchanged, wait a minute and refresh again (school networks sometimes cache the old file).
+          Major risky fixes are developed and merged carefully on GitHub; this menu cannot auto-install them.
+        </div>
+      </div>
+
       {/* Backup / Restore */}
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>💾 Backup &amp; Restore</div>
@@ -1662,7 +1906,6 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange }) 
           <Btn className="btn-outline btn-sm" onClick={autoDetectResetApi}>🧪 Auto Detect</Btn>
           <Btn className="btn-outline btn-sm" onClick={()=>testResetApi(resetApiInput)}>🔍 Test Only</Btn>
           <Btn className="btn-outline btn-sm" onClick={resetResetApiDefault}>↺ Default</Btn>
-          <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Failure Log</Btn>
         </div>
         {resetApiState.msg && (
           <div style={{
@@ -1696,6 +1939,10 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(blank());
   const [confirmId, setConfirmId] = useState(null);
+
+  const sellerSuggestions = useMemo(()=>uniqSuggestions(...items.flatMap(i=>(i.sellers||[]).map(s=>s.name))),[items]);
+  const unitSuggestions = useMemo(()=>uniqSuggestions(...items.map(i=>i.unit)),[items]);
+  const itemNameSuggestions = useMemo(()=>uniqSuggestions(...items.map(i=>i.name)),[items]);
 
   const filtered = useMemo(()=>{
     const q=search.toLowerCase();
@@ -1820,13 +2067,13 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
 
       <Modal open={showForm} onClose={()=>setShowForm(false)} title={editId?'Edit Item':'Add New Item'}>
         <div className="grid-2">
-          <FI label="Item Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Chicken Breast" />
+          <FI label="Item Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Chicken Breast" suggestions={itemNameSuggestions} />
           <FS label="Category" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
             {CATEGORIES.map(c=><option key={c}>{c}</option>)}
           </FS>
         </div>
         <div className="grid-2">
-          <FI label="Unit of Measure" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="lb, kg, each, case…" />
+          <FI label="Unit of Measure" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="lb, kg, each, case…" suggestions={unitSuggestions} />
           <FI label="UPC Code (optional)" value={form.upc} onChange={e=>setForm(f=>({...f,upc:e.target.value}))} placeholder="Barcode" />
         </div>
         <div style={{marginBottom:14}}>
@@ -1836,7 +2083,7 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
           </div>
           {form.sellers.map((s,i)=>(
             <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center'}}>
-              <input className="input" placeholder="Seller name" value={s.name} onChange={e=>setSeller(i,'name',e.target.value)} style={{flex:2}} />
+              <FI fieldStyle={{ flex: 2 }} suggestions={sellerSuggestions} placeholder="Seller name" value={s.name} onChange={e=>setSeller(i,'name',e.target.value)} />
               <input className="input" placeholder="Price (blank = unknown)" type="number" min="0" step="0.01" value={s.price} onChange={e=>setSeller(i,'price',e.target.value)} style={{flex:1}} />
               {form.sellers.length>1&&<Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,sellers:f.sellers.filter((_,x)=>x!==i)}))}>✕</Btn>}
             </div>
@@ -1863,6 +2110,24 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
 function ShoppingList({ items, shoppingList, setShoppingList }) {
   const [search, setSearch] = useState('');
   const [showDrop, setShowDrop] = useState(false);
+  const [dragFromIdx, setDragFromIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+
+  function reorderRows(from, to) {
+    if (from === to) return;
+    if (from < 0 || to < 0 || from >= shoppingList.length || to >= shoppingList.length) return;
+    const next = [...shoppingList];
+    const [row] = next.splice(from, 1);
+    next.splice(to, 0, row);
+    setShoppingList(next);
+    save('shoppingList', next);
+  }
+
+  function upcForEntry(e) {
+    const inv = items.find(i => i.id === e.itemId);
+    const raw = String((inv && inv.upc != null ? inv.upc : e.upc) ?? '').trim();
+    return raw || 'NOT-LISTED';
+  }
 
   const results = useMemo(()=>{
     if (!search.trim()) return [];
@@ -1876,7 +2141,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
     const dup=shoppingList.find(s=>s.itemId===item.id&&s.selectedSeller===sel.name);
     if (dup) { updateQty(dup.id, dup.quantity+1); }
     else {
-      const u=[...shoppingList,{id:uid(),itemId:item.id,itemName:item.name,unit:item.unit,
+      const u=[...shoppingList,{id:uid(),itemId:item.id,itemName:item.name,unit:item.unit,upc:item.upc||'',
         selectedSeller:sel.name,price:sel.price,quantity:1,sellers:sellerList}];
       setShoppingList(u); save('shoppingList',u);
     }
@@ -1907,11 +2172,14 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
   function exportXlsx() {
     if (!shoppingList.length) { alert('Shopping list is empty.'); return; }
     if (!window.XLSX) { alert('Excel library not loaded. Check your internet connection.'); return; }
-    const rows = shoppingList.map(s=>({
-      'Item':s.itemName,'Seller':s.selectedSeller,'Quantity':s.quantity,'Unit':s.unit,
-      'Unit Price':s.price??'','Total':s.price!=null?(s.quantity*(s.price)).toFixed(2):''
-    }));
-    rows.push({Item:'','Seller':'','Quantity':'','Unit':'','Unit Price':'GRAND TOTAL','Total':grandTotal.toFixed(2)});
+    const rows = shoppingList.map(s=>{
+      const upc = upcForEntry(s);
+      return {
+        'Item':s.itemName,'UPC':upc,'Seller':s.selectedSeller,'Quantity':s.quantity,'Unit':s.unit,
+        'Unit Price':s.price??'','Total':s.price!=null?(s.quantity*(s.price)).toFixed(2):''
+      };
+    });
+    rows.push({Item:'','UPC':'','Seller':'','Quantity':'','Unit':'','Unit Price':'GRAND TOTAL','Total':grandTotal.toFixed(2)});
     const ws=XLSX.utils.json_to_sheet(rows);
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Shopping List');
@@ -1925,6 +2193,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = shoppingList.map(s => [
       s.itemName,
+      upcForEntry(s),
       s.selectedSeller || '',
       safeQty(s.quantity),
       s.unit || '',
@@ -1933,7 +2202,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
       s.notes || ''
     ]);
     const csv = [
-      ['Item Name','Seller','Quantity','Unit','Unit Price','Total','Notes'].map(esc).join(','),
+      ['Item Name','UPC','Seller','Quantity','Unit','Unit Price','Total','Notes'].map(esc).join(','),
       ...rows.map(r => r.map(esc).join(','))
     ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1961,6 +2230,9 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
         </div>
       </div>
+      {shoppingList.length > 0 && (
+        <p className="text-muted" style={{marginTop:-8,marginBottom:12}}>Tip: Drag the ⋮⋮ handle on the left to reorder rows. Order is saved automatically.</p>
+      )}
 
       <div className="card mb-4" style={{position:'relative',overflow:'visible'}}>
         <label>Search &amp; Add Items</label>
@@ -1995,13 +2267,49 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
             <div className="card" style={{padding:0}}>
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr><th>Item</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th></th></tr></thead>
+                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th></th></tr></thead>
                   <tbody>
-                    {shoppingList.map(e=>{
+                    {shoppingList.map((e, idx)=>{
                       const lt=safeQty(e.quantity)*(e.price??0);
+                      const upcDisp = upcForEntry(e);
                       return (
-                        <tr key={e.id}>
+                        <tr
+                          key={e.id}
+                          style={{
+                            opacity: dragFromIdx === idx ? 0.55 : 1,
+                            boxShadow: dragOverIdx === idx && dragFromIdx !== idx ? 'inset 0 0 0 2px var(--brown)' : undefined,
+                            transition: 'opacity .12s ease'
+                          }}
+                          onDragOver={(ev) => {
+                            ev.preventDefault();
+                            ev.dataTransfer.dropEffect = 'move';
+                            setDragOverIdx(idx);
+                          }}
+                          onDragLeave={(ev) => {
+                            if (!ev.currentTarget.contains(ev.relatedTarget)) setDragOverIdx(null);
+                          }}
+                          onDrop={(ev) => {
+                            ev.preventDefault();
+                            const from = Number(ev.dataTransfer.getData('text/plain'));
+                            if (Number.isNaN(from)) return;
+                            reorderRows(from, idx);
+                            setDragFromIdx(null);
+                            setDragOverIdx(null);
+                          }}
+                        >
+                          <td
+                            className="shopping-drag-handle"
+                            title="Drag to reorder"
+                            draggable
+                            onDragStart={(ev) => {
+                              ev.dataTransfer.setData('text/plain', String(idx));
+                              ev.dataTransfer.effectAllowed = 'move';
+                              setDragFromIdx(idx);
+                            }}
+                            onDragEnd={() => { setDragFromIdx(null); setDragOverIdx(null); }}
+                          >⋮⋮</td>
                           <td style={{fontWeight:600}}>{e.itemName}</td>
+                          <td style={{fontFamily:'monospace',fontSize:12,color:upcDisp==='NOT-LISTED'?'#999':'#333'}}>{upcDisp}</td>
                           <td>
                             {(e.sellers||[]).length>1
                               ?<select className="input" style={{padding:'3px 6px',width:'auto',fontSize:13}} value={e.selectedSeller} onChange={ev=>changeSeller(e.id,ev.target.value)}>
@@ -2038,11 +2346,25 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
 // ═══════════════════════════════════════════════════════════
 // TAB 3 — PURCHASE INVOICES
 // ═══════════════════════════════════════════════════════════
-function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusiness }) {
+function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [] }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
     lineItems:[{description:'',quantity:'',unit:'each',unitPrice:''}]});
+
+  const descListId = useId();
+  const unitLineListId = useId();
+
+  const supplierSuggestions = useMemo(()=>uniqSuggestions(...purchaseInvoices.map(i=>i.supplier)),[purchaseInvoices]);
+  const lineDescSuggestions = useMemo(()=>{
+    const fromInv = purchaseInvoices.flatMap(i=>(i.lineItems||[]).map(l=>(l.description||'').trim()).filter(Boolean));
+    const names = items.map(i=>i.name);
+    return uniqSuggestions(...fromInv, ...names);
+  },[purchaseInvoices, items]);
+  const lineUnitSuggestions = useMemo(()=>uniqSuggestions(
+    ...purchaseInvoices.flatMap(i=>(i.lineItems||[]).map(l=>l.unit).filter(Boolean),
+    ...items.map(i=>i.unit)
+  ),[purchaseInvoices, items]);
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(blankF());
@@ -2116,9 +2438,15 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
 
       <Modal open={showForm} onClose={()=>setShowForm(false)} title="New Purchase Invoice" wide>
         <div className="grid-2">
-          <FI label="Supplier Name *" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))} placeholder="Sysco, US Foods…" />
+          <FI label="Supplier Name *" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))} placeholder="Sysco, US Foods…" suggestions={supplierSuggestions} />
           <FI label="Invoice Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
         </div>
+        <datalist id={descListId}>
+          {lineDescSuggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
+        <datalist id={unitLineListId}>
+          {lineUnitSuggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
         <div style={{marginBottom:14}}>
           <div className="flex-between mb-2">
             <label style={{margin:0}}>Line Items</label>
@@ -2126,9 +2454,9 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
           </div>
           {form.lineItems.map((l,i)=>(
             <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center',flexWrap:'wrap'}}>
-              <input className="input" placeholder="Description *" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'3 1 160px'}} />
+              <input className="input" placeholder="Description *" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'3 1 160px'}} list={descListId} />
               <input className="input" placeholder="Qty" type="number" min="0" step="0.01" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:'1 1 60px'}} />
-              <input className="input" placeholder="Unit" value={l.unit} onChange={e=>setLine(i,'unit',e.target.value)} style={{flex:'1 1 60px'}} />
+              <input className="input" placeholder="Unit" value={l.unit} onChange={e=>setLine(i,'unit',e.target.value)} style={{flex:'1 1 60px'}} list={unitLineListId} />
               <input className="input" placeholder="Unit $" type="number" min="0" step="0.01" value={l.unitPrice} onChange={e=>setLine(i,'unitPrice',e.target.value)} style={{flex:'1 1 70px'}} />
               <span style={{minWidth:64,textAlign:'right',fontSize:13,color:'var(--brown)',fontWeight:600}}>{fmt$(T.lines[i]?.total||0)}</span>
               <Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,lineItems:f.lineItems.filter((_,x)=>x!==i)}))}>✕</Btn>
@@ -2159,7 +2487,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
         </div>
       </Modal>
 
-      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide>
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide closeOnBackdrop>
         {viewInv&&(
           <div id={`purchase-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
@@ -2200,7 +2528,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
 // ═══════════════════════════════════════════════════════════
 // TAB 4 — CATERING INVOICES
 // ═══════════════════════════════════════════════════════════
-function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole }) {
+function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [] }) {
   const isAdmin = userRole==='admin';
   const blankF = () => ({
     customerId:'',customerName:'',customerPhone:'',customerEmail:'',
@@ -2209,6 +2537,15 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     lineItems:[{description:'',quantity:'1',unitPrice:''}],
     ccFeeEnabled:false,taxEnabled:true,deposit:'',notes:''
   });
+  const caterDescListId = useId();
+  const eventTypeSuggestions = useMemo(()=>uniqSuggestions(
+    ...cateringInvoices.map(i=>(i.eventType||'').trim()).filter(Boolean)
+  ),[cateringInvoices]);
+  const caterLineDescSuggestions = useMemo(()=>{
+    const fromInv = cateringInvoices.flatMap(i=>(i.lineItems||[]).map(l=>(l.description||'').trim()).filter(Boolean));
+    const names = items.map(i=>i.name);
+    return uniqSuggestions(...fromInv, ...names);
+  },[cateringInvoices, items]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
@@ -2313,7 +2650,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
 
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Event Details</div>
         <div className="grid-2 mb-3">
-          <FI label="Event Type" value={form.eventType} onChange={e=>setForm(f=>({...f,eventType:e.target.value}))} placeholder="Wedding, Corporate, Birthday…" />
+          <FI label="Event Type" value={form.eventType} onChange={e=>setForm(f=>({...f,eventType:e.target.value}))} placeholder="Wedding, Corporate, Birthday…" suggestions={eventTypeSuggestions} />
           <FS label="Business Entity" value={form.business} onChange={e=>setForm(f=>({...f,business:e.target.value}))}>
             {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
           </FS>
@@ -2327,11 +2664,14 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
           </div>
         </div>
 
+        <datalist id={caterDescListId}>
+          {caterLineDescSuggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Line Items</div>
         <div className="mb-3">
           {form.lineItems.map((l,i)=>(
             <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center',flexWrap:'wrap'}}>
-              <input className="input" placeholder="Description" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'4 1 180px'}} />
+              <input className="input" placeholder="Description" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'4 1 180px'}} list={caterDescListId} />
               <input className="input" placeholder="Qty" type="number" min="0" step="0.01" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:'1 1 60px'}} />
               <input className="input" placeholder="Unit Price" type="number" min="0" step="0.01" value={l.unitPrice} onChange={e=>setLine(i,'unitPrice',e.target.value)} style={{flex:'1 1 80px'}} />
               <span style={{minWidth:64,textAlign:'right',fontSize:13,color:'var(--brown)',fontWeight:600}}>{fmt$(T.lines[i]?.total||0)}</span>
@@ -2375,7 +2715,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
       </Modal>
 
       {/* View Modal */}
-      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Catering Invoice ${viewInv?.id||''}`} wide>
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Catering Invoice ${viewInv?.id||''}`} wide closeOnBackdrop>
         {viewInv&&(
           <div id={`catering-view-${viewInv.id}`} style={{fontFamily:'Georgia,serif'}}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
@@ -2432,6 +2772,10 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
   const [viewId,setViewId]=useState(null);
   const [confirmId,setConfirmId]=useState(null);
   const [search,setSearch]=useState('');
+
+  const nameSuggestions = useMemo(()=>uniqSuggestions(...customers.map(c=>c.name)),[customers]);
+  const phoneSuggestions = useMemo(()=>uniqSuggestions(...customers.map(c=>c.phone)),[customers]);
+  const emailSuggestions = useMemo(()=>uniqSuggestions(...customers.map(c=>c.email)),[customers]);
 
   const filtered=useMemo(()=>{
     const q=search.toLowerCase();
@@ -2500,10 +2844,10 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
       }
 
       <Modal open={showForm} onClose={()=>setShowForm(false)} title={editId?'Edit Customer':'Add Customer'}>
-        <FI label="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
+        <FI label="Full Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} suggestions={nameSuggestions} />
         <div className="grid-2">
-          <FI label="Phone" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} />
-          <FI label="Email" type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} />
+          <FI label="Phone" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} suggestions={phoneSuggestions} />
+          <FI label="Email" type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} suggestions={emailSuggestions} />
         </div>
         <FI label="Address" value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))} />
         <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
@@ -2513,7 +2857,7 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
         </div>
       </Modal>
 
-      <Modal open={!!viewCust} onClose={()=>setViewId(null)} title={`${viewCust?.name||''} — Invoice History`} wide>
+      <Modal open={!!viewCust} onClose={()=>setViewId(null)} title={`${viewCust?.name||''} — Invoice History`} wide closeOnBackdrop>
         {viewCust&&(
           <div>
             <div style={{padding:'10px 14px',background:'var(--cream)',borderRadius:6,marginBottom:16,fontSize:14}}>
@@ -3083,7 +3427,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
         )
       }
 
-      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide>
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide closeOnBackdrop>
         {viewInv&&(
           <div id={`archive-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
@@ -3132,8 +3476,14 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
 // ═══════════════════════════════════════════════════════════
 // INTERNAL TRANSFER INVOICES (P&P Hackensack -> Englewood)
 // ═══════════════════════════════════════════════════════════
-function TransferInvoices({ transferInvoices, setTransferInvoices }) {
+function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] }) {
   const COMMISSION_RATE = 0.15;
+  const transferItemListId = useId();
+  const itemSuggestions = useMemo(()=>{
+    const fromInv = transferInvoices.flatMap(i=>(i.lineItems||[]).map(l=>(l.item||'').trim()).filter(Boolean));
+    const names = items.map(i=>i.name);
+    return uniqSuggestions(...fromInv, ...names);
+  },[transferInvoices, items]);
   const blankForm = () => ({
     date: today(),
     from: 'Parathas & Platters - Hackensack',
@@ -3290,10 +3640,13 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
             <label style={{margin:0}}>Line Items</label>
             <Btn className="btn-outline btn-sm" onClick={addLine}>+ Add Line</Btn>
           </div>
+          <datalist id={transferItemListId}>
+            {itemSuggestions.map(s => <option key={s} value={s} />)}
+          </datalist>
           {form.lineItems.map((l, i)=>(
             <div key={i} style={{display:'flex',gap:8,marginBottom:8,alignItems:'center'}}>
               <input className="input" placeholder="Quantity (e.g. 10 lbs)" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:1.2}} />
-              <input className="input" placeholder="Item" value={l.item} onChange={e=>setLine(i,'item',e.target.value)} style={{flex:2.2}} />
+              <input className="input" placeholder="Item" value={l.item} onChange={e=>setLine(i,'item',e.target.value)} style={{flex:2.2}} list={transferItemListId} />
               <input className="input" placeholder="Price" type="number" min="0" step="0.01" value={l.price} onChange={e=>setLine(i,'price',e.target.value)} style={{flex:1}} />
               <span style={{fontSize:12,color:'#777',minWidth:80}}>+15%</span>
               <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>removeLine(i)}>🗑</Btn>
@@ -3337,7 +3690,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices }) {
         </div>
       )}
 
-      <Modal open={!!viewInv} onClose={()=>setViewId(null)} title={`Transfer Invoice ${viewInv?.id || ''}`} wide maxW={900}>
+      <Modal open={!!viewInv} onClose={()=>setViewId(null)} title={`Transfer Invoice ${viewInv?.id || ''}`} wide maxW={900} closeOnBackdrop>
         {viewInv && (
           <div id={`transfer-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
@@ -4400,6 +4753,9 @@ function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
     return { price, costNow, costAtDate, profitNow, marginNow, profitThen, marginThen, recommended, lines, recipe };
   };
 
+  const menuCategorySuggestions = useMemo(()=>uniqSuggestions(...menuItems.map(m=>m.category)),[menuItems]);
+  const menuNameSuggestions = useMemo(()=>uniqSuggestions(...menuItems.map(m=>m.name)),[menuItems]);
+
   const filteredMenus = useMemo(() => menuItems.filter(m => {
     if (menuTypeF !== 'all' && m.menuType !== menuTypeF) return false;
     if (bizF !== 'all' && !(m.pricing && m.pricing[bizF] !== undefined)) return false;
@@ -4663,8 +5019,8 @@ function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
 
       <Modal open={showMenuForm} onClose={()=>setShowMenuForm(false)} title={editingId?'Edit Menu Item':'Add Menu Item'} maxW={760}>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-          <FI label="Item Name" value={menuForm.name} onChange={e=>setMenuForm(f=>({ ...f, name:e.target.value }))} />
-          <FI label="Category" value={menuForm.category} onChange={e=>setMenuForm(f=>({ ...f, category:e.target.value }))} />
+          <FI label="Item Name" value={menuForm.name} onChange={e=>setMenuForm(f=>({ ...f, name:e.target.value }))} suggestions={menuNameSuggestions} />
+          <FI label="Category" value={menuForm.category} onChange={e=>setMenuForm(f=>({ ...f, category:e.target.value }))} suggestions={menuCategorySuggestions} />
           <div className="field" style={{margin:0}}><label>Menu Type</label><select className="input" value={menuForm.menuType} onChange={e=>setMenuForm(f=>({ ...f, menuType:e.target.value }))}><option value="regular">Regular</option><option value="catering">Catering</option></select></div>
           <div className="field" style={{margin:0}}><label>Unit</label><select className="input" value={menuForm.defaultUnit} onChange={e=>setMenuForm(f=>({ ...f, defaultUnit:e.target.value }))}>{MENU_UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select></div>
           <FI label="Default Price" type="number" min="0" step="0.01" value={menuForm.basePrice} onChange={e=>setMenuForm(f=>({ ...f, basePrice:e.target.value }))} />
@@ -4701,7 +5057,7 @@ function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [navGroup, setNavGroup] = useState('ops');
   const [items, setItems] = useState(()=>load('items',[]));
-  const [shopping, setShopping] = useState(()=>load('shoppingList',[]));
+  const [shopping, setShopping] = useState(()=>migrateShoppingList(load('shoppingList',[])));
   const [purchaseInv, setPurchaseInv] = useState(()=>load('purchaseInvoices',[]));
   const [transferInv, setTransferInv] = useState(()=>load('transferInvoices',[]));
   const [payrollInvoices, setPayrollInvoices] = useState(()=>load('payrollInvoices',[]));
@@ -4755,6 +5111,17 @@ function App() {
       setTransferInv(normalized);
       save('transferInvoices', normalized);
     }
+  }, []);
+
+  useEffect(() => {
+    const raw = load('shoppingList', []);
+    const normalized = migrateShoppingList(raw);
+    try {
+      if (JSON.stringify(normalized) !== JSON.stringify(raw)) {
+        setShopping(normalized);
+        save('shoppingList', normalized);
+      }
+    } catch (_) {}
   }, []);
 
   useEffect(() => {
@@ -4942,9 +5309,9 @@ function App() {
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
-        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
-        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} />}
-        {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} />}
+        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} />}
+        {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
         {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} />}
@@ -4957,7 +5324,7 @@ function App() {
       </div>
 
       {/* ── Modals ── */}
-      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
+      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
     </div>
   );
