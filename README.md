@@ -17,7 +17,15 @@ npm run build    # writes hashed bundles to dist/
 
 ### GitHub Pages
 
-Configure the repository **Pages** source to **GitHub Actions** (Settings → Pages → Build and deployment). The workflow `.github/workflows/deploy-pages.yml` runs `npm ci && npm run build` on every push to `master` and publishes `dist/`.
+1. **One-time:** In the repo, go to **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions** (not “Deploy from a branch”).
+
+2. Pushes to **`master`** run `.github/workflows/deploy-pages.yml` (`npm ci` + `npm run build`) and publish **`dist/`**. The first run may require approving the **github-pages** environment if your org enforces that.
+
+3. **Re-deploy without a code change:** **Actions** → **Deploy GitHub Pages** → **Run workflow** (only available after the workflow file exists on the default branch).
+
+4. The site is a project page at `https://<user>.github.io/<repo>/`. `vite.config.js` uses `base: './'` so asset paths work under that subpath.
+
+5. `public/.nojekyll` is copied into `dist/` so GitHub Pages does not run Jekyll on assets starting with `_`.
 
 For a manual deploy without Actions: build locally, then upload **only the contents of `dist/`** to your Pages branch or hosting root.
 

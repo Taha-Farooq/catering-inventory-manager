@@ -31,13 +31,22 @@ Backend (optional): see `backend/README.md`.
 
 ## Deployment (GitHub Pages)
 
-The live site must serve **built assets**, not raw dev sources:
+**Source:** Settings → Pages → **GitHub Actions** (not “Deploy from a branch”).
 
-1. Run `npm run build`.
-2. Publish **`dist/` contents** to the branch/path Pages uses (often `gh-pages` branch root or `/docs` depending on repo settings).
-3. Ensure `auth-api-config.json` is present at site root (copied from `public/` during build).
+| Workflow | When |
+|----------|------|
+| `.github/workflows/deploy-pages.yml` | Push to `master`, or **Actions → Run workflow** |
+| `.github/workflows/ci.yml` | Push/PR to `master` — build only |
 
-**Roadblock for automation:** If Actions secrets (`GITHUB_TOKEN`) are unavailable in this environment, CI cannot be validated here—workflow YAML can still be added for maintainers to enable in repo Settings → Actions.
+Build output **`dist/`** is uploaded as the Pages artifact. On first deploy you may need to approve the **github-pages** environment once.
+
+**Implementation notes**
+
+- `vite.config.js` uses `base: './'` so hashed assets resolve under project URLs (`/catering-inventory-manager/`).
+- `public/.nojekyll` is emitted into `dist/` so paths like `_assets` are not mangled by Jekyll.
+- `public/auth-api-config.json` is copied to `dist/` at build time.
+
+If Actions are unavailable, fall back: `npm run build`, then publish **contents of `dist/`** manually.
 
 ## Error codes
 
