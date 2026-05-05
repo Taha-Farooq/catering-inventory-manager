@@ -196,6 +196,9 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-07** | Split `App.jsx` further (`src/constants.js`, `HelpCenter`, **`src/ui/Confirm.jsx`** done; next: `Modal` / tab pages) | `HelpCenter` + constants + Confirm extracted | Ongoing |
 | **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
 | **BL-10** | Vitest: `apiErrors`, `constants`, `storageHealth`, **`formatters`** (`src/formatters.js`); optional Playwright smoke later | Regression safety | In progress |
+| **BL-11** | **Settings: custom logo URLs or upload** (per business) | Today logos are files under `public/assets/logos/` keyed by `BRANDING` in `App.jsx`; power users may want CDN URLs or replacement without deploy | Small–medium |
+
+**Ops note:** Invoice logos 404’d after Vite migration until JPGs lived under **`public/assets/logos/`** (same relative paths as `BRANDING.logo` in `App.jsx`). Updating art: overwrite those files and redeploy.
 
 ---
 

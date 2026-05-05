@@ -23,7 +23,8 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/charts/` | Lazy `React.lazy` chart panels (Recharts only loads when chart UI mounts) |
 | `src/HelpCenter.jsx` | Help tab: diagnostics, supported browsers, DMG codes, **repair one corrupt storage key** (paste JSON) |
 | `src/styles.css` | Global styles (extracted from legacy HTML) |
-| `public/` | Static copies served at site root (e.g. `auth-api-config.json`) |
+| `public/` | Static copies served at site root (e.g. `auth-api-config.json`, **`public/assets/logos/*.jpg`** for invoice/header images — `BRANDING.logo` paths must match) |
+| `assets/logos/` (repo root) | **Source** JPGs only; **deploy path** is `public/assets/logos/` (Vite copies `public/` → `dist/`). Replace files there and redeploy to update logos. |
 | `dist/` | **Production build output** (`npm run build`) — deploy **contents** to Pages |
 | `backend/` | Express-style reset/auth API for Render |
 | `docs/PRODUCT_BACKLOG.md` | Roadmap: error codes, slices, deferred backlog |
