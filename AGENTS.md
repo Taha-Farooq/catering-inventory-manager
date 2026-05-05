@@ -162,9 +162,9 @@ Restoring a v2.0 or older ZIP leaves `transferInvoices`, `payrollInvoices`, and 
 |-----|---------|
 | `_archivePageSize` | User-selected page size for Invoice Archive (10/25/50, default 25). UI preference only — not critical data. |
 
-## QR code dependency note
+## QR code
 
-`CheckInOutPage` generates kiosk QR images via `https://api.qrserver.com` (external CDN). This is the only remaining outbound request in the app shell after Slice 4 (CDN elimination). Tracked as BL-21 / Slice 12 — replace with the `qrcode` npm package.
+`CheckInOutPage` generates kiosk QR images using the `qrcode` npm package (Slice 12, BL-21). The previous external `api.qrserver.com` CDN call has been removed. QR is generated client-side via `QRCode.toDataURL(url)` and stored as a data-URL in `qrDataUrl` state — no outbound network requests for QR rendering.
 
 ## Known technical debt
 
@@ -172,5 +172,5 @@ Restoring a v2.0 or older ZIP leaves `transferInvoices`, `payrollInvoices`, and 
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
 - ~~No React error boundary (DMG-E003)~~ — **Fixed** (Slice 7, `src/ErrorBoundary.jsx`).
 - ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).
-- QR code uses external CDN (`api.qrserver.com`) — tracked as Slice 12 / BL-21.
+- ~~QR code uses external CDN (`api.qrserver.com`)~~ — **Fixed** (Slice 12, replaced with `qrcode` npm package).
 - Old backup ZIPs (v2.0) are missing transfer/payroll/dailyFin — restore warning planned (Slice 13 / BL-22).

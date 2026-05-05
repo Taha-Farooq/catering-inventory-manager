@@ -210,7 +210,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 12 — QR code self-hosting (remove external CDN)
 
-**Status:** Queued
+**Status:** Done — `qrcode` npm package installed. `import QRCode from 'qrcode'` added to `App.jsx`. `qrDataUrl` state driven by `useEffect(() => QRCode.toDataURL(qr.url)...)`. All `<img src={qrImageUrl}>` references replaced with `qrDataUrl`. `api.qrserver.com` call removed entirely. Bundle size increase ~25 KB min+gz (acceptable).
 
 **Problem:** `CheckInOutPage` builds kiosk QR images from `https://api.qrserver.com/v1/create-qr-code/…` — an external CDN call. If that service is unavailable or blocked on a corporate network, the kiosk station shows a broken image silently. This is the only remaining external CDN dependency in the app shell (Recharts is already self-hosted; the QR URL is the sole external call after Slice 4).
 
@@ -229,14 +229,14 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 13 — Backup version migration helper
 
-**Status:** Queued
+**Status:** Done — `runBackupImport` reads `version.json` from the ZIP (falls back to `'1.0'` if absent). For backups with version `< 2.1`, after restoring, a `warn` toast lists whichever of Transfer Invoices / Payroll Invoices / Daily Finance Entries were absent from the ZIP and notes they are unchanged on device.
 
 **Problem:** Backup ZIPs exported before the Slice 8 fix (version `2.0`) are missing `transferInvoices`, `payrollInvoices`, and `dailyFinanceEntries`. Restoring an old v2.0 ZIP silently omits these three datasets — user sees no warning, transfer history appears to vanish.
 
 **Scope (BL-22)**
-- In `runBackupImport`, read the `version` field from `exportDate.json` (or from `settings.json` if version is stored there).
-- If version is `< 2.1`, show a one-time toast/warning before restoring: *"This backup was created before Aug 2026 — transfer, payroll, and daily-finance data is not included. Those records on this device will be unchanged."*
-- Do not overwrite those three keys if they are absent from the ZIP (current behaviour already does this — just make the warning explicit).
+- In `runBackupImport`, read the `version` field from `version.json`.
+- If version is `< 2.1`, show a warning toast after restoring: lists the missing keys and notes they remain unchanged on device.
+- Do not overwrite those three keys if they are absent from the ZIP (current behaviour already does this — warning makes it explicit).
 
 **Acceptance**
 - Restoring a v2.0 ZIP shows the version-gap warning.
@@ -275,8 +275,8 @@ Large items that need their own kick-off before breaking into slices.
 | BL-16 | Invoice archive pagination | **Done** — Slice 9 |
 | BL-19 | Password hash hardening (username salt) | **Done** — Slice 10 |
 | BL-20 | Document `_seq` key | **Done** — Slice 10 |
-| BL-21 | QR code self-hosting (remove api.qrserver.com) | Queued → Slice 12 |
-| BL-22 | Backup version migration warning (v2.0 ZIPs) | Queued → Slice 13 |
+| BL-21 | QR code self-hosting (remove api.qrserver.com) | Done → Slice 12 |
+| BL-22 | Backup version migration warning (v2.0 ZIPs) | Done → Slice 13 |
 
 ---
 

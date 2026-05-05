@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from 'react';
+import QRCode from 'qrcode';
 import { getBootCapabilityWarnings } from './browserCaps.js';
 import { useOnlineStatus } from './useOnlineStatus.js';
 import { OfflineBanner, BrowserCapsBanner, BackendUnavailableBanner } from './ReliabilityBanners.jsx';
@@ -1593,16 +1594,21 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     const file = pendingBackupFile;
     if (!file) return;
     setPendingBackupFile(null);
-    JSZip.loadAsync(file).then(zip => {
+    JSZip.loadAsync(file).then(async zip => {
+      // Read backup format version (absent in v1.x ZIPs)
+      const verFile = zip.file('version.json');
+      const backupVersion = verFile ? JSON.parse(await verFile.async('string')) : '1.0';
+      const isLegacy = !backupVersion.startsWith('2.1');
+
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
                     'transferInvoices','payrollInvoices','dailyFinanceEntries',
                     'customers','priceHistory','settings'];
-      return Promise.all(keys.map(async k => {
+      const entries = await Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
         return [k, JSON.parse(await f.async('string'))];
       }));
-    }).then(entries => {
+
       entries.forEach(([k,v]) => {
         if (!v) return;
         if (k==='items')                { setItems(v);               save('items',v); }
@@ -1621,8 +1627,20 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
           save(LOGO_OVERRIDES_KEY, next);
         }
       });
-      logActivity('restore_backup', 'Restored data from backup');
+      logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
       showToast('Backup restored! All data has been loaded.');
+      if (isLegacy) {
+        const missing = [];
+        if (!zip.file('transferInvoices.json'))    missing.push('Transfer Invoices');
+        if (!zip.file('payrollInvoices.json'))     missing.push('Payroll Invoices');
+        if (!zip.file('dailyFinanceEntries.json')) missing.push('Daily Finance Entries');
+        if (missing.length) {
+          showToast(
+            `Older backup (v${backupVersion}): ${missing.join(', ')} were not in this ZIP and remain unchanged on your device.`,
+            'warn'
+          );
+        }
+      }
       onClose();
     }).catch(e => {
       reportError('DMG-E041', { phase: 'import_zip', message: String(e?.message || e) });
@@ -4594,6 +4612,7 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
   const [backendDown, setBackendDown] = useState(false);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState(null);
+  const [qrDataUrl, setQrDataUrl] = useState('');
   const [qrCountdown, setQrCountdown] = useState(0);
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date();
@@ -4822,7 +4841,12 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
     `;
     printHtmlDocument(html, `Weekly Salary Invoices ${weekStart}`);
   }
-  const qrImageUrl = qr?.url ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qr.url)}` : '';
+  useEffect(() => {
+    if (!qr?.url) { setQrDataUrl(''); return; }
+    QRCode.toDataURL(qr.url, { width: 320, margin: 2, color: { dark: '#000', light: '#fff' } })
+      .then(url => setQrDataUrl(url))
+      .catch(() => setQrDataUrl(''));
+  }, [qr?.url]);
 
   useEffect(() => {
     if (!isKioskStation) return;
@@ -4871,10 +4895,10 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
       <div className="card" style={{maxWidth:760,margin:'0 auto',textAlign:'center'}}>
         <div className="section-title" style={{marginBottom:6}}>Check-In Kiosk Station</div>
         <div style={{fontSize:13,color:'#666',marginBottom:10}}>QR refreshes automatically. Users scan and check in/out.</div>
-        {!qrImageUrl && <div className="empty-state" style={{padding:'24px 12px'}}>Generating secure QR…</div>}
-        {qrImageUrl && (
+        {!qrDataUrl && <div className="empty-state" style={{padding:'24px 12px'}}>Generating secure QR…</div>}
+        {qrDataUrl && (
           <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:12}}>
-            <img src={qrImageUrl} alt="Attendance QR" style={{width:320,height:320,border:'1px solid #EED9B0',borderRadius:12,background:'#fff'}} />
+            <img src={qrDataUrl} alt="Attendance QR" style={{width:320,height:320,border:'1px solid #EED9B0',borderRadius:12,background:'#fff'}} />
             <div style={{fontSize:18,fontWeight:700,color:qrCountdown <= 10 ? '#b91c1c' : '#166534'}}>
               Refreshes in {qrCountdown}s
             </div>
@@ -4929,7 +4953,7 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
             <div style={{fontSize:12.5,color:'#666',marginBottom:8}}>QR is one-time and short-lived for safer attendance check-in.</div>
             {qr && (
               <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
-                <img src={qrImageUrl} alt="Attendance QR" style={{width:220,height:220,border:'1px solid #EED9B0',borderRadius:8,background:'#fff'}} />
+                <img src={qrDataUrl} alt="Attendance QR" style={{width:220,height:220,border:'1px solid #EED9B0',borderRadius:8,background:'#fff'}} />
                 <div style={{maxWidth:460}}>
                   <div style={{fontWeight:700,marginBottom:4}}>Expires:</div>
                   <div style={{fontSize:13,marginBottom:8}}>{qr.expiresAt ? new Date(qr.expiresAt).toLocaleString() : 'Soon'}</div>
