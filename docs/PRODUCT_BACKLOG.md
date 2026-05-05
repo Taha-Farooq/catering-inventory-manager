@@ -95,6 +95,8 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 3 — Storage resilience
 
+**Status:** Partial — `src/storageHealth.js` probes localStorage, estimates quota (`navigator.storage.estimate`), detects corrupt JSON keys; banners for DMG-E010–E012 in main shell; `save()` maps quota vs blocked storage to **DMG-E011** / **DMG-E010** with `reportError`.
+
 **Objective:** Graceful behavior when storage is full, disabled, or corrupt.
 
 **Scope**
@@ -148,6 +150,8 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 6 — Browser support matrix and guardrails
 
+**Status:** Partial — `crypto.subtle` check at app load with DMG-E050 / DMG-E051 banner; full browser matrix in Help/README still TBD.
+
 **Objective:** Fail fast with `DMG-E050` / `DMG-E051` instead of obscure runtime errors.
 
 **Scope**
@@ -168,7 +172,7 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
 | **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-07** | Split `App.jsx` into feature modules + shared hooks | Maintainability; required before large COGS work | After Slice 2 or with BL-01 |
+| **BL-08** | Per-key “repair or reset” UI for DMG-E012 (restore from export JSON into one key) | Safer than wipe-all when one blob corrupt | Post Slice 3 |
 
 ---
 

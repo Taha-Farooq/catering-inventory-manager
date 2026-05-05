@@ -4,6 +4,14 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { clearErrorLog, copyDiagnostics, reportError } from './errors.js';
+import {
+  probeLocalStorage,
+  estimateStorageUsage,
+  findCorruptStorageKeys,
+  removeStorageKeys,
+  setSaveFailNotifier,
+  notifySaveFailure,
+} from './storageHealth.js';
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTS
@@ -101,8 +109,24 @@ function load(key, def) {
   catch { return def; }
 }
 function save(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); return true; }
-  catch(e) { alert('Storage error: ' + (e.message||'Could not save data.')); return false; }
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+    return true;
+  } catch (e) {
+    const msg = e?.message || String(e);
+    const code =
+      e && (e.name === 'QuotaExceededError' || /quota|exceeded/i.test(msg))
+        ? 'DMG-E011'
+        : 'DMG-E010';
+    reportError(code, { key, message: msg });
+    notifySaveFailure({ code, key, message: msg });
+    alert(
+      code === 'DMG-E011'
+        ? `Storage is full (${code}). Export a backup from Settings, then free space or remove old data.`
+        : `Cannot save data (${code}). Enable browser storage — avoid strict private mode if saves fail.`
+    );
+    return false;
+  }
 }
 
 /*
@@ -132,6 +156,12 @@ function migrateShoppingList(raw) {
 // UTILS
 // ═══════════════════════════════════════════════════════════
 const fmt$ = n => '$' + (parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+const fmtBytes = (n) => {
+  if (n == null || !Number.isFinite(n)) return '';
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+};
 const fmtDate = d => { if(!d) return ''; try { return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return d; } };
 const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
@@ -4913,10 +4943,70 @@ function App() {
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
   const [kioskLock, setKioskLock] = useState(()=>load('_kioskLock', false));
   const [localFeatureWarning, setLocalFeatureWarning] = useState('');
+  const [storageEnvOk, setStorageEnvOk] = useState(true);
+  const [storageQuotaWarn, setStorageQuotaWarn] = useState(null);
+  const [storageCorruptKeys, setStorageCorruptKeys] = useState([]);
+  const [browserGuardNote, setBrowserGuardNote] = useState('');
+  const storageWarnRef = useRef({ quota: false });
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
     return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!window.crypto?.subtle) {
+        const msg =
+          window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+            ? 'Password hashing needs a secure (HTTPS) site or localhost (DMG-E051).'
+            : 'This browser is missing Web Crypto. Try Chrome, Edge, or Firefox (DMG-E050).';
+        setBrowserGuardNote(msg);
+        reportError(
+          window.location.protocol === 'http:' &&
+            window.location.hostname !== 'localhost' &&
+            window.location.hostname !== '127.0.0.1'
+            ? 'DMG-E051'
+            : 'DMG-E050',
+          { protocol: window.location.protocol }
+        );
+      }
+      const probe = probeLocalStorage();
+      if (!probe.ok) {
+        setStorageEnvOk(false);
+        reportError('DMG-E010', { phase: 'probe', readable: probe.readable, writable: probe.writable });
+      }
+      const est = await estimateStorageUsage();
+      if (cancelled) return;
+      if (est.usageRatio != null && est.usageRatio > 0.9) {
+        setStorageQuotaWarn({
+          usageBytes: est.usageBytes,
+          quotaBytes: est.quotaBytes,
+          ratio: est.usageRatio,
+        });
+        if (!storageWarnRef.current.quota) {
+          storageWarnRef.current.quota = true;
+          reportError('DMG-E011', { phase: 'estimate', usageRatio: est.usageRatio, warn: 'near_quota' });
+        }
+      }
+      const bad = findCorruptStorageKeys();
+      if (bad.length) {
+        setStorageCorruptKeys(bad);
+        reportError('DMG-E012', { keys: bad });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    setSaveFailNotifier((payload) => {
+      if (payload?.code === 'DMG-E011') {
+        setStorageQuotaWarn((prev) => prev || { usageBytes: null, quotaBytes: null, ratio: 1 });
+        showToast('Storage full — export a backup soon.', 'warning');
+      }
+    });
+    return () => setSaveFailNotifier(() => {});
+  }, []);
 
   // Keep active tab valid when permissions change — MUST be before any conditional return
   useEffect(() => {
@@ -5068,6 +5158,19 @@ function App() {
   const appState = { items, shopping, purchaseInv, cateringInv, customers, priceHist,
     setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz };
 
+  function handleClearCorruptKeys() {
+    const keys = [...storageCorruptKeys];
+    if (!keys.length) return;
+    if (!window.confirm(
+      `Remove ${keys.length} unreadable storage key(s)? Export a backup from Settings first if unsure.\n\nKeys: ${keys.join(', ')}`
+    )) return;
+    removeStorageKeys(keys);
+    reportError('DMG-E012', { phase: 'cleared_keys', cleared: keys });
+    setStorageCorruptKeys([]);
+    showToast('Removed unreadable keys. Reloading…', 'warning');
+    window.setTimeout(() => window.location.reload(), 400);
+  }
+
   return (
     <div id="app-shell">
       <ToastContainer />
@@ -5135,6 +5238,33 @@ function App() {
         <div className="hint-card no-print">
           {isAdmin ? 'Use top groups to find tools faster. Start with Stock or Invoices for daily work.' : 'Use top groups to find what you need quickly. Start with Work or Stock.'}
         </div>
+        {browserGuardNote && (
+          <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#991b1b'}}>
+            {browserGuardNote}
+          </div>
+        )}
+        {!storageEnvOk && (
+          <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#9a3412'}}>
+            <strong>DMG-E010:</strong> Browser storage is not available or blocked. The app cannot save changes reliably. Allow site data / exit strict private browsing, then refresh.
+          </div>
+        )}
+        {storageQuotaWarn && (
+          <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#92400e'}}>
+            <strong>DMG-E011:</strong> Device storage for this site is nearly full
+            {storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null && (
+              <> ({fmtBytes(storageQuotaWarn.usageBytes)} / {fmtBytes(storageQuotaWarn.quotaBytes)})</>
+            )}
+            . Export a backup from Settings, then remove old invoices or clear other sites’ data.
+          </div>
+        )}
+        {!!storageCorruptKeys.length && (
+          <div style={{background:'#fefce8',border:'1px solid #fde047',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#713f12'}}>
+            <strong>DMG-E012:</strong> Some saved data could not be read (keys: {storageCorruptKeys.join(', ')}).
+            Export a backup if possible, then remove the bad keys.
+            {' '}
+            <button type="button" className="btn btn-outline btn-sm" style={{marginLeft:8}} onClick={handleClearCorruptKeys}>Remove unreadable keys</button>
+          </div>
+        )}
         {isAdmin && localFeatureWarning && (
           <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#9a3412'}}>
             Note: {localFeatureWarning}
