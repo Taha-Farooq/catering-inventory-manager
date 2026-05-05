@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import { reportError } from './errors.js';
 import { ToastProvider } from './toastContext.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 
 (function mountApp() {
   try {
@@ -12,9 +13,11 @@ import { ToastProvider } from './toastContext.jsx';
     const root = createRoot(el);
     root.render(
       <React.StrictMode>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
+        <ErrorBoundary>
+          <ToastProvider>
+            <App />
+          </ToastProvider>
+        </ErrorBoundary>
       </React.StrictMode>
     );
     window.__dmgBoot = window.__dmgBoot || {};

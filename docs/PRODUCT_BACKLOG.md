@@ -163,77 +163,130 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ---
 
-## Remaining work — technical scope (not calendar estimates)
+---
 
-Rough **surface area / coupling** only:
+## Slices 7–11 — active queue
 
-| Area | What’s left | Scope |
-|------|-------------|--------|
-| **Slice 2** | BL-12 (React error boundary / DMG-E003); optional DMG codes on validation toasts | Small |
-| **Slice 3 defer** | IndexedDB migration | Large |
-| **Slice 5** | BL-15 (backend tab offline degradation); BL-18 (scan DB backup gap) | Medium–small |
-| **Slice 6** | Done — optional extra StorageManager probe deferred | — |
-| **BL-01 COGS** | Recipes, yields, reporting | Very large |
-| **BL-02–BL-05** | Alerts, merge, telemetry | Medium each |
-| **BL-07** | Split `App.jsx` — `src/ui/Confirm.jsx`, `Modal.jsx` done; next: tab pages | Large mechanical |
-| **BL-10** | Optional Playwright smoke; more utils if extracted | Small increments |
-| **BL-12** | React error boundary + DMG-E003 | Small |
-| **BL-13** | ~~`_logoOverrides` in STORAGE_SCAN_KEYS~~ **Done** | — |
-| **BL-14** | ~~`uid()` → `crypto.randomUUID()`~~ **Done** | — |
-| **BL-15** | Backend tab offline degradation (Attendance, Scan DB) | Small |
-| **BL-16** | Invoice archive pagination | Small–medium |
-| **BL-17** | Multi-business data namespace decision + documentation | Design + small/epic |
-| **BL-18** | Payroll ↔ Scan DB integration clarification + scan backup in Settings | Medium |
-| **BL-19** | Password hash security hardening (add username salt) | Small |
-| **BL-20** | Document `_seq` key purpose | Tiny |
+### Slice 7 — Crash recovery (DMG-E003) ✅ Done
 
-**Summary:** Slices **1, 4** done; **2, 3, 5** partial; **6** done. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** (continue extracting from `App.jsx`). Most urgent reliability gap: **BL-12** (DMG-E003 error boundary).
+**Status:** Done — `src/ErrorBoundary.jsx` class component wraps `<App>` in `main.jsx`. Post-mount render errors show a recovery card (Refresh + Copy diagnostics) and emit DMG-E003 via `reportError`. Closes BL-12; completes Slice 2.
+
+**Scope**
+- `src/ErrorBoundary.jsx` — `getDerivedStateFromError` + `componentDidCatch` → `reportError(‘DMG-E003’)`; renders `boot-fatal` recovery card with Refresh + Copy diagnostics buttons.
+- `src/main.jsx` — wrap `<ToastProvider><App/></ToastProvider>` inside `<ErrorBoundary>`.
+
+**Smoke test**
+1. In any tab body temporarily add `throw new Error(‘boundary test’)`.
+2. Expect: recovery card with heading “Something went wrong”, DMG-E003 code visible, Refresh button reloads, Copy diagnostics copies JSON.
+3. No blank screen, no uncaught React error in console.
 
 ---
 
-## Backlog — product and functionality (beyond current slices)
+### Slice 8 — Backend resilience
 
-Items intentionally **not** in slices 1–6; pull into planning when capacity allows.
+**Status:** Queued
 
-| ID | Item | Rationale / pairing | Suggested slice |
-|----|------|---------------------|-----------------|
-| **BL-01** | **COGS / recipe costing** | Natural fit with existing **shopping list + item prices + categories**; needs recipe yields, waste %, and period reporting | Own epic after Slice 3 |
-| **BL-02** | Cost pairs / supplier price history alerts | Complements price history tab; requires notification UX | After BL-01 or parallel |
-| **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
-| **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
-| **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-07** | Split `App.jsx` further (`src/constants.js`, `HelpCenter`, **`src/ui/Confirm.jsx`** done; next: `Modal` / tab pages) | `HelpCenter` + constants + Confirm extracted | Ongoing |
-| **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
-| **BL-10** | Vitest: `apiErrors`, `constants`, `storageHealth`, **`formatters`** (`src/formatters.js`); optional Playwright smoke later | Regression safety | In progress |
-| **BL-11** | **Settings: custom logo URLs** (per business) — **partial:** Settings → “Invoice logos” saves `_logoOverrides`; upload / drag-drop file still **backlog** | Power users; CDN without redeploy | Small follow-up |
-| **BL-12** | **React Error Boundary + DMG-E003** — class component `src/ErrorBoundary.jsx`; wrap `<App>` in `main.jsx`; shows recovery card with “Refresh” + “Copy diagnostics”; calls `reportError(‘DMG-E003’)`. Without this, post-mount render errors blank the screen silently. | Completes Slice 2 | Small |
-| **BL-13** | ~~**`_logoOverrides` in `STORAGE_SCAN_KEYS`**~~ **Done** — `LOGO_OVERRIDES_KEY` imported and added to `STORAGE_SCAN_KEYS` in `src/storageHealth.js`; test asserts coverage. Without it, corrupt logo overrides were invisible to Help tab repair scan. | Slice 3 / BL-11 integrity | — |
-| **BL-14** | ~~**`uid()` → `crypto.randomUUID()`**~~ **Done** — replaced `Math.random()`-based ID generator with `crypto.randomUUID()` in `src/App.jsx`. Existing IDs in localStorage are unaffected. | Correctness | — |
-| **BL-15** | **Backend tab offline degradation** — when backend is unreachable (DMG-E021/E030) or `navigator.onLine` is false, Attendance (Check In/Out) and Scan DB tabs show a styled *”This feature requires the backend server — [DMG-E021]”* banner (reuse `OfflineBanner` style from `ReliabilityBanners.jsx`), not silent toasts. Local state (kiosk lock, last scan summary) still renders. | Completes Slice 5 | Small |
-| **BL-16** | **Invoice archive pagination** — archive tab renders all invoices at once; add `usePagination(items, pageSize)` hook, page controls (prev/next/page N of M), page size selector (10/25/50) persisted in `settings`. | Performance / UX | Small–medium |
-| **BL-17** | **Multi-business data namespace decision** — all three businesses share the same `items`, `cateringInvoices`, `customers`, etc. keys; `_lastBiz` is a UI filter only. (a) If intentional (shared vendor catalog): document explicitly in `AGENTS.md`, rename “P&P Transfer Inv.” tab to “Transfer Invoices”, generalize direction. (b) If invoices need per-business scoping: design `items_degrill` / `items_parathas` / `items_dera` scheme with a `migrateBusinessKeys()` helper — own epic. Owner must decide which path. | Design decision + documentation | Design → small or epic |
-| **BL-18** | **Payroll invoice ↔ Scan DB integration + scan backup** — `payrollInvoices` (localStorage, manual entry) and backend scan-db.json (PDF auto-parse) have undefined overlap. (a) Document whether they are the same or separate. (b) If same: when a scanned doc is classified as “payroll”, offer “Create payroll invoice” pre-filled from parsed fields. (c) Add “Download Scan DB” button in Help/Settings calling `/api/scan/export` so scan history is not orphaned on the backend. | Slice 5 follow-up | Medium |
-| **BL-19** | **Password hash hardening** — `hashPwd()` in `App.jsx` uses unsalted `SHA-256(password)`. Minimum fix: `SHA-256(password + ‘:’ + username.toLowerCase())` (deterministic salt, no stored-salt migration needed). Transition: accept old hash on first login attempt, re-hash and save with salt on success. Update `backend/server.js` login handler to match (it receives the hash from the frontend). Document the scheme in `AGENTS.md`. | Security | Small |
-| **BL-20** | **Document `_seq` key** — `_seq` is in `STORAGE_SCAN_KEYS` and written by `App.jsx` but undocumented. Find all reads/writes, add a one-line comment, add a row to the `AGENTS.md` storage key table. | Maintainability | Tiny |
+**Scope (BL-15 + BL-18 partial)**
+- When `useOnlineStatus()` is false **or** a backend fetch returns DMG-E021/E030, the **Attendance** (Check In/Out) and **Scan DB** tab bodies render a `BackendUnavailableBanner` (`src/ReliabilityBanners.jsx`) instead of a raw error toast. Kiosk lock state + local scan summary still visible.
+- Add a **”Download Scan DB backup”** link in Help (or Settings) that calls `GET /api/scan/export` — guards against backend scan history being orphaned when the server resets.
 
-**Ops note:** Invoice logos 404’d after Vite migration until JPGs lived under **`public/assets/logos/`** (same relative paths as `BRANDING.logo` in `App.jsx`). Updating art: overwrite those files and redeploy.
+**Acceptance**
+- With backend URL misconfigured: both tabs show a banner citing DMG-E021; no orphan toasts.
+- Admin opens Help → can download scan-db.json even while otherwise offline from the main UI.
 
 ---
 
-## Ordering recommendation
+### Slice 9 — Archive pagination
 
-1. **Slice 1** (build) — unlocks everything else; reduces `DMG-E001`/`E002` frequency.
-2. **Slice 2** (error UX) — makes remaining failures legible.
-3. **Slice 3** (storage) — addresses `DMG-E010`–`E012` which dominate real-world “it ate my data” fear.
-4. Slices **4–6** in parallel only after 1–3 are stable.
+**Status:** Queued
+
+**Scope (BL-16)**
+- Extract `usePagination(items, pageSize)` hook (`src/hooks/usePagination.js`).
+- Apply to Archive tab: page controls (← Prev / page X of N / Next →), keyboard-accessible.
+- Page size selector (10 / 25 / 50); choice persisted in `settings` localStorage key.
+- Filter/sort changes reset page to 1.
+
+**Acceptance**
+- With 100+ invoices: Archive tab renders instantly (first page only); navigation works.
+- Page size survives page reload.
 
 ---
 
-## Open design questions (fill before Slice 2–3)
+### Slice 10 — Security hardening
 
-1. **Support channel:** Single email vs in-app only? (Affects diagnostics copy.)
+**Status:** Queued
+
+**Scope (BL-19 + BL-20)**
+
+**BL-19 — Password hash with username salt**
+- `hashPwd(pwd, username)`: `SHA-256(pwd + ‘:’ + username.toLowerCase())` (deterministic, no stored-salt migration needed).
+- Transition: on login attempt the old no-salt hash is tried first; on success, re-hash with salt and overwrite the stored credential.
+- Update `backend/server.js` login check accordingly (backend receives the hash from the frontend — transparent).
+- Document scheme in `AGENTS.md`.
+
+**BL-20 — Document `_seq` key**
+- Locate all `_seq` reads/writes in `App.jsx`; add a one-line comment on first write.
+- Add `_seq` row to `AGENTS.md` storage key reference table (already done).
+
+**Acceptance**
+- Existing admin still logs in after deploy (old hash accepted, new hash re-stored).
+- New password set after deploy uses salted hash.
+- `grep ‘_seq’ src/App.jsx` shows an annotated usage.
+
+---
+
+### Slice 11 — Logo file upload (complete BL-11)
+
+**Status:** Queued
+
+**Scope**
+- Add file input (or drag-drop zone) in the Settings “Invoice logos” section.
+- On select: read file as data-URL; store in `_logoOverrides` alongside existing HTTPS URL fields.
+- Cap file size at 500 KB; show DMG-E040 toast if exceeded.
+- Round-trip: file data-URLs already survive ZIP backup/restore (embedded in `settings.json`).
+
+**Acceptance**
+- Admin uploads a JPG → logo appears on next invoice print without a redeploy.
+- File > 500 KB → DMG-E040 toast, no crash.
+- ZIP export then import → logo survives.
+
+---
+
+## Epics (own planning cycle)
+
+Large items that need their own kick-off before breaking into slices.
+
+| ID | Epic | Key decision needed | Est. size |
+|----|------|--------------------|-----------| 
+| **Epic A** (BL-17) | **Multi-business data namespace** | Shared catalog intentional? Invoices per-business? `_lastBiz` filter vs. scoped keys? | Large if scoped keys chosen |
+| **Epic B** (BL-18 full) | **Payroll ↔ Scan DB integration** | Are they the same system or separate? Auto-link scanned payroll PDFs to invoice entries? | Medium |
+| **Epic C** (BL-07) | **App.jsx extraction** — continued tab-by-tab extraction into `src/tabs/*.jsx` | Which tab extracts next? | Large mechanical (ongoing) |
+| **Epic D** (BL-01/02) | **COGS / Recipe costing** — recipe yields, waste %, period COGS reports, supplier price alerts | Per-business or global recipe catalog? Tax incl/excl for margins? | Very large |
+
+---
+
+## Deferred / done index
+
+| ID | Item | Status |
+|----|------|--------|
+| BL-03 | Import merge wizard | Deferred — Slice 5 follow-up |
+| BL-04 | IndexedDB + sync | Deferred — only if quota issues recur |
+| BL-05 | Admin error telemetry dashboard | Deferred — post Slice 2 |
+| BL-08 | Per-key corrupt repair (Help) | **Done** |
+| BL-10 | Vitest suite | **In progress** — apiErrors, constants, storageHealth, formatters, browserCaps covered |
+| BL-11 | Logo URL overrides (Settings) | **Partial** — URL done; file upload → Slice 11 |
+| BL-12 | React Error Boundary + DMG-E003 | **Done** — Slice 7 |
+| BL-13 | `_logoOverrides` in STORAGE_SCAN_KEYS | **Done** |
+| BL-14 | `uid()` → `crypto.randomUUID()` | **Done** |
+
+---
+
+## Open design questions
+
+1. **Support channel:** Single email vs in-app only? (Affects diagnostics copy format.)
 2. **Admin reset:** When `DMG-E012` triggers, is backend reset always allowed or device-local only?
-3. **COGS (BL-01):** Per-business recipes vs global catalog? Tax inclusive/exclusive for margin?
+3. **COGS (Epic D / BL-01):** Per-business recipes vs global catalog? Tax inclusive/exclusive for margin?
+4. **Multi-business (Epic A / BL-17):** Is the shared item/customer catalog intentional across all three locations, or should DeGrill, Parathas, and Dera have isolated data stores?
 
 ---
 
@@ -242,5 +295,7 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 Update this file when:
 
 - A new error code is added or retired.
-- A slice ships (check acceptance boxes in PR description).
+- A slice ships (move to Done in Slices 7–11, or mark epic slice complete).
 - Backlog items graduate into a slice or are cancelled.
+
+**Ops note:** Invoice logos 404’d after Vite migration until JPGs lived under **`public/assets/logos/`** (same relative paths as `BRANDING.logo` in `App.jsx`). Updating art: overwrite those files and redeploy.
