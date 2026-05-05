@@ -12,6 +12,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/App.jsx` | Entire React application (large single file today) |
 | `src/main.jsx` | `createRoot`, `StrictMode`, boot integration |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
+| `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
 | `src/storageHealth.js` | localStorage probe, quota estimate, corrupt key scan, save-failure notify |
 | `src/styles.css` | Global styles (extracted from legacy HTML) |
 | `public/` | Static copies served at site root (e.g. `auth-api-config.json`) |
@@ -51,7 +52,12 @@ If Actions are unavailable, fall back: `npm run build`, then publish **contents 
 
 ## Error codes
 
-Stable catalog lives in `docs/PRODUCT_BACKLOG.md`. Boot-related strings:
+Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
+
+- **`src/errors.js`** — ring buffer, diagnostics JSON.
+- **`src/apiErrors.js`** — classify backend `fetch` / HTTP → DMG-E020–E031.
+
+Boot-related:
 
 - **`DMG-E001`** — Bundle/scripts failed to load or hung before mount (watchdog).
 - **`DMG-E002`** — Mount threw or compile/runtime failure during startup.

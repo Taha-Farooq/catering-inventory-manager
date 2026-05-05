@@ -135,6 +135,8 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 5 — Auth and backend contract hardening
 
+**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; `getAuthStatus`, `loginViaBackend`, `syncCredentialsToBackend`, `scanApiCall`, and `attendanceApiCall` report **DMG-E020–E031** and return `code` where useful; central-auth login shows network/CORS messages instead of only “Invalid password”.
+
 **Objective:** Predictable behavior when Render backend or central auth is down.
 
 **Scope**
@@ -172,7 +174,9 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
 | **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-08** | Per-key “repair or reset” UI for DMG-E012 (restore from export JSON into one key) | Safer than wipe-all when one blob corrupt | Post Slice 3 |
+| **BL-07** | Split `App.jsx` into feature modules + shared hooks | Maintainability; required before large COGS work | After Slice 2 or with BL-01 |
+| **BL-08** | Per-key “repair or reset” for DMG-E012 (restore one key from export) | Safer than wipe-all | Post Slice 3 |
+| **BL-09** | Lazy-load Recharts (`import()` on Analytics only) | Shrink main chunk; Slice 4 follow-up | After Slice 5 |
 
 ---
 

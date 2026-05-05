@@ -5,6 +5,12 @@ import {
 } from 'recharts';
 import { clearErrorLog, copyDiagnostics, reportError } from './errors.js';
 import {
+  classifyFetchException,
+  classifyHttpStatus,
+  mergeApiFailure,
+  userMessageForCode,
+} from './apiErrors.js';
+import {
   probeLocalStorage,
   estimateStorageUsage,
   findCorruptStorageKeys,
@@ -260,94 +266,158 @@ async function resolveResetApiBase(preferredBase) {
 }
 async function getAuthStatus(preferredBase) {
   const resolved = await resolveResetApiBase(preferredBase);
-  if (!resolved.ok) return { ok:false, error:'Auth backend unavailable' };
-  try {
-    const r = await fetch(`${resolved.base}/api/auth/status`);
-    const data = await r.json().catch(()=>({}));
-    if (!r.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
-    return { ok:true, base:resolved.base, ...data };
-  } catch (e) {
-    return { ok:false, error:String(e.message || e) };
+  if (!resolved.ok) {
+    reportError('DMG-E021', { phase: 'auth_status', detail: 'resolve_failed' });
+    return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable' };
   }
+  const path = '/api/auth/status';
+  let r;
+  try {
+    r = await fetch(`${resolved.base}${path}`);
+  } catch (e) {
+    const { code } = classifyFetchException(e, path);
+    reportError(code, { phase: 'auth_status', message: String(e?.message || e) });
+    return { ok: false, code, error: userMessageForCode(code), base: resolved.base };
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const { code } = classifyHttpStatus(r.status, path);
+    reportError(code, { phase: 'auth_status', httpStatus: r.status, detail: data.error });
+    return {
+      ok: false,
+      code,
+      error: data.error || `HTTP ${r.status}`,
+      base: resolved.base,
+      httpStatus: r.status,
+    };
+  }
+  return { ok: true, base: resolved.base, ...data };
 }
 async function loginViaBackend(username, passwordHash, preferredBase) {
   const resolved = await resolveResetApiBase(preferredBase);
-  if (!resolved.ok) return { ok:false, error:'Auth backend unavailable' };
-  try {
-    const r = await fetch(`${resolved.base}/api/auth/login`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, passwordHash })
-    });
-    const data = await r.json().catch(()=>({}));
-    if (!r.ok || !data.ok) return { ok:false, error:data.error || 'Login failed' };
-    if (data.credentialsSnapshot) save('credentials', data.credentialsSnapshot);
-    return { ok:true, user:data.user };
-  } catch (e) {
-    return { ok:false, error:String(e.message || e) };
+  if (!resolved.ok) {
+    reportError('DMG-E021', { phase: 'login', detail: 'resolve_failed' });
+    return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable', user: null };
   }
+  const path = '/api/auth/login';
+  let r;
+  try {
+    r = await fetch(`${resolved.base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, passwordHash }),
+    });
+  } catch (e) {
+    const { code } = classifyFetchException(e, path);
+    reportError(code, { phase: 'login', message: String(e?.message || e) });
+    return { ok: false, code, error: userMessageForCode(code), user: null };
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.ok) {
+    const code = !r.ok ? classifyHttpStatus(r.status, path).code : 'DMG-E020';
+    reportError(code, { phase: 'login', httpStatus: r.ok ? undefined : r.status });
+    return {
+      ok: false,
+      code,
+      error: data.error || 'Login failed',
+      user: null,
+    };
+  }
+  if (data.credentialsSnapshot) save('credentials', data.credentialsSnapshot);
+  return { ok: true, code: null, user: data.user };
 }
 async function syncCredentialsToBackend(credentials, preferredBase) {
   const resolved = await resolveResetApiBase(preferredBase);
-  if (!resolved.ok) return { ok:false, error:'Auth backend unavailable' };
-  try {
-    const r = await fetch(`${resolved.base}/api/auth/sync`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ credentials })
-    });
-    const data = await r.json().catch(()=>({}));
-    if (!r.ok || !data.ok) return { ok:false, error:data.error || 'Sync failed' };
-    return { ok:true };
-  } catch (e) {
-    return { ok:false, error:String(e.message || e) };
+  if (!resolved.ok) {
+    reportError('DMG-E021', { phase: 'sync_credentials', detail: 'resolve_failed' });
+    return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable' };
   }
+  const path = '/api/auth/sync';
+  let r;
+  try {
+    r = await fetch(`${resolved.base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentials }),
+    });
+  } catch (e) {
+    const { code } = classifyFetchException(e, path);
+    reportError(code, { phase: 'sync_credentials', message: String(e?.message || e) });
+    return { ok: false, code, error: userMessageForCode(code) };
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.ok) {
+    const { code } = mergeApiFailure({ response: r, path });
+    reportError(code, { phase: 'sync_credentials', httpStatus: r.status });
+    return { ok: false, code, error: data.error || 'Sync failed' };
+  }
+  return { ok: true, code: null };
 }
 async function scanApiCall(pathName, { method='GET', body=null, currentUser, query=null, preferredBase=null } = {}) {
   // Scanner should "just work" on admin Windows device: prefer local backend automatically.
   const localFirst = await resolveResetApiBase(preferredBase || 'http://localhost:8787');
   const resolved = localFirst.ok ? localFirst : await resolveResetApiBase(preferredBase);
-  if (!resolved.ok) return { ok:false, error:'Backend unavailable (local scanner service not reachable)' };
+  if (!resolved.ok) {
+    reportError('DMG-E021', { phase: 'scan_api', path: pathName, detail: 'resolve_failed' });
+    return { ok: false, code: 'DMG-E021', error: 'Backend unavailable (local scanner service not reachable)' };
+  }
   const qs = query ? '?' + new URLSearchParams(query).toString() : '';
   const headers = {
     'Content-Type': 'application/json',
     'x-auth-user': String(currentUser?.username || ''),
     'x-auth-hash': String(currentUser?.authHash || '')
   };
+  let r;
   try {
-    const r = await fetch(`${resolved.base}${pathName}${qs}`, {
+    r = await fetch(`${resolved.base}${pathName}${qs}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || !data.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
-    return { ok:true, data, base:resolved.base };
   } catch (e) {
-    return { ok:false, error:String(e.message || e) };
+    const { code } = classifyFetchException(e, pathName);
+    reportError(code, { phase: 'scan_api', path: pathName, message: String(e?.message || e) });
+    return { ok: false, code, error: userMessageForCode(code), base: resolved.base };
   }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.ok) {
+    const { code } = mergeApiFailure({ response: r, path: pathName });
+    reportError(code, { phase: 'scan_api', path: pathName, httpStatus: r.status });
+    return { ok: false, code, error: data.error || `HTTP ${r.status}`, base: resolved.base };
+  }
+  return { ok: true, data, base: resolved.base };
 }
 async function attendanceApiCall(pathName, { method='GET', body=null, currentUser, query=null, preferredBase=null } = {}) {
   const resolved = await resolveResetApiBase(preferredBase);
-  if (!resolved.ok) return { ok:false, error:'Attendance backend unavailable' };
+  if (!resolved.ok) {
+    reportError('DMG-E021', { phase: 'attendance_api', path: pathName, detail: 'resolve_failed' });
+    return { ok: false, code: 'DMG-E021', error: 'Attendance backend unavailable' };
+  }
   const qs = query ? '?' + new URLSearchParams(query).toString() : '';
   const headers = {
     'Content-Type': 'application/json',
     'x-auth-user': String(currentUser?.username || ''),
     'x-auth-hash': String(currentUser?.authHash || '')
   };
+  let r;
   try {
-    const r = await fetch(`${resolved.base}${pathName}${qs}`, {
+    r = await fetch(`${resolved.base}${pathName}${qs}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || !data.ok) return { ok:false, error:data.error || `HTTP ${r.status}` };
-    return { ok:true, data };
   } catch (e) {
-    return { ok:false, error:String(e.message || e) };
+    const { code } = classifyFetchException(e, pathName);
+    reportError(code, { phase: 'attendance_api', path: pathName, message: String(e?.message || e) });
+    return { ok: false, code, error: userMessageForCode(code) };
   }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.ok) {
+    const { code } = mergeApiFailure({ response: r, path: pathName });
+    reportError(code, { phase: 'attendance_api', path: pathName, httpStatus: r.status });
+    return { ok: false, code, error: data.error || `HTTP ${r.status}` };
+  }
+  return { ok: true, data };
 }
 const buildAdminResetRequestMailto = (requestSource = 'app') => {
   const subject = 'Admin Password Change Request';
@@ -959,7 +1029,11 @@ function LoginScreen({ onLogin }) {
       const remote = await loginViaBackend(key, hash, authApiBase);
       if (!remote.ok || !remote.user) {
         setLoading(false);
-        setErr('Invalid username or password.');
+        if (useCentralAuth && remote.code && remote.code !== 'DMG-E020') {
+          setErr(userMessageForCode(remote.code, remote.error));
+        } else {
+          setErr('Invalid username or password.');
+        }
         return;
       }
       if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: hash });
@@ -4502,7 +4576,9 @@ function HelpCenter({ currentUser }) {
           <strong>DMG-E001</strong> — App scripts did not finish loading (network or cache). Refresh or try another connection.<br />
           <strong>DMG-E002</strong> — App crashed while starting. Refresh; clear site data if it repeats.<br />
           <strong>DMG-E010–E012</strong> — Browser storage disabled, full, or unreadable. Export a backup when possible.<br />
-          <strong>DMG-E020–E022</strong> — Sign-in issues (wrong password, server down, session expired).<br />
+          <strong>DMG-E020</strong> — Invalid username or password (central auth).<br />
+          <strong>DMG-E021</strong> — Login or sync service unreachable (offline, timeout, or server error).<br />
+          <strong>DMG-E022</strong> — Session expired or not authorized for that request.<br />
           <strong>DMG-E030–E031</strong> — Cannot reach backend (timeout or blocked origin). Admin checks Render / ALLOWED_ORIGINS.<br />
           <strong>DMG-E040–E041</strong> — Import/export problems.<br />
           <strong>DMG-E050–E051</strong> — Browser too old or page not served over HTTPS (needed for some security APIs).
