@@ -44,6 +44,8 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 1 — Build pipeline and static bundle (foundation)
 
+**Status:** Done — Vite at repo root (`package.json`, `vite.config.js`, `src/`). `npm run build` outputs hashed bundles under `dist/`; dependencies are React, Recharts, xlsx, JSZip (no Babel-in-browser for app code).
+
 **Objective:** Replace browser Babel + scattered CDN with a checked-in build (e.g. Vite or esbuild) that emits `assets/index-*.js` and minimal HTML shell.
 
 **Scope**
@@ -61,11 +63,15 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 **Backlog items discovered (defer)**
 
-- **Source maps** for production debugging (`DMG-E002` triage)—defer to Slice 2 if noisy.
+- **Source maps:** Enabled in Vite build for `DMG-E002` triage; revisit privacy/size in Slice 2 if needed.
+- **Slice 4 follow-up:** Lazy-load Recharts (`import()`); analytics chunk is still large (~565KB min).
+- **Pages CI:** `.github/workflows/deploy-pages.yml` added — enable **GitHub Actions** as Pages source in repo Settings after merge.
 
 ---
 
 ### Slice 2 — Error surface and diagnostics package
+
+**Status:** Partial — `src/errors.js` provides `reportError`, `readErrorLog`, `copyDiagnostics` (build id via `__APP_BUILD__`); boot path and watchdog call `reportError` for `DMG-E001` / `DMG-E002` / mount failures. UI still uses many `alert()` for storage/data paths.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
@@ -109,6 +115,8 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 ---
 
 ### Slice 4 — CDN elimination for app shell (optional vendor pass)
+
+**Status:** Partially addressed — app shell has **no** CDN scripts in production build; Recharts/xlsx/jszip ship from bundled chunks (still large).
 
 **Objective:** If any runtime libs remain external (charts, xlsx, jszip), vendor them into the bundle or self-host alongside GitHub Pages.
 
@@ -160,7 +168,7 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
 | **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-06** | PWA + offline shell | True offline open; pairs with Slice 4 | After Slice 4 |
+| **BL-07** | Split `App.jsx` into feature modules + shared hooks | Maintainability; required before large COGS work | After Slice 2 or with BL-01 |
 
 ---
 

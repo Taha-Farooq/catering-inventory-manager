@@ -6,6 +6,25 @@ Standalone catering inventory manager for three businesses:
 - shopping list
 - analytics
 
+## Developers — build and deploy
+
+The browser app is built with **Vite** (React). Source lives under `src/`; production output is **`dist/`**.
+
+```bash
+npm install
+npm run build    # writes hashed bundles to dist/
+```
+
+### GitHub Pages
+
+Configure the repository **Pages** source to **GitHub Actions** (Settings → Pages → Build and deployment). The workflow `.github/workflows/deploy-pages.yml` runs `npm ci && npm run build` on every push to `master` and publishes `dist/`.
+
+For a manual deploy without Actions: build locally, then upload **only the contents of `dist/`** to your Pages branch or hosting root.
+
+### Configuration at runtime
+
+`public/auth-api-config.json` is copied into `dist/` by Vite. Edit it before `npm run build` if the central auth API URL changes.
+
 ## Open App (No Install Needed)
 
 Use the live website:
