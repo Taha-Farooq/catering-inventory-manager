@@ -71,7 +71,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 2 — Error surface and diagnostics package
 
-**Status:** Partial — `src/errors.js`; Help tab has **Copy diagnostics**, clear error log, and short **error code** guide; boot paths report DMG codes. Many flows still use `alert()` for edge cases.
+**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** for user messages (including **`save()`** failures DMG-E010/E011 — no `alert`). Form validation and API toasts use the same stack. **Remaining:** `window.confirm` for destructive actions; optional DMG codes on every validation string.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
@@ -169,7 +169,7 @@ Rough **surface area / coupling** only:
 
 | Area | What’s left | Scope |
 |------|-------------|--------|
-| **Slice 2** | Replace scattered `alert()` with coded UI | Large — wide `App.jsx` sweep |
+| **Slice 2** | Replace `window.confirm` with coded confirm modal; optional DMG on validation toasts | Medium |
 | **Slice 3 defer** | IndexedDB migration | Large |
 | **Slice 5** | Richer API response bodies; remaining alerts → toast | Medium–small |
 | **Slice 6** | Optional extra probes (e.g. StorageManager) | Small |

@@ -3,6 +3,7 @@ import { getBootCapabilityWarnings } from './browserCaps.js';
 import { useOnlineStatus } from './useOnlineStatus.js';
 import { OfflineBanner, BrowserCapsBanner } from './ReliabilityBanners.jsx';
 import { reportError } from './errors.js';
+import { showToast, toastApiFailure } from './toastContext.jsx';
 import {
   classifyFetchException,
   classifyHttpStatus,
@@ -89,10 +90,11 @@ function save(key, val) {
         : 'DMG-E010';
     reportError(code, { key, message: msg });
     notifySaveFailure({ code, key, message: msg });
-    alert(
+    showToast(
       code === 'DMG-E011'
         ? `Storage is full (${code}). Export a backup from Settings, then free space or remove old data.`
-        : `Cannot save data (${code}). Enable browser storage — avoid strict private mode if saves fail.`
+        : `Cannot save data (${code}). Enable browser storage — avoid strict private mode if saves fail.`,
+      'error'
     );
     return false;
   }
@@ -698,39 +700,6 @@ function normalizeTransferInvoice(inv) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// TOAST NOTIFICATIONS
-// ═══════════════════════════════════════════════════════════
-let _toastAdd = null;
-function showToast(msg, type='success') { if (_toastAdd) _toastAdd(msg, type); }
-function toastApiFailure(res, fallback = 'Request failed') {
-  if (!res || res.ok) return;
-  const suffix = res.code ? ` (${res.code})` : '';
-  showToast(`${res.error || fallback}${suffix}`, 'warning');
-}
-function ToastContainer() {
-  const [toasts, setToasts] = useState([]);
-  useEffect(() => {
-    _toastAdd = (msg, type='success') => {
-      const id = Date.now() + Math.random();
-      setToasts(p => [...p, {id, msg, type}]);
-      setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
-    };
-    return () => { _toastAdd = null; };
-  }, []);
-  const getStyle = t => t==='error'?{background:'#fee2e2',color:'#991b1b'}:t==='warning'?{background:'#fff3cd',color:'#856404'}:{background:'#d4edda',color:'#155724'};
-  const getIcon  = t => t==='error'?'❌ ':t==='warning'?'⚠️ ':'✅ ';
-  return (
-    <div style={{position:'fixed',bottom:24,right:24,zIndex:9999,display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end',pointerEvents:'none'}}>
-      {toasts.map(t=>(
-        <div key={t.id} style={{...getStyle(t.type),padding:'10px 16px',borderRadius:8,boxShadow:'0 4px 12px rgba(0,0,0,.18)',fontSize:13.5,fontWeight:500,maxWidth:340,animation:'fadeInUp .25s ease'}}>
-          {getIcon(t.type)}{t.msg}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════
 // UI PRIMITIVES
 // ═══════════════════════════════════════════════════════════
 function Modal({ open, onClose, title, children, wide, maxW, closeOnBackdrop = false }) {
@@ -1243,7 +1212,7 @@ function ProfileModal({ open, onClose, username, profile, onSave }) {
   }, [open]);
 
   function handleSave() {
-    if (!displayName.trim()) { alert('Please enter a display name.'); return; }
+    if (!displayName.trim()) { showToast('Please enter a display name.', 'error'); return; }
     onSave({ icon, displayName: displayName.trim() });
     onClose();
   }
@@ -1809,7 +1778,7 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
   function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
 
   function saveItem() {
-    if (!form.name.trim()) { alert('Item name is required.'); return; }
+    if (!form.name.trim()) { showToast('Item name is required.', 'error'); return; }
     const sellers = [];
     const seenSellerKeys = new Set();
     for (const s of form.sellers) {
@@ -1817,13 +1786,13 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
       if (!sellerName) continue;
       const sk = sellerKey(sellerName);
       if (INTERNAL_SELLER_NAME_KEYS.has(sk)) {
-        alert(`"${sellerName}" looks like one of your own companies, not an external supplier. Please use the actual vendor name.`);
+        showToast(`"${sellerName}" looks like one of your own companies, not an external supplier. Please use the actual vendor name.`, 'warning');
         return;
       }
-      if (seenSellerKeys.has(sk)) { alert(`Duplicate seller "${sellerName}" for this item. Use unique seller names.`); return; }
+      if (seenSellerKeys.has(sk)) { showToast(`Duplicate seller "${sellerName}" for this item. Use unique seller names.`, 'error'); return; }
       seenSellerKeys.add(sk);
       const p = safePrice(s.price);
-      if (s.price!==''&&p===null) { alert(`Invalid price for "${sellerName}". Must be a positive number or left blank.`); return; }
+      if (s.price!==''&&p===null) { showToast(`Invalid price for "${sellerName}". Must be a positive number or left blank.`, 'error'); return; }
       sellers.push({name:sellerName,price:p});
     }
     if (editId) {
@@ -2021,7 +1990,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
   }
 
   function exportXlsx() {
-    if (!shoppingList.length) { alert('Shopping list is empty.'); return; }
+    if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
     const rows = shoppingList.map(s=>{
       const upc = upcForEntry(s);
       return {
@@ -2039,7 +2008,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
   }
 
   function exportCsv() {
-    if (!shoppingList.length) { alert('Shopping list is empty.'); return; }
+    if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = shoppingList.map(s => [
       s.itemName,
@@ -2233,9 +2202,9 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
   const T=calcT(form,biz.taxRate);
 
   function saveInvoice(){
-    if (!form.supplier.trim()){alert('Supplier name is required.');return;}
+    if (!form.supplier.trim()){showToast('Supplier name is required.','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
-    if (!valid.length){alert('Add at least one line item with a description.');return;}
+    if (!valid.length){showToast('Add at least one line item with a description.','error');return;}
     const inv={id:nextId('purchase'),type:'purchase',business:selectedBusiness,
       supplier:form.supplier,date:form.date,notes:form.notes,
       lineItems:valid,subtotal:T.sub,taxEnabled:form.taxEnabled,taxRate:biz.taxRate,taxAmount:T.tax,
@@ -2418,10 +2387,10 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
   const T=calcT();
 
   function saveInvoice(){
-    if (!form.customerName.trim()){alert('Customer name is required.');return;}
+    if (!form.customerName.trim()){showToast('Customer name is required.','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
-    if (!valid.length){alert('Add at least one line item with a description.');return;}
-    if (T.dep<0){alert('Deposit cannot be negative.');return;}
+    if (!valid.length){showToast('Add at least one line item with a description.','error');return;}
+    if (T.dep<0){showToast('Deposit cannot be negative.','error');return;}
     let custId=form.customerId;
     if (!custId&&form.customerName.trim()){
       const nc={id:uid(),name:form.customerName,phone:form.customerPhone,email:form.customerEmail,address:'',notes:'',createdAt:today()};
@@ -2634,7 +2603,7 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
 
   function openEdit(c){setForm({name:c.name,phone:c.phone,email:c.email,address:c.address,notes:c.notes});setEditId(c.id);setShowForm(true);}
   function saveCust(){
-    if (!form.name.trim()){alert('Customer name is required.');return;}
+    if (!form.name.trim()){showToast('Customer name is required.','error');return;}
     let u;
     if (editId) {
       u=customers.map(c=>c.id===editId?{...c,...form}:c);
@@ -5123,9 +5092,6 @@ function App() {
 
   return (
     <div id="app-shell">
-      <ToastContainer />
-
-      {/* ── Header ── */}
       <div className="app-header no-print">
         <div className="header-row">
           <div>

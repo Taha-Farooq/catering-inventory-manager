@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import { reportError } from './errors.js';
+import { ToastProvider } from './toastContext.jsx';
 
 (function mountApp() {
   try {
@@ -11,7 +12,9 @@ import { reportError } from './errors.js';
     const root = createRoot(el);
     root.render(
       <React.StrictMode>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </React.StrictMode>
     );
     window.__dmgBoot = window.__dmgBoot || {};

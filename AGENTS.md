@@ -15,7 +15,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/useOnlineStatus.js` | Hook: `navigator.onLine` + online/offline events for Slice 5 banner |
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |
 | `src/App.jsx` | Main React application (large; further splits = BL-07) |
-| `src/main.jsx` | `createRoot`, `StrictMode`, boot integration |
+| `src/toastContext.jsx` | **`ToastProvider`** wraps `<App />` in `main.jsx`; **`showToast`** / **`toastApiFailure`** (global, works on login + modals) |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
 | `src/storageHealth.js` | localStorage probe, quota estimate, corrupt key scan, save-failure notify |
@@ -64,7 +64,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 
 - **`src/errors.js`** — ring buffer, diagnostics JSON.
 - **`src/apiErrors.js`** — classify backend `fetch` / HTTP → DMG-E020–E031.
-- **`toastApiFailure`** in `App.jsx` — warning toast for failed scan/attendance APIs (includes DMG code when present).
+- **`showToast`** / **`toastApiFailure`** — `src/toastContext.jsx` (mounted once in `main.jsx` via `ToastProvider`).
 - **`getBootCapabilityWarnings`** (`src/browserCaps.js`) — DMG-E050/E051 for missing Web Crypto; extra DMG-E050 when `structuredClone` is missing (export/import paths).
 - **`useOnlineStatus`** — offline banner when `navigator.onLine` is false (local app data still saves).
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
