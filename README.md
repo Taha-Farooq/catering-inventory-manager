@@ -12,7 +12,8 @@ The browser app is built with **Vite** (React). Source lives under `src/`; produ
 
 ```bash
 npm install
-npm run build    # writes hashed bundles to dist/
+npm test           # optional but recommended before push
+npm run build      # writes hashed bundles to dist/
 ```
 
 ### GitHub Pages

@@ -9,7 +9,8 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | Path | Role |
 |------|------|
 | `index.html` | Vite entry shell (lightweight); boots `/src/main.jsx` |
-| `src/App.jsx` | Entire React application (large single file today) |
+| `src/constants.js` | Businesses, tabs, nav groups, storage/auth key names (shared) |
+| `src/App.jsx` | Main React application (large; further splits = BL-07) |
 | `src/main.jsx` | `createRoot`, `StrictMode`, boot integration |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
@@ -29,6 +30,7 @@ npm install          # deps at repo root
 npm run dev          # local dev server (Vite)
 npm run build        # production bundle → dist/
 npm run preview      # serve dist locally
+npm test             # Vitest (pure modules: apiErrors, constants)
 ```
 
 Backend (optional): see `backend/README.md`.
@@ -40,7 +42,7 @@ Backend (optional): see `backend/README.md`.
 | Workflow | When |
 |----------|------|
 | `.github/workflows/deploy-pages.yml` | Push to `master`, or **Actions → Run workflow** |
-| `.github/workflows/ci.yml` | Push/PR to `master` — build only |
+| `.github/workflows/ci.yml` | Push/PR to `master` — **test + build** |
 
 Build output **`dist/`** is uploaded as the Pages artifact. On first deploy you may need to approve the **github-pages** environment once.
 
@@ -60,6 +62,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`src/apiErrors.js`** — classify backend `fetch` / HTTP → DMG-E020–E031.
 - **`toastApiFailure`** in `App.jsx` — warning toast for failed scan/attendance APIs (includes DMG code when present).
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
+- **`src/apiErrors.test.js`** / **`src/constants.test.js`** — Vitest smoke tests (run `npm test`).
 
 Boot-related:
 
@@ -70,7 +73,7 @@ Boot-related:
 
 - Prefer **small, focused PRs** matching backlog slices.
 - Do not revert **additive** `localStorage` keys without migration notes (see comments in `App.jsx` about compatibility).
-- After editing `src/App.jsx`, run **`npm run build`** before declaring done.
+- After editing `src/App.jsx` or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, or adding `*.test.js`.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 
 ## Known technical debt

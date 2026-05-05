@@ -15,92 +15,35 @@ import {
   notifySaveFailure,
 } from './storageHealth.js';
 import HelpCenter from './HelpCenter.jsx';
+import {
+  BUSINESSES,
+  TABS_ADMIN,
+  ALL_USER_TABS,
+  DEFAULT_USER_PERMS,
+  PROFILE_ICONS,
+  CATEGORIES,
+  CHART_COLORS,
+  PAYMENT_TERMS,
+  MENU_UNITS,
+  INTERNAL_SELLER_NAME_KEYS,
+  NAV_GROUPS_ADMIN,
+  NAV_GROUPS_USER,
+  ADMIN_RESET_QUERY_KEY,
+  ADMIN_RESET_REQ_KEY,
+  ADMIN_RESET_EMAIL,
+  ADMIN_RESET_API_BASE,
+  ADMIN_RESET_API_ENDPOINTS,
+  ADMIN_RESET_API_BASE_KEY,
+  CENTRAL_AUTH_CONFIG_PATH,
+  ADMIN_RESET_CODE_KEY,
+  FAILURE_LOG_KEY,
+  SCAN_DOC_TYPES,
+  ATT_QR_QUERY_KEY,
+} from './constants.js';
 
-// ═══════════════════════════════════════════════════════════
-// CONSTANTS
-// ═══════════════════════════════════════════════════════════
-const BUSINESSES = {
-  degrill:  { name:'DeGrill Inc',               location:'Spring Valley, NY', taxRate:0.08375 },
-  parathas: { name:'Parathas and Platters Inc',  location:'Hackensack, NJ',   taxRate:0.06625 },
-  dera:     { name:'Dera Masala Grill Inc',      location:'Clifton, NJ',      taxRate:0.06625 },
-};
-
-const TABS_ADMIN = [
-  { id:'checkio',   label:'✅ Check In/Out' },
-  { id:'items',     label:'📦 Items' },
-  { id:'shopping',  label:'🛒 Shopping' },
-  { id:'purchase',  label:'📋 Purchase Inv.' },
-  { id:'transfer',  label:'🚚 P&P Transfer Inv.' },
-  { id:'catering',  label:'🍽️ Catering Inv.' },
-  { id:'customers', label:'👥 Customers' },
-  { id:'analytics', label:'📊 Analytics' },
-  { id:'dailyfin',  label:'🧾 Daily Income & Expense' },
-  { id:'archive',   label:'🗂️ Archive' },
-  { id:'history',   label:'📈 Price History' },
-  { id:'margins',   label:'💹 Menu Margins' },
-  { id:'actlog',    label:'🔍 Activity Log' },
-  { id:'scanbeta',  label:'🧪 Scan DB (Beta)' },
-  { id:'help',      label:'❓ Help' },
-];
-const ALL_USER_TABS = [
-  { id:'checkio',   label:'✅ Check In/Out' },
-  { id:'shopping',  label:'🛒 Shopping List' },
-  { id:'items',     label:'📦 Add Items' },
-  { id:'pricer',    label:'💰 Price Updater' },
-  { id:'catering',  label:'🍽️ Catering Invoices' },
-  { id:'dailyfin',  label:'🧾 Daily Income & Expense' },
-  { id:'archive',   label:'🗂️ Invoice Archive' },
-  { id:'help',      label:'❓ Help' },
-];
-const DEFAULT_USER_PERMS = ['shopping','items','pricer'];
-const PROFILE_ICONS = ['👤','👨‍🍳','👩‍🍳','🧑‍💼','👨‍💼','👩‍💼','🍴','🍽️','🥘','🧑','👨','👩','🙋','🤵','👷','💼','⭐','🌟','🔑','📋','✨','🎯','🏆','🥇'];
-
-const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Spices','Beverages','Bakery','Supplies','Other'];
-const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
 const LazyDailyFinanceCharts = lazy(() => import('./charts/DailyFinanceCharts.jsx'));
 const LazyAnalyticsCharts = lazy(() => import('./charts/AnalyticsCharts.jsx'));
 const LazyPriceHistoryChart = lazy(() => import('./charts/PriceHistoryChart.jsx'));
-const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
-const MENU_UNITS = ['each','oz','lb','g','kg','ml','l'];
-const INTERNAL_SELLER_NAME_KEYS = new Set([
-  'degrill inc',
-  'degrill',
-  'parathas and platters inc',
-  'parathas & platters',
-  'parathas and platters',
-  'dera masala grill inc',
-  'dera masala grill',
-  'dmg software suite',
-  'dmg',
-]);
-const NAV_GROUPS_ADMIN = [
-  { id:'ops', label:'Stock', tabs:['items','shopping','pricer'] },
-  { id:'inv', label:'Invoices', tabs:['purchase','catering','transfer','archive'] },
-  { id:'people', label:'Staff', tabs:['checkio','customers','actlog'] },
-  { id:'finance', label:'Money', tabs:['analytics','dailyfin','margins','history'] },
-  { id:'admin', label:'Tools', tabs:['scanbeta','help'] }
-];
-const NAV_GROUPS_USER = [
-  { id:'ops', label:'Stock', tabs:['shopping','items','pricer'] },
-  { id:'work', label:'Work', tabs:['checkio'] },
-  { id:'inv', label:'Invoices', tabs:['catering','archive'] },
-  { id:'money', label:'Money', tabs:['dailyfin'] },
-  { id:'help', label:'Help', tabs:['help'] }
-];
-const ADMIN_RESET_QUERY_KEY = 'adminResetToken';
-const ADMIN_RESET_REQ_KEY = 'adminResetReq';
-const ADMIN_RESET_EMAIL = 'fatimfarooq@yahoo.com';
-const ADMIN_RESET_API_BASE = 'http://localhost:8787';
-const ADMIN_RESET_API_ENDPOINTS = [
-  'http://localhost:8787',
-  'http://127.0.0.1:8787'
-];
-const ADMIN_RESET_API_BASE_KEY = '_adminResetApiBase';
-const CENTRAL_AUTH_CONFIG_PATH = './auth-api-config.json';
-const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
-const FAILURE_LOG_KEY = '_failureLog';
-const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
-const ATT_QR_QUERY_KEY = 'attToken';
 
 async function hashPwd(pwd) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));

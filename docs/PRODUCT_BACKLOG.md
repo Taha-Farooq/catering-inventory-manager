@@ -174,8 +174,9 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
 | **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-07** | Split `App.jsx` further (tabs → `src/pages/` or similar) | `HelpCenter` extracted; App.jsx still large | Ongoing |
+| **BL-07** | Split `App.jsx` further (`src/constants.js` done; next: tab pages) | `HelpCenter` + constants extracted | Ongoing |
 | **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
+| **BL-10** | Expand Vitest coverage (`storageHealth`, formatters); optional Playwright smoke later | Regression safety | After habit of `npm test` |
 
 ---
 
