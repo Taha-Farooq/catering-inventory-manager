@@ -163,6 +163,25 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ---
 
+## Remaining work — technical scope (not calendar estimates)
+
+Rough **surface area / coupling** only:
+
+| Area | What’s left | Scope |
+|------|-------------|--------|
+| **Slice 2** | Replace scattered `alert()` with coded UI | Large — wide `App.jsx` sweep |
+| **Slice 3 defer** | IndexedDB migration | Large |
+| **Slice 5** | Offline banner, richer API errors | Medium |
+| **Slice 6** | More feature probes | Small–medium |
+| **BL-01 COGS** | Recipes, yields, reporting | Very large |
+| **BL-02–BL-05** | Alerts, merge, telemetry | Medium each |
+| **BL-07** | Split tab components from `App.jsx` | Large mechanical |
+| **BL-10** | Next: formatters/utils tests; optional Playwright | Small increments |
+
+**Summary:** Slices **1, 4** largely complete; **2, 3, 5, 6** partial. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** + Slice 2 alert cleanup.
+
+---
+
 ## Backlog — product and functionality (beyond current slices)
 
 Items intentionally **not** in slices 1–6; pull into planning when capacity allows.
@@ -176,7 +195,7 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
 | **BL-07** | Split `App.jsx` further (`src/constants.js` done; next: tab pages) | `HelpCenter` + constants extracted | Ongoing |
 | **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
-| **BL-10** | Expand Vitest coverage (`storageHealth`, formatters); optional Playwright smoke later | Regression safety | After habit of `npm test` |
+| **BL-10** | Expand Vitest (`storageHealth`, apiErrors, constants); optional Playwright smoke later | Regression safety | In progress |
 
 ---
 
