@@ -146,9 +146,31 @@ Planned improvement (BL-19): use `SHA-256(password + ':' + username.toLowerCase(
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 - **Entity IDs** use `crypto.randomUUID()` (BL-14). Existing IDs in localStorage use the old `_xxxxxxxxx` format and remain valid indefinitely.
 
+## Backup / export contract (version history)
+
+| Version | What's included |
+|---------|----------------|
+| `1.x` | items, shoppingList, purchaseInvoices, cateringInvoices, customers, priceHistory |
+| `2.0` | + settings (selectedBusiness, logoOverrides) |
+| `2.1` | + transferInvoices, payrollInvoices, dailyFinanceEntries — **current** |
+
+Restoring a v2.0 or older ZIP leaves `transferInvoices`, `payrollInvoices`, and `dailyFinanceEntries` unchanged on the device. Slice 13 (BL-22) will add a visible warning at import time.
+
+## Key storage keys added since last audit
+
+| Key | Purpose |
+|-----|---------|
+| `_archivePageSize` | User-selected page size for Invoice Archive (10/25/50, default 25). UI preference only — not critical data. |
+
+## QR code dependency note
+
+`CheckInOutPage` generates kiosk QR images via `https://api.qrserver.com` (external CDN). This is the only remaining outbound request in the app shell after Slice 4 (CDN elimination). Tracked as BL-21 / Slice 12 — replace with the `qrcode` npm package.
+
 ## Known technical debt
 
 - `src/App.jsx` is monolithic (~5k lines); **`src/ui/Confirm.jsx`** and **`src/ui/Modal.jsx`** are shared UI extracts — continue with `FI` / `Btn` / tab pages (`BL-07`).
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
-- No React error boundary (DMG-E003) — post-mount render errors blank the screen. Track as BL-12.
-- Password hashing is unsalted SHA-256 — see BL-19 and Password hashing section above.
+- ~~No React error boundary (DMG-E003)~~ — **Fixed** (Slice 7, `src/ErrorBoundary.jsx`).
+- ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).
+- QR code uses external CDN (`api.qrserver.com`) — tracked as Slice 12 / BL-21.
+- Old backup ZIPs (v2.0) are missing transfer/payroll/dailyFin — restore warning planned (Slice 13 / BL-22).

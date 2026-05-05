@@ -24,6 +24,28 @@ export function OfflineBanner({ online }) {
   );
 }
 
+export function BackendUnavailableBanner({ code = 'DMG-E021' }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        background: '#fff7ed',
+        border: '1px solid #fdba74',
+        borderRadius: 8,
+        padding: '10px 12px',
+        marginBottom: 12,
+        fontSize: 13,
+        color: '#92400e',
+      }}
+    >
+      <strong>Backend server unavailable.</strong> This feature requires the backend service to be running.
+      Check your connection and server status — other tabs (inventory, invoices) continue to work offline.
+      {' '}[<code style={{ fontSize: 12 }}>{code}</code>]
+    </div>
+  );
+}
+
 export function BrowserCapsBanner({ warnings }) {
   if (!warnings?.length) return null;
   return (

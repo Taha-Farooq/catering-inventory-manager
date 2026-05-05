@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from 'react';
 import { getBootCapabilityWarnings } from './browserCaps.js';
 import { useOnlineStatus } from './useOnlineStatus.js';
-import { OfflineBanner, BrowserCapsBanner } from './ReliabilityBanners.jsx';
+import { OfflineBanner, BrowserCapsBanner, BackendUnavailableBanner } from './ReliabilityBanners.jsx';
 import { reportError } from './errors.js';
 import { showToast, toastApiFailure } from './toastContext.jsx';
 import {
@@ -69,11 +69,14 @@ const LazyDailyFinanceCharts = lazy(() => import('./charts/DailyFinanceCharts.js
 const LazyAnalyticsCharts = lazy(() => import('./charts/AnalyticsCharts.jsx'));
 const LazyPriceHistoryChart = lazy(() => import('./charts/PriceHistoryChart.jsx'));
 
-async function hashPwd(pwd) {
+// username is used as a deterministic salt (see BL-19 / AGENTS.md password-hashing section).
+// Legacy callers pass no username → unsalted SHA-256 for backward-compat transition.
+async function hashPwd(pwd, username = '') {
   if (!globalThis.crypto?.subtle) {
     throw new Error('Web Crypto is not available (DMG-E050/E051)');
   }
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
+  const input = username ? `${pwd}:${username.toLowerCase()}` : pwd;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
@@ -702,6 +705,7 @@ function saveProfileData(username, data) {
   save('_profiles', profiles);
 }
 
+// _seq: monotonic counters for human-readable invoice IDs (P-0001, C-0001, PPH-ENG-date-0001).
 let _seq = load('_seq',{purchase:0,catering:0});
 function nextId(type) {
   _seq[type]=(_seq[type]||0)+1; save('_seq',_seq);
@@ -942,17 +946,29 @@ function LoginScreen({ onLogin, bootWarnings, online }) {
       const creds = load('credentials', null);
       const key = uname.trim().toLowerCase();
       setLoading(true);
-      const hash = await hashPwd(pwd);
       if (!useCentralAuth && creds && creds[key]) {
-        if (creds[key].password !== hash) { setLoading(false); setErr('Invalid username or password.'); return; }
-        if (rememberDevice) save('_rememberedCheckinLogin', { username: key, authHash: hash });
+        const saltedHash = await hashPwd(pwd, key);
+        const legacyHash  = await hashPwd(pwd);
+        const stored = creds[key].password;
+        let activeHash = null;
+        if (stored === saltedHash) {
+          activeHash = saltedHash;
+        } else if (stored === legacyHash) {
+          // Legacy no-salt hash matched — upgrade silently to salted hash
+          const upgraded = { ...creds, [key]: { ...creds[key], password: saltedHash } };
+          save('credentials', upgraded);
+          activeHash = saltedHash;
+        }
+        if (!activeHash) { setLoading(false); setErr('Invalid username or password.'); return; }
+        if (rememberDevice) save('_rememberedCheckinLogin', { username: key, authHash: activeHash });
         else save('_rememberedCheckinLogin', null);
         setTimeout(() => {
           onLogin({ username: key, role: creds[key].role || (key === 'admin' ? 'admin' : 'user'),
-            name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key), permissions: creds[key].permissions || DEFAULT_USER_PERMS, authHash: hash });
+            name: creds[key].displayName || (key === 'admin' ? 'Administrator' : key), permissions: creds[key].permissions || DEFAULT_USER_PERMS, authHash: activeHash });
         }, 400);
         return;
       }
+      const hash = await hashPwd(pwd, key);
       const remote = await loginViaBackend(key, hash, authApiBase);
       if (!remote.ok || !remote.user) {
         setLoading(false);
@@ -1264,12 +1280,35 @@ function ProfileModal({ open, onClose, username, profile, onSave }) {
   );
 }
 
+function LogoField({ label, fieldKey, logoFields, setLogoFields, fileRef, onFile }) {
+  const val = logoFields[fieldKey] || '';
+  const isDataUrl = val.startsWith('data:');
+  return (
+    <div style={{display:'flex',alignItems:'flex-end',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+      <div style={{flex:'1 1 200px'}}>
+        <FI label={label + ' URL'} value={isDataUrl ? '' : val}
+          onChange={e=>{ const v=e.target.value; setLogoFields(prev=>Object.assign({},prev,{[fieldKey]:v})); }}
+          placeholder="https://..." />
+      </div>
+      <div style={{paddingBottom:2}}>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
+          onChange={e=>{onFile(fieldKey,e.target.files?.[0]);e.target.value='';}} />
+        <Btn className="btn-outline btn-sm" onClick={()=>fileRef.current?.click()}>
+          {isDataUrl ? '✓ File loaded' : '📁 Upload file'}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════
 // SETTINGS MODAL (admin only)
 // ═══════════════════════════════════════════════════════════
 function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap }) {
-  const { items, shopping, purchaseInv, cateringInv, customers, priceHist,
-          setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz,
+  const { items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
+          dailyFinanceEntries, customers, priceHist,
+          setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
+          setPayrollInvoices, setDailyFinanceEntries, setCustomers, setPriceHist, setBiz,
           logoOverrides, setLogoOverrides } = appState;
   const importRef = useRef();
   const [diagPayload, setDiagPayload] = useState(null);
@@ -1303,6 +1342,23 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
   const [pendingBackupFile, setPendingBackupFile] = useState(null);
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
+  const logoFileRefs = { degrill: useRef(), parathas: useRef(), dera: useRef(), transfer: useRef() };
+  const MAX_LOGO_BYTES = 500 * 1024;
+
+  async function handleLogoFile(key, file) {
+    if (!file) return;
+    if (file.size > MAX_LOGO_BYTES) {
+      showToast(`Logo file too large (DMG-E040). Max 500 KB — got ${fmtBytes(file.size)}.`, 'error');
+      reportError('DMG-E040', { phase: 'logo_upload', key, size: file.size });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      const dataUrl = e.target.result;
+      setLogoFields(f => ({ ...f, [key]: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -1392,7 +1448,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     if (newPwd.length < 6) { setAddErr('Password must be at least 6 characters.'); return; }
     if (newPwd !== newPwdC) { setAddErr('Passwords do not match.'); return; }
     if (newPerms.length === 0) { setAddErr('At least one tab must be enabled.'); return; }
-    const hash = await hashPwd(newPwd);
+    const hash = await hashPwd(newPwd, uname);
     const displayName = newDisplay.trim() || uname;
     creds[uname] = { password: hash, role: 'user', displayName, permissions: newPerms };
     save('credentials', creds);
@@ -1425,7 +1481,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     if (editPwd !== editPwdC) { showToast('Passwords do not match.', 'error'); return; }
     const creds = load('credentials', {});
     if (!creds[uname]) return;
-    creds[uname].password = await hashPwd(editPwd);
+    creds[uname].password = await hashPwd(editPwd, uname);
     save('credentials', creds);
     await syncCredsBestEffort('reset_password');
     setEditPwdFor(null); setEditPwd(''); setEditPwdC('');
@@ -1502,9 +1558,12 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
       const zip = new JSZip();
       const payload = {
         items, shoppingList:shopping, purchaseInvoices:purchaseInv,
-        cateringInvoices:cateringInv, customers, priceHistory:priceHist,
+        cateringInvoices:cateringInv, transferInvoices:transferInv,
+        payrollInvoices:(payrollInvoices||[]),
+        dailyFinanceEntries:(dailyFinanceEntries||[]),
+        customers, priceHistory:priceHist,
         settings:{ selectedBusiness: load('_lastBiz','degrill'), logoOverrides },
-        exportDate: new Date().toISOString(), version:'2.0'
+        exportDate: new Date().toISOString(), version:'2.1'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
@@ -1535,7 +1594,9 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     if (!file) return;
     setPendingBackupFile(null);
     JSZip.loadAsync(file).then(zip => {
-      const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices','customers','priceHistory','settings'];
+      const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
+                    'transferInvoices','payrollInvoices','dailyFinanceEntries',
+                    'customers','priceHistory','settings'];
       return Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
@@ -1544,12 +1605,15 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     }).then(entries => {
       entries.forEach(([k,v]) => {
         if (!v) return;
-        if (k==='items')            { setItems(v);       save('items',v); }
-        if (k==='shoppingList')     { setShopping(v);    save('shoppingList',v); }
-        if (k==='purchaseInvoices') { setPurchaseInv(v); save('purchaseInvoices',v); }
-        if (k==='cateringInvoices') { setCateringInv(v); save('cateringInvoices',v); }
-        if (k==='customers')        { setCustomers(v);   save('customers',v); }
-        if (k==='priceHistory')     { setPriceHist(v);   save('priceHistory',v); }
+        if (k==='items')                { setItems(v);               save('items',v); }
+        if (k==='shoppingList')         { setShopping(v);            save('shoppingList',v); }
+        if (k==='purchaseInvoices')     { setPurchaseInv(v);         save('purchaseInvoices',v); }
+        if (k==='cateringInvoices')     { setCateringInv(v);         save('cateringInvoices',v); }
+        if (k==='transferInvoices')     { setTransferInv(v);         save('transferInvoices',v); }
+        if (k==='payrollInvoices')      { setPayrollInvoices(v);     save('payrollInvoices',v); }
+        if (k==='dailyFinanceEntries')  { setDailyFinanceEntries(v); save('_dailyFinanceEntries',v); }
+        if (k==='customers')            { setCustomers(v);           save('customers',v); }
+        if (k==='priceHistory')         { setPriceHist(v);           save('priceHistory',v); }
         if (k==='settings'&&v.selectedBusiness) { setBiz(v.selectedBusiness); save('_lastBiz',v.selectedBusiness); }
         if (k==='settings'&&v.logoOverrides!=null) {
           const next = normalizeLogoOverrides(v.logoOverrides);
@@ -1567,7 +1631,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     });
   }
 
-  const totalInvoices = purchaseInv.length + cateringInv.length;
+  const totalInvoices = purchaseInv.length + cateringInv.length + (transferInv||[]).length + (payrollInvoices||[]).length;
   const unpaidBal = cateringInv.reduce((s,i)=>s+(i.balanceDue||0),0);
 
   return (
@@ -1586,22 +1650,20 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
         </div>
       </div>
 
-      {/* Invoice logos — optional HTTPS URLs override bundled JPGs */}
+      {/* Invoice logos — optional HTTPS URLs or uploaded files override bundled JPGs */}
       <div style={{border:'1px solid #EED9B0',borderRadius:8,padding:14,marginBottom:20,background:'#fffdf8'}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:14}}>🖼 Invoice logos (optional)</div>
         <p style={{fontSize:12,color:'#6b4b20',marginBottom:12,lineHeight:1.55}}>
           Leave blank to use the images shipped with the app (<code style={{fontSize:11}}>public/assets/logos/</code>).
-          Paste a full <strong>https://…</strong> URL to use your own hosted logo for that business (transfers use “P&amp;P transfer” row).
-          Saved on this device and included in backup ZIP <code>settings.json</code>.
+          Paste a full <strong>https://…</strong> URL <em>or</em> upload an image file (max 500 KB).
+          Saved on this device and included in backup ZIP.
         </p>
-        <div className="grid-2" style={{gap:10}}>
-          <FI label="DeGrill logo URL" value={logoFields.degrill} onChange={e=>setLogoFields(f=>({...f,degrill:e.target.value}))} placeholder="https://…" />
-          <FI label="Parathas & Platters logo URL" value={logoFields.parathas} onChange={e=>setLogoFields(f=>({...f,parathas:e.target.value}))} placeholder="https://…" />
-          <FI label="Dera Masala Grill logo URL" value={logoFields.dera} onChange={e=>setLogoFields(f=>({...f,dera:e.target.value}))} placeholder="https://…" />
-          <FI label="Internal transfer logo URL" value={logoFields.transfer} onChange={e=>setLogoFields(f=>({...f,transfer:e.target.value}))} placeholder="https://…" />
-        </div>
-        <div className="flex gap-2 flex-wrap" style={{marginTop:12,alignItems:'center'}}>
-          <Btn className="btn-primary btn-sm" onClick={commitLogoOverrides}>Save logo URLs</Btn>
+        <LogoField label="DeGrill logo" fieldKey="degrill" logoFields={logoFields} setLogoFields={setLogoFields} fileRef={logoFileRefs.degrill} onFile={handleLogoFile} />
+        <LogoField label="Parathas &amp; Platters logo" fieldKey="parathas" logoFields={logoFields} setLogoFields={setLogoFields} fileRef={logoFileRefs.parathas} onFile={handleLogoFile} />
+        <LogoField label="Dera Masala Grill logo" fieldKey="dera" logoFields={logoFields} setLogoFields={setLogoFields} fileRef={logoFileRefs.dera} onFile={handleLogoFile} />
+        <LogoField label="Internal transfer logo" fieldKey="transfer" logoFields={logoFields} setLogoFields={setLogoFields} fileRef={logoFileRefs.transfer} onFile={handleLogoFile} />
+        <div className="flex gap-2 flex-wrap" style={{marginTop:4,alignItems:'center'}}>
+          <Btn className="btn-primary btn-sm" onClick={commitLogoOverrides}>Save logos</Btn>
           <Btn className="btn-outline btn-sm" onClick={clearLogoOverrides}>Clear overrides</Btn>
         </div>
         <div style={{display:'flex',gap:12,marginTop:14,flexWrap:'wrap',alignItems:'center'}}>
@@ -3364,6 +3426,11 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   const [dateTo,setDateTo]=useState('');
   const [confirmObj,setConfirmObj]=useState(null);
   const [viewInv,setViewInv]=useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = parseInt(load('_archivePageSize', 25));
+    return [10,25,50].includes(saved) ? saved : 25;
+  });
 
   const all=useMemo(()=>{
     const p=purchaseInvoices.map(i=>({...i,_type:'purchase',_date:i.date}));
@@ -3382,6 +3449,13 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
     if(dateTo&&inv._date&&inv._date>dateTo) return false;
     return true;
   }),[all,typeF,statusF,search,dateFrom,dateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1); }, [typeF, statusF, search, dateFrom, dateTo, pageSize]);
 
   const archiveDeleteSummary = useMemo(() => {
     if (!confirmObj) return '';
@@ -3479,6 +3553,13 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
           <span>Paid: <strong>{statusCounts.paid}</strong></span>
           <span>Unpaid: <strong>{statusCounts.unpaid}</strong></span>
           <span>Partial: <strong>{statusCounts.partial}</strong></span>
+          <span style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}}>
+            Per page:
+            <select className="input" style={{padding:'2px 6px',fontSize:12,width:'auto'}} value={pageSize}
+              onChange={e=>{const n=parseInt(e.target.value);setPageSize(n);save('_archivePageSize',n);}}>
+              <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
+            </select>
+          </span>
           {(typeF!=='all'||statusF!=='all'||search||dateFrom||dateTo)&&
             <Btn className="btn-sm" style={{background:'#eee',color:'#666'}} onClick={()=>{setTypeF('all');setStatusF('all');setSearch('');setDateFrom('');setDateTo('');}}>✕ Clear Filters</Btn>}
         </div>
@@ -3492,7 +3573,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
               <table>
                 <thead><tr><th>Invoice #</th><th>Type</th><th>Customer / Supplier</th><th>Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
-                  {filtered.map(inv=>(
+                  {paginated.map(inv=>(
                     <tr key={inv.id}>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td><span style={{fontSize:11,padding:'2px 7px',borderRadius:10,fontWeight:600,background:inv._type==='catering'?'#E8F4FC':inv._type==='transfer'?'#EEF9F1':'#FFF0E0',color:inv._type==='catering'?'#2980b9':inv._type==='transfer'?'#1e7a3b':'var(--choc)'}}>{inv._type}</span></td>
@@ -3514,6 +3595,13 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
           </div>
         )
       }
+      {totalPages > 1 && (
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginTop:12,fontSize:13}}>
+          <Btn className="btn-outline btn-sm" disabled={safePage<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>← Prev</Btn>
+          <span style={{color:'#666'}}>Page <strong>{safePage}</strong> of <strong>{totalPages}</strong></span>
+          <Btn className="btn-outline btn-sm" disabled={safePage>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next →</Btn>
+        </div>
+      )}
 
       <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide closeOnBackdrop>
         {viewInv&&(
@@ -4239,11 +4327,12 @@ function ActivityLog() {
   );
 }
 
-function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
+function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnline }) {
   const [pwd, setPwd] = useState('');
   const [status, setStatus] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [backendDown, setBackendDown] = useState(false);
   const [config, setConfig] = useState({ inboxPath:'', libraryPath:'', enabled:false });
   const [filters, setFilters] = useState({ q:'', sender:'', docType:'', year:'', month:'', businessTag:'', status:'' });
   const [results, setResults] = useState([]);
@@ -4260,8 +4349,10 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
     if (!res.ok) {
       if (!silent) toastApiFailure(res, 'Scanner unavailable');
       setErr(res.error || 'Failed to load scanner status');
+      if (res.code === 'DMG-E021' || res.code === 'DMG-E030') setBackendDown(true);
       return;
     }
+    setBackendDown(false);
     setErr('');
     setStatus(res.data);
     setConfig(res.data.config || { inboxPath:'', libraryPath:'', enabled:false });
@@ -4395,6 +4486,7 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
         <h2 style={{margin:0}}>Scanned Documents Database <span className="badge badge-user" style={{marginLeft:8}}>BETA · WIP</span></h2>
         <div style={{fontSize:12,color:'#555'}}>Admin-only local-device scanner index</div>
       </div>
+      {(!isOnline || backendDown) && <BackendUnavailableBanner code={backendDown ? 'DMG-E021' : 'DMG-E030'} />}
       {!hasAuth && (
         <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:12,marginBottom:12}}>
           <div style={{fontWeight:700,marginBottom:6}}>Unlock admin scanner controls</div>
@@ -4493,12 +4585,13 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
   );
 }
 
-function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices }) {
+function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline }) {
   const isAdmin = currentUser?.role === 'admin';
   const isKioskStation = isAdmin && kioskLock;
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
   const [me, setMe] = useState(null);
   const [err, setErr] = useState('');
+  const [backendDown, setBackendDown] = useState(false);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState(null);
   const [qrCountdown, setQrCountdown] = useState(0);
@@ -4515,10 +4608,12 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
   async function loadMe() {
     const res = await attendanceApiCall('/api/attendance/me', { currentUser });
     if (!res.ok) {
-      toastApiFailure(res, 'Failed to load status');
+      if (res.code === 'DMG-E021' || res.code === 'DMG-E030') setBackendDown(true);
+      else toastApiFailure(res, 'Failed to load status');
       setErr(res.error || 'Failed to load status');
       return;
     }
+    setBackendDown(false);
     setErr('');
     setMe(res.data);
   }
@@ -4798,10 +4893,11 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
         <div className="section-title" style={{margin:0}}>Check In / Out</div>
         {isAdmin && <Btn className="btn-outline btn-sm" onClick={onEnterKiosk}>{kioskLock ? 'Kiosk Locked (logout required)' : 'Open Kiosk Station Mode'}</Btn>}
       </div>
+      {(!isOnline || backendDown) && <BackendUnavailableBanner code={backendDown ? 'DMG-E021' : 'DMG-E030'} />}
       <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72'}}>
         Scan QR, log in, then tap Check In or Check Out.
       </div>
-      <div className="hint-card">Tip: If a phone is used daily, enable “Remember this device” at login.</div>
+      <div className="hint-card">Tip: If a phone is used daily, enable "Remember this device" at login.</div>
       {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:6,marginBottom:10,fontSize:12.5}}>{err}</div>}
 
       <div className="card mb-4">
@@ -5524,9 +5620,13 @@ function App() {
   }, [tab, visibleTabIds, navGroups]);
   const bizInfo = BUSINESSES[biz];
 
-  const appState = { items, shopping, purchaseInv, cateringInv, customers, priceHist,
-    setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz,
-    logoOverrides, setLogoOverrides };
+  const appState = {
+    items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
+    dailyFinanceEntries, customers, priceHist,
+    setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
+    setPayrollInvoices, setDailyFinanceEntries, setCustomers, setPriceHist, setBiz,
+    logoOverrides, setLogoOverrides,
+  };
 
   function handleClearCorruptKeys() {
     const keys = [...storageCorruptKeys];
@@ -5672,7 +5772,7 @@ function App() {
         )}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
-        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} />}
+        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} brandingMap={brandingMap} />}
         {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} />}
@@ -5684,7 +5784,7 @@ function App() {
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}
-        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} />}
+        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} isOnline={online} />}
         {tab==='help'      && <HelpCenter currentUser={currentUser} corruptKeys={storageCorruptKeys} onRepairStorageKey={handleRepairStorageKey} />}
       </div>
 

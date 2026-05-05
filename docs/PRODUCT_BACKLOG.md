@@ -182,73 +182,66 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ---
 
-### Slice 8 — Backend resilience
+### Slice 8 — Backend resilience ✅ Done
 
-**Status:** Queued
-
-**Scope (BL-15 + BL-18 partial)**
-- When `useOnlineStatus()` is false **or** a backend fetch returns DMG-E021/E030, the **Attendance** (Check In/Out) and **Scan DB** tab bodies render a `BackendUnavailableBanner` (`src/ReliabilityBanners.jsx`) instead of a raw error toast. Kiosk lock state + local scan summary still visible.
-- Add a **”Download Scan DB backup”** link in Help (or Settings) that calls `GET /api/scan/export` — guards against backend scan history being orphaned when the server resets.
-
-**Acceptance**
-- With backend URL misconfigured: both tabs show a banner citing DMG-E021; no orphan toasts.
-- Admin opens Help → can download scan-db.json even while otherwise offline from the main UI.
+**Status:** Done — `BackendUnavailableBanner` added to `src/ReliabilityBanners.jsx` (amber, DMG-E021). Both `CheckInOutPage` and `ScanDatabaseBeta` now accept `isOnline` prop and track `backendDown` state; banner renders when either flag is true. Scan DB already had an “Export Backup” button — noted as present. **Critical data-loss bug fixed:** backup ZIP was missing `transferInvoices`, `payrollInvoices`, and `dailyFinanceEntries`; export payload bumped to `version:'2.1'`; import restores all three. Settings data summary now counts all four invoice types. `appState` updated to include the missing state vars.
 
 ---
 
-### Slice 9 — Archive pagination
+### Slice 9 — Archive pagination ✅ Done
 
-**Status:** Queued
-
-**Scope (BL-16)**
-- Extract `usePagination(items, pageSize)` hook (`src/hooks/usePagination.js`).
-- Apply to Archive tab: page controls (← Prev / page X of N / Next →), keyboard-accessible.
-- Page size selector (10 / 25 / 50); choice persisted in `settings` localStorage key.
-- Filter/sort changes reset page to 1.
-
-**Acceptance**
-- With 100+ invoices: Archive tab renders instantly (first page only); navigation works.
-- Page size survives page reload.
+**Status:** Done — `InvoiceArchive` now has `page` + `pageSize` state; `paginated` slice replaces full `filtered.map`; page controls (← Prev / page X of N / Next →) render when `totalPages > 1`; per-page selector (10/25/50) persisted in `_archivePageSize` localStorage key; `useEffect` resets to page 1 on any filter change.
 
 ---
 
-### Slice 10 — Security hardening
+### Slice 10 — Security hardening ✅ Done
 
-**Status:** Queued
-
-**Scope (BL-19 + BL-20)**
-
-**BL-19 — Password hash with username salt**
-- `hashPwd(pwd, username)`: `SHA-256(pwd + ‘:’ + username.toLowerCase())` (deterministic, no stored-salt migration needed).
-- Transition: on login attempt the old no-salt hash is tried first; on success, re-hash with salt and overwrite the stored credential.
-- Update `backend/server.js` login check accordingly (backend receives the hash from the frontend — transparent).
-- Document scheme in `AGENTS.md`.
-
-**BL-20 — Document `_seq` key**
-- Locate all `_seq` reads/writes in `App.jsx`; add a one-line comment on first write.
-- Add `_seq` row to `AGENTS.md` storage key reference table (already done).
-
-**Acceptance**
-- Existing admin still logs in after deploy (old hash accepted, new hash re-stored).
-- New password set after deploy uses salted hash.
-- `grep ‘_seq’ src/App.jsx` shows an annotated usage.
+**Status:** Done — `hashPwd(pwd, username=’’)` now accepts an optional username salt: input is `${pwd}:${username.toLowerCase()}` when username is provided, plain `pwd` otherwise (backward-compat). `handleLogin` tries the salted hash first, then falls back to the legacy no-salt hash; on a legacy match it silently upgrades the stored credential to the salted form and updates `_rememberedCheckinLogin`. `addUser` and `saveUserPwd` now pass the username to `hashPwd`. `saveResetCode` / `handleQuickAdminReset` intentionally kept unsalted (standalone PIN, not a user-linked credential). `_seq` comment added to `App.jsx` (BL-20 done).
 
 ---
 
-### Slice 11 — Logo file upload (complete BL-11)
+### Slice 11 — Logo file upload ✅ Done
+
+**Status:** Done — Settings logo section now renders a `📁 Upload file` button alongside each URL field. `handleLogoFile(key, file)` reads the file as a data-URL via `FileReader`; files over 500 KB are rejected with a DMG-E040 toast. When a data-URL is loaded the URL text field is hidden (button label changes to “✓ File loaded”). Data-URLs are included in the backup ZIP's `settings.json` → survive export/import round-trip. `_archivePageSize` added to storage docs.
+
+---
+
+---
+
+### Slice 12 — QR code self-hosting (remove external CDN)
 
 **Status:** Queued
 
-**Scope**
-- Add file input (or drag-drop zone) in the Settings “Invoice logos” section.
-- On select: read file as data-URL; store in `_logoOverrides` alongside existing HTTPS URL fields.
-- Cap file size at 500 KB; show DMG-E040 toast if exceeded.
-- Round-trip: file data-URLs already survive ZIP backup/restore (embedded in `settings.json`).
+**Problem:** `CheckInOutPage` builds kiosk QR images from `https://api.qrserver.com/v1/create-qr-code/…` — an external CDN call. If that service is unavailable or blocked on a corporate network, the kiosk station shows a broken image silently. This is the only remaining external CDN dependency in the app shell (Recharts is already self-hosted; the QR URL is the sole external call after Slice 4).
+
+**Scope (BL-21)**
+- Add [`qrcode`](https://www.npmjs.com/package/qrcode) (small, maintained, zero-CDN) as a dependency: `npm install qrcode`.
+- Replace the `qrImageUrl` string with a `useEffect` that calls `QRCode.toDataURL(qr.url)` → sets a `qrDataUrl` state.
+- Remove the `https://api.qrserver.com` fetch entirely.
+- Add `qrcode` to the Vite bundle (it is small, ~25 KB min+gz).
 
 **Acceptance**
-- Admin uploads a JPG → logo appears on next invoice print without a redeploy.
-- File > 500 KB → DMG-E040 toast, no crash.
-- ZIP export then import → logo survives.
+- Kiosk QR renders with no outbound request to api.qrserver.com (verify in Network tab).
+- QR still refreshes every 60 s as before.
+- `npm run build` with `qrcode` added shows no significant bundle size regression.
+
+---
+
+### Slice 13 — Backup version migration helper
+
+**Status:** Queued
+
+**Problem:** Backup ZIPs exported before the Slice 8 fix (version `2.0`) are missing `transferInvoices`, `payrollInvoices`, and `dailyFinanceEntries`. Restoring an old v2.0 ZIP silently omits these three datasets — user sees no warning, transfer history appears to vanish.
+
+**Scope (BL-22)**
+- In `runBackupImport`, read the `version` field from `exportDate.json` (or from `settings.json` if version is stored there).
+- If version is `< 2.1`, show a one-time toast/warning before restoring: *"This backup was created before Aug 2026 — transfer, payroll, and daily-finance data is not included. Those records on this device will be unchanged."*
+- Do not overwrite those three keys if they are absent from the ZIP (current behaviour already does this — just make the warning explicit).
+
+**Acceptance**
+- Restoring a v2.0 ZIP shows the version-gap warning.
+- Restoring a v2.1 ZIP shows no warning.
+- Transfer/payroll data on device is never silently zeroed.
 
 ---
 
@@ -274,10 +267,16 @@ Large items that need their own kick-off before breaking into slices.
 | BL-05 | Admin error telemetry dashboard | Deferred — post Slice 2 |
 | BL-08 | Per-key corrupt repair (Help) | **Done** |
 | BL-10 | Vitest suite | **In progress** — apiErrors, constants, storageHealth, formatters, browserCaps covered |
-| BL-11 | Logo URL overrides (Settings) | **Partial** — URL done; file upload → Slice 11 |
+| BL-11 | Logo URL overrides + file upload (Settings) | **Done** — Slice 11 |
 | BL-12 | React Error Boundary + DMG-E003 | **Done** — Slice 7 |
 | BL-13 | `_logoOverrides` in STORAGE_SCAN_KEYS | **Done** |
 | BL-14 | `uid()` → `crypto.randomUUID()` | **Done** |
+| BL-15 | Backend tab offline degradation | **Done** — Slice 8 |
+| BL-16 | Invoice archive pagination | **Done** — Slice 9 |
+| BL-19 | Password hash hardening (username salt) | **Done** — Slice 10 |
+| BL-20 | Document `_seq` key | **Done** — Slice 10 |
+| BL-21 | QR code self-hosting (remove api.qrserver.com) | Queued → Slice 12 |
+| BL-22 | Backup version migration warning (v2.0 ZIPs) | Queued → Slice 13 |
 
 ---
 
