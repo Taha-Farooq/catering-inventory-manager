@@ -14,7 +14,8 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/browserCaps.js` | Boot checks for Web Crypto + `structuredClone` → DMG-E050/E051 (tests in `browserCaps.test.js`) |
 | `src/useOnlineStatus.js` | Hook: `navigator.onLine` + online/offline events for Slice 5 banner |
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |
-| `src/App.jsx` | Main React application (large; further splits = BL-07). Includes **`Confirm`** modal (replaces `window.confirm`; `z-index: 5000` above nested modals) |
+| `src/ui/Confirm.jsx` | Reusable destructive-confirm modal (used from `App.jsx`; z-index above nested modals) |
+| `src/App.jsx` | Main React shell + tab implementations (large; BL-07 — extract more from here over time) |
 | `src/toastContext.jsx` | **`ToastProvider`** wraps `<App />` in `main.jsx`; **`showToast`** / **`toastApiFailure`** (global, works on login + modals) |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
@@ -67,7 +68,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`showToast`** / **`toastApiFailure`** — `src/toastContext.jsx` (mounted once in `main.jsx` via `ToastProvider`).
 - **`getBootCapabilityWarnings`** (`src/browserCaps.js`) — DMG-E050/E051 for missing Web Crypto; extra DMG-E050 when `structuredClone` is missing (export/import paths).
 - **`useOnlineStatus`** — offline banner when `navigator.onLine` is false (local app data still saves).
-- **`Confirm`** in `App.jsx` — in-app confirm for destructive flows (settings restore, staff delete, shopping clear, activity log, menu delete, logout, kiosk, corrupt keys). Backdrop click = cancel.
+- **`Confirm`** — `src/ui/Confirm.jsx` (imported by `App.jsx`) for destructive flows (settings restore, staff delete, shopping clear, activity log, menu delete, logout, kiosk, corrupt keys, tab deletes). Backdrop click = cancel.
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
 - **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** / **`src/browserCaps.test.js`** — Vitest (run `npm test`).
 
@@ -80,10 +81,10 @@ Boot-related:
 
 - Prefer **small, focused PRs** matching backlog slices.
 - Do not revert **additive** `localStorage` keys without migration notes (see comments in `App.jsx` about compatibility).
-- After editing `src/App.jsx` or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
+- After editing `src/App.jsx`, `src/ui/*`, or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 
 ## Known technical debt
 
-- `src/App.jsx` is monolithic (~5k lines); splitting by tab/feature is backlog-worthy (`BL-07`) but avoid drive-by refactors unless slice-scoped.
+- `src/App.jsx` is monolithic (~5k lines); **`src/ui/Confirm.jsx`** is the first shared UI extract — continue with `Modal` / `FI` / tab pages (`BL-07`).
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.

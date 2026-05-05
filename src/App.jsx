@@ -19,6 +19,7 @@ import {
   notifySaveFailure,
 } from './storageHealth.js';
 import HelpCenter from './HelpCenter.jsx';
+import Confirm from './ui/Confirm.jsx';
 import {
   BUSINESSES,
   TABS_ADMIN,
@@ -726,45 +727,6 @@ function Toggle({ checked, onChange, label }) {
       </span>
       <span style={{fontSize:13.5,color:'#5a3010'}}>{label}</span>
     </label>
-  );
-}
-
-function Confirm({
-  open,
-  message,
-  onConfirm,
-  onCancel,
-  confirmLabel = 'Delete',
-  confirmClass = 'btn-danger',
-  title,
-  detail,
-  dangerCode,
-  wide,
-}) {
-  if (!open) return null;
-  return (
-    <div
-      className="modal-overlay no-print"
-      style={{ zIndex: 5000 }}
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
-    >
-      <div className="modal" style={{ maxWidth: wide ? 520 : 400 }} onClick={(e) => e.stopPropagation()}>
-        {title && (
-          <h3 style={{ margin: '0 0 12px', fontSize: 17, fontWeight: 700, color: 'var(--brown)' }}>{title}</h3>
-        )}
-        <p style={{ marginBottom: detail ? 10 : 18, fontSize: 15, color: '#333', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{message}</p>
-        {detail && (
-          <p style={{ marginBottom: 18, fontSize: 13, color: '#666', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{detail}</p>
-        )}
-        {dangerCode && (
-          <p style={{ marginBottom: 16, fontSize: 12, color: '#92400e', fontFamily: 'monospace' }}>{dangerCode}</p>
-        )}
-        <div className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-outline" onClick={onCancel}>Cancel</button>
-          <button type="button" className={`btn ${confirmClass}`} onClick={onConfirm}>{confirmLabel}</button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -1830,6 +1792,11 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
     return items.filter(i=>i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q));
   },[items,search]);
 
+  const pendingDeleteItem = useMemo(
+    () => (confirmId ? items.find((i) => i.id === confirmId) : null),
+    [confirmId, items]
+  );
+
   function openEdit(item) {
     const sellers = Array.isArray(item.sellers) ? item.sellers : [];
     setForm({...item,sellers:sellers.length ? sellers.map(s=>({...s})) : [{name:'',price:''}]});
@@ -1980,7 +1947,20 @@ function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole
         </div>
       </Modal>
 
-      <Confirm open={!!confirmId} message="Delete this item permanently? It will be removed from the database." onConfirm={()=>deleteItem(confirmId)} onCancel={()=>setConfirmId(null)} />
+      <Confirm
+        open={!!confirmId}
+        title="Delete item?"
+        message={
+          pendingDeleteItem
+            ? `Remove "${pendingDeleteItem.name}" from the item database on this device?`
+            : 'Remove this item from the item database on this device?'
+        }
+        detail="Lines on the shopping list that reference this item may need cleanup. Export a backup from Settings if unsure."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete item"
+        onConfirm={() => deleteItem(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }
@@ -2277,6 +2257,11 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
 
   const T=calcT(form,biz.taxRate);
 
+  const pendingDeletePurchase = useMemo(
+    () => (confirmId ? purchaseInvoices.find((i) => i.id === confirmId) : null),
+    [confirmId, purchaseInvoices]
+  );
+
   function saveInvoice(){
     if (!form.supplier.trim()){showToast('Supplier name is required.','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
@@ -2415,13 +2400,23 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
         )}
       </Modal>
 
-      <Confirm open={!!confirmId} message="Delete this invoice permanently?" onConfirm={()=>deleteInv(confirmId)} onCancel={()=>setConfirmId(null)} />
+      <Confirm
+        open={!!confirmId}
+        title="Delete purchase invoice?"
+        message={
+          pendingDeletePurchase
+            ? `Permanently remove invoice ${pendingDeletePurchase.id} (${pendingDeletePurchase.supplier || 'supplier'}) on this device?`
+            : 'Permanently remove this purchase invoice on this device?'
+        }
+        detail="This cannot be undone here. Export a backup from Settings if you might need to recover this record."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete invoice"
+        onConfirm={() => deleteInv(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }
-
-// ═══════════════════════════════════════════════════════════
-// TAB 4 — CATERING INVOICES
 // ═══════════════════════════════════════════════════════════
 function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [] }) {
   const isAdmin = userRole==='admin';
@@ -2461,6 +2456,11 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     return{lines,sub,cc,taxAmt,grand,dep,balance:grand-dep,fb};
   }
   const T=calcT();
+
+  const pendingDeleteCatering = useMemo(
+    () => (confirmId ? cateringInvoices.find((i) => i.id === confirmId) : null),
+    [confirmId, cateringInvoices]
+  );
 
   function saveInvoice(){
     if (!form.customerName.trim()){showToast('Customer name is required.','error');return;}
@@ -2651,7 +2651,20 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
         )}
       </Modal>
 
-      <Confirm open={!!confirmId} message="Delete this invoice permanently?" onConfirm={()=>deleteInv(confirmId)} onCancel={()=>setConfirmId(null)} />
+      <Confirm
+        open={!!confirmId}
+        title="Delete catering invoice?"
+        message={
+          pendingDeleteCatering
+            ? `Permanently remove invoice ${pendingDeleteCatering.id} (${pendingDeleteCatering.customerName || 'customer'}) on this device?`
+            : 'Permanently remove this catering invoice on this device?'
+        }
+        detail="This cannot be undone here. Export a backup from Settings if you might need to recover this record."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete invoice"
+        onConfirm={() => deleteInv(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }
@@ -2676,6 +2689,11 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
     const q=search.toLowerCase();
     return customers.filter(c=>c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q));
   },[customers,search]);
+
+  const pendingDeleteCustomer = useMemo(
+    () => (confirmId ? customers.find((c) => c.id === confirmId) : null),
+    [confirmId, customers]
+  );
 
   function openEdit(c){setForm({name:c.name,phone:c.phone,email:c.email,address:c.address,notes:c.notes});setEditId(c.id);setShowForm(true);}
   function saveCust(){
@@ -2789,7 +2807,20 @@ function CustomerManagement({ customers, setCustomers, cateringInvoices }) {
           </div>
         )}
       </Modal>
-      <Confirm open={!!confirmId} message="Delete this customer? Their invoice history will remain in the archive." onConfirm={()=>delCust(confirmId)} onCancel={()=>setConfirmId(null)} />
+      <Confirm
+        open={!!confirmId}
+        title="Delete customer?"
+        message={
+          pendingDeleteCustomer
+            ? `Remove "${pendingDeleteCustomer.name}" from the customer list on this device?`
+            : 'Remove this customer from the customer list on this device?'
+        }
+        detail="Existing catering invoices in the archive still reference this customer by ID; only the saved customer card is removed."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete customer"
+        onConfirm={() => delCust(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }
@@ -3147,6 +3178,12 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
     return true;
   }),[all,typeF,statusF,search,dateFrom,dateTo]);
 
+  const archiveDeleteSummary = useMemo(() => {
+    if (!confirmObj) return '';
+    const party = confirmObj.customerName || confirmObj.supplier || confirmObj.employeeName || '';
+    return `${confirmObj._type || 'record'} · ${confirmObj.id}${party ? ` · ${party}` : ''}`;
+  }, [confirmObj]);
+
   function markPaid(inv){
     if(inv._type==='purchase'){const u=purchaseInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);}
     else if(inv._type==='catering'){const u=cateringInvoices.map(x=>x.id===inv.id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);}
@@ -3314,7 +3351,21 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
           </div>
         )}
       </Modal>
-      <Confirm open={!!confirmObj} message="Delete this invoice permanently? This cannot be undone." onConfirm={()=>deleteInv(confirmObj)} onCancel={()=>setConfirmObj(null)} />
+      <Confirm
+        open={!!confirmObj}
+        title="Delete from archive?"
+        message={
+          confirmObj
+            ? `Permanently remove this record from this device?\n\n${archiveDeleteSummary}`
+            : 'Permanently remove this record from this device?'
+        }
+        detail="This cannot be undone here. Export a backup from Settings if you might need to recover this invoice or payroll record."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete permanently"
+        wide
+        onConfirm={() => deleteInv(confirmObj)}
+        onCancel={() => setConfirmObj(null)}
+      />
     </div>
   );
 }
@@ -3344,6 +3395,11 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
   const [showForm, setShowForm] = useState(false);
   const [viewId, setViewId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+
+  const pendingDeleteTransfer = useMemo(
+    () => (confirmId ? transferInvoices.find((i) => i.id === confirmId) : null),
+    [confirmId, transferInvoices]
+  );
 
   function setLine(i, field, value) {
     setForm(f => {
@@ -3594,7 +3650,20 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
         )}
       </Modal>
 
-      <Confirm open={!!confirmId} message="Delete this transfer invoice?" onConfirm={()=>deleteTransferInvoice(confirmId)} onCancel={()=>setConfirmId(null)} />
+      <Confirm
+        open={!!confirmId}
+        title="Delete transfer invoice?"
+        message={
+          pendingDeleteTransfer
+            ? `Permanently remove ${pendingDeleteTransfer.id} (${fmtDate(pendingDeleteTransfer.date || '')}) on this device?`
+            : 'Permanently remove this transfer invoice on this device?'
+        }
+        detail="This cannot be undone here. Export a backup from Settings if you might need to recover this record."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete invoice"
+        onConfirm={() => deleteTransferInvoice(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }
@@ -3607,6 +3676,10 @@ function PriceHistory({ items, priceHistory, setPriceHistory }) {
   const [confirmId,setConfirmId]=useState(null);
   const selItem=items.find(i=>i.id===selId);
   const hist=useMemo(()=>priceHistory.filter(h=>h.itemId===selId).sort((a,b)=>a.date.localeCompare(b.date)),[selId,priceHistory]);
+  const pendingDeleteHistEntry = useMemo(
+    () => (confirmId ? priceHistory.find((h) => h.id === confirmId) : null),
+    [confirmId, priceHistory]
+  );
   const sellers=useMemo(()=>[...new Set(hist.map(h=>h.seller))],[hist]);
   const chartData=useMemo(()=>{
     if(!hist.length) return [];
@@ -3678,7 +3751,20 @@ function PriceHistory({ items, priceHistory, setPriceHistory }) {
           </div>
         </>
       )}
-      <Confirm open={!!confirmId} message="Delete this price history entry?" onConfirm={()=>delEntry(confirmId)} onCancel={()=>setConfirmId(null)} />
+      <Confirm
+        open={!!confirmId}
+        title="Delete price history row?"
+        message={
+          pendingDeleteHistEntry
+            ? `Remove the ${fmtDate(pendingDeleteHistEntry.date)} price change for "${pendingDeleteHistEntry.seller}" on "${selItem?.name || 'item'}"?`
+            : 'Remove this price history row?'
+        }
+        detail="This only deletes the audit row, not the current item price. Export a backup if unsure."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete row"
+        onConfirm={() => delEntry(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </div>
   );
 }

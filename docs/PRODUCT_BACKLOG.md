@@ -71,7 +71,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 2 — Error surface and diagnostics package
 
-**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`Confirm`** modal for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal. Optional: DMG codes on every validation toast.
+**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`src/ui/Confirm.jsx`** for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal, **and tab delete flows** (items, invoices, customers, archive, transfer, price history) with **DMG-E012** on confirm where relevant. Optional: DMG codes on every validation toast.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
@@ -169,16 +169,16 @@ Rough **surface area / coupling** only:
 
 | Area | What’s left | Scope |
 |------|-------------|--------|
-| **Slice 2** | Typed confirm for tab-level deletes (reuse `Confirm`); DMG on validation toasts | Small–medium |
+| **Slice 2** | Optional DMG codes on validation toasts; optional `Modal` extract to `src/ui/` | Small |
 | **Slice 3 defer** | IndexedDB migration | Large |
 | **Slice 5** | Richer API response bodies; remaining alerts → toast | Medium–small |
 | **Slice 6** | Optional extra probes (e.g. StorageManager) | Small |
 | **BL-01 COGS** | Recipes, yields, reporting | Very large |
 | **BL-02–BL-05** | Alerts, merge, telemetry | Medium each |
-| **BL-07** | Split tab components from `App.jsx` | Large mechanical |
+| **BL-07** | Split `App.jsx` — `src/ui/Confirm.jsx` done; next: `Modal`, `FI`, `Btn`, or tab pages | Large mechanical |
 | **BL-10** | Optional Playwright smoke; more utils if extracted | Small increments |
 
-**Summary:** Slices **1, 4** largely complete; **2, 3, 5, 6** partial. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** + Slice 2 alert cleanup.
+**Summary:** Slices **1, 4** largely complete; **2, 3, 5, 6** partial. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** (continue extracting from `App.jsx`).
 
 ---
 
@@ -193,7 +193,7 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
 | **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-07** | Split `App.jsx` further (`src/constants.js` done; next: tab pages) | `HelpCenter` + constants extracted | Ongoing |
+| **BL-07** | Split `App.jsx` further (`src/constants.js`, `HelpCenter`, **`src/ui/Confirm.jsx`** done; next: `Modal` / tab pages) | `HelpCenter` + constants + Confirm extracted | Ongoing |
 | **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
 | **BL-10** | Vitest: `apiErrors`, `constants`, `storageHealth`, **`formatters`** (`src/formatters.js`); optional Playwright smoke later | Regression safety | In progress |
 
