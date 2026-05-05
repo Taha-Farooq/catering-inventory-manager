@@ -25,6 +25,8 @@ For a manual deploy without Actions: build locally, then upload **only the conte
 
 `public/auth-api-config.json` is copied into `dist/` by Vite. Edit it before `npm run build` if the central auth API URL changes.
 
+End users can open **Help → Copy diagnostics** to share build/browser/error-code info with support (no passwords).
+
 ## Open App (No Install Needed)
 
 Use the live website:

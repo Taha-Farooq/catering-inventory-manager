@@ -11,7 +11,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `index.html` | Vite entry shell (lightweight); boots `/src/main.jsx` |
 | `src/App.jsx` | Entire React application (large single file today) |
 | `src/main.jsx` | `createRoot`, `StrictMode`, boot integration |
-| `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics` |
+| `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/styles.css` | Global styles (extracted from legacy HTML) |
 | `public/` | Static copies served at site root (e.g. `auth-api-config.json`) |
 | `dist/` | **Production build output** (`npm run build`) — deploy **contents** to Pages |

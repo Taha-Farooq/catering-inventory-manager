@@ -71,7 +71,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 2 — Error surface and diagnostics package
 
-**Status:** Partial — `src/errors.js` provides `reportError`, `readErrorLog`, `copyDiagnostics` (build id via `__APP_BUILD__`); boot path and watchdog call `reportError` for `DMG-E001` / `DMG-E002` / mount failures. UI still uses many `alert()` for storage/data paths.
+**Status:** Partial — `src/errors.js`; Help tab has **Copy diagnostics**, clear error log, and short **error code** guide; boot paths report DMG codes. Many flows still use `alert()` for edge cases.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
