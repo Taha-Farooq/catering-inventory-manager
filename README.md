@@ -43,6 +43,8 @@ Use the live website:
 
 This app runs directly in your browser. No installation is required.
 
+**Browsers:** Use current **Chrome**, **Edge**, or **Firefox** on desktop. The live site must be served over **HTTPS** (GitHub Pages is fine) so password hashing works; avoid extremely strict private modes if saves fail.
+
 ## Best Way To Use
 
 - Open the link on a desktop browser (Chrome, Edge, or Firefox recommended)

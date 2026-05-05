@@ -95,7 +95,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 3 — Storage resilience
 
-**Status:** Partial — `src/storageHealth.js` probes localStorage, estimates quota (`navigator.storage.estimate`), detects corrupt JSON keys; banners for DMG-E010–E012 in main shell; `save()` maps quota vs blocked storage to **DMG-E011** / **DMG-E010** with `reportError`.
+**Status:** Partial — probes, quota warn, corrupt-key detection; **Help** can paste JSON to repair one corrupt key (**BL-08** done); remove-all-keys still available from banner.
 
 **Objective:** Graceful behavior when storage is full, disabled, or corrupt.
 
@@ -152,7 +152,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 6 — Browser support matrix and guardrails
 
-**Status:** Partial — `crypto.subtle` check at app load with DMG-E050 / DMG-E051 banner; full browser matrix in Help/README still TBD.
+**Status:** Partial — `crypto.subtle` banner (DMG-E050/E051); **Help** documents supported browsers (Chrome / Edge / Firefox, HTTPS, storage).
 
 **Objective:** Fail fast with `DMG-E050` / `DMG-E051` instead of obscure runtime errors.
 
@@ -174,8 +174,8 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-03** | Import merge wizard | Resolves multi-device edit conflicts | Slice 5 follow-up |
 | **BL-04** | IndexedDB + sync | If storage quota issues recur at scale | After Slice 3 metrics |
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
-| **BL-07** | Split `App.jsx` into feature modules + shared hooks | Maintainability; required before large COGS work | After Slice 2 or with BL-01 |
-| **BL-08** | Per-key “repair or reset” for DMG-E012 (restore one key from export) | Safer than wipe-all | Post Slice 3 |
+| **BL-07** | Split `App.jsx` further (tabs → `src/pages/` or similar) | `HelpCenter` extracted; App.jsx still large | Ongoing |
+| **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
 
 ---
 

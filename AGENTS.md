@@ -15,6 +15,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
 | `src/storageHealth.js` | localStorage probe, quota estimate, corrupt key scan, save-failure notify |
 | `src/charts/` | Lazy `React.lazy` chart panels (Recharts only loads when chart UI mounts) |
+| `src/HelpCenter.jsx` | Help tab: diagnostics, supported browsers, DMG codes, **repair one corrupt storage key** (paste JSON) |
 | `src/styles.css` | Global styles (extracted from legacy HTML) |
 | `public/` | Static copies served at site root (e.g. `auth-api-config.json`) |
 | `dist/` | **Production build output** (`npm run build`) — deploy **contents** to Pages |
@@ -45,7 +46,7 @@ Build output **`dist/`** is uploaded as the Pages artifact. On first deploy you 
 
 **Implementation notes**
 
-- `vite.config.js` uses `base: './'` so hashed assets resolve under project URLs (`/catering-inventory-manager/`).
+- `vite.config.js` uses `base: './'` so hashed assets resolve under project URLs (`/catering-inventory-manager/`); `chunkSizeWarningLimit` raised because the intentional **recharts** chunk is large.
 - `public/.nojekyll` is emitted into `dist/` so paths like `_assets` are not mangled by Jekyll.
 - `public/auth-api-config.json` is copied to `dist/` at build time.
 
@@ -58,6 +59,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`src/errors.js`** — ring buffer, diagnostics JSON.
 - **`src/apiErrors.js`** — classify backend `fetch` / HTTP → DMG-E020–E031.
 - **`toastApiFailure`** in `App.jsx` — warning toast for failed scan/attendance APIs (includes DMG code when present).
+- **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
 
 Boot-related:
 
