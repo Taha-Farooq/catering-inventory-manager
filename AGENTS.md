@@ -10,7 +10,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 |------|------|
 | `index.html` | Vite entry shell (lightweight); boots `/src/main.jsx` |
 | `src/constants.js` | Businesses, tabs, nav groups, storage/auth key names (shared) |
-| `src/formatters.js` | Pure helpers: currency/date/bytes, `migrateShoppingList`, API URL helpers |
+| `src/formatters.js` | Pure helpers: currency/date/bytes, `migrateShoppingList`, `resolveAssetUrl` (relative logos under GitHub Pages), API URL helpers |
 | `src/browserCaps.js` | Boot checks for Web Crypto + `structuredClone` → DMG-E050/E051 (tests in `browserCaps.test.js`) |
 | `src/useOnlineStatus.js` | Hook: `navigator.onLine` + online/offline events for Slice 5 banner |
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |

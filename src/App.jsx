@@ -58,7 +58,9 @@ import {
   migrateShoppingList,
   uniqSuggestions,
   safePrice,
+  resolveAssetUrl,
 } from './formatters.js';
+import * as XLSX from 'xlsx';
 
 const LazyDailyFinanceCharts = lazy(() => import('./charts/DailyFinanceCharts.jsx'));
 const LazyAnalyticsCharts = lazy(() => import('./charts/AnalyticsCharts.jsx'));
@@ -113,6 +115,35 @@ function save(key, val) {
 // ═══════════════════════════════════════════════════════════
 const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
+/** Directory URL of the current page (no hash/query) — resolves relative assets for print + `<img>`. */
+function documentBaseHref() {
+  try {
+    const u = new URL(window.location.href);
+    u.hash = '';
+    u.search = '';
+    const path = u.pathname || '/';
+    const i = path.lastIndexOf('/');
+    u.pathname = i >= 0 ? path.slice(0, i + 1) : '/';
+    return u.href;
+  } catch {
+    return window.location.href.split('#')[0].split('?')[0];
+  }
+}
+function rewriteImgSrcsForPrint(html, baseHref) {
+  const base = baseHref || documentBaseHref();
+  try {
+    const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html');
+    const root = doc.getElementById('root');
+    if (!root) return html;
+    root.querySelectorAll('img[src]').forEach((img) => {
+      const raw = img.getAttribute('src') || '';
+      img.setAttribute('src', resolveAssetUrl(raw, base));
+    });
+    return root.innerHTML;
+  } catch {
+    return html;
+  }
+}
 const parseAdminResetParams = () => {
   try {
     const q = new URLSearchParams(window.location.search);
@@ -564,7 +595,10 @@ function getInvoiceBranding(inv) {
 function printHtmlDocument(html, title='Invoice') {
   const w = window.open('', '_blank', 'width=1024,height=768');
   if (!w) { showToast('Pop-up blocked. Please allow pop-ups.', 'error'); return false; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><base href="${window.location.href}"/><title>${title}</title>
+  const base = documentBaseHref();
+  const safeHtml = rewriteImgSrcsForPrint(html, base);
+  const escBase = base.replace(/"/g, '&quot;');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><base href="${escBase}"/><title>${title}</title>
 <style>
   body{font-family:Segoe UI,Arial,sans-serif;margin:20px;color:#222}
   .print-wrap{max-width:900px;margin:0 auto}
@@ -576,7 +610,7 @@ function printHtmlDocument(html, title='Invoice') {
   .text-right{text-align:right}
   .muted{color:#666;font-size:12px}
   @media print{body{margin:8mm} .no-print{display:none}}
-</style></head><body><div class="print-wrap">${html}</div></body></html>`);
+</style></head><body><div class="print-wrap">${safeHtml}</div></body></html>`);
   w.document.close();
   w.focus();
   setTimeout(()=>w.print(), 300);
@@ -621,10 +655,14 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
 }
 function BrandMark({ brand }) {
   const [failed, setFailed] = useState(false);
+  const logoSrc = useMemo(
+    () => (brand.logo ? resolveAssetUrl(brand.logo, documentBaseHref()) : ''),
+    [brand.logo]
+  );
   return (
     <div className="invoice-mark">
-      {!failed && brand.logo
-        ? <img src={brand.logo} alt={`${brand.name} logo`} onError={()=>setFailed(true)} />
+      {!failed && logoSrc
+        ? <img src={logoSrc} alt={`${brand.name} logo`} onError={()=>setFailed(true)} />
         : <span>{brand.mark}</span>}
     </div>
   );
@@ -979,9 +1017,9 @@ function LoginScreen({ onLogin, bootWarnings, online }) {
         <BrowserCapsBanner warnings={bootWarnings} />
         <div className="login-logo">
           <div className="login-brand-row">
-            <img className="login-brand-logo" src={BRANDING.degrill.logo} alt="DeGrill logo" />
-            <img className="login-brand-logo" src={BRANDING.parathas.logo} alt="Parathas and Platters logo" />
-            <img className="login-brand-logo" src={BRANDING.dera.logo} alt="Dera Masala Grill logo" />
+            <img className="login-brand-logo" src={resolveAssetUrl(BRANDING.degrill.logo, documentBaseHref())} alt="DeGrill logo" />
+            <img className="login-brand-logo" src={resolveAssetUrl(BRANDING.parathas.logo, documentBaseHref())} alt="Parathas and Platters logo" />
+            <img className="login-brand-logo" src={resolveAssetUrl(BRANDING.dera.logo, documentBaseHref())} alt="Dera Masala Grill logo" />
           </div>
           <h1>DMG Software Suite</h1>
           <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
@@ -2034,22 +2072,32 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
     setShoppingList([]); save('shoppingList',[]);
   }
 
+  const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
+
   function exportXlsx() {
     if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
-    const rows = shoppingList.map(s=>{
-      const upc = upcForEntry(s);
-      return {
-        'Item':s.itemName,'UPC':upc,'Seller':s.selectedSeller,'Quantity':s.quantity,'Unit':s.unit,
-        'Unit Price':s.price??'','Total':s.price!=null?(s.quantity*(s.price)).toFixed(2):''
-      };
-    });
-    rows.push({Item:'','UPC':'','Seller':'','Quantity':'','Unit':'','Unit Price':'GRAND TOTAL','Total':grandTotal.toFixed(2)});
-    const ws=XLSX.utils.json_to_sheet(rows);
-    const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,'Shopping List');
-    XLSX.writeFile(wb,'shopping-list-'+today()+'.xlsx');
-    showToast('Shopping list exported as Excel.');
-    logActivity('export_xlsx', 'Exported shopping list Excel');
+    try {
+      const header = ['Item', 'UPC', 'Seller', 'Quantity', 'Unit', 'Unit Price', 'Total'];
+      const dataRows = shoppingList.map((s) => {
+        const upc = upcForEntry(s);
+        const qty = safeQty(s.quantity);
+        const unitPrice = s.price != null && Number.isFinite(Number(s.price)) ? +Number(s.price).toFixed(2) : '';
+        const lineTotal =
+          s.price != null && Number.isFinite(Number(s.price)) ? +(qty * Number(s.price)).toFixed(2) : '';
+        return [s.itemName, upc, s.selectedSeller || '', qty, s.unit || '', unitPrice, lineTotal];
+      });
+      const grand = +grandTotal.toFixed(2);
+      const aoa = [header, ...dataRows, ['', '', '', '', '', 'GRAND TOTAL', grand]];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Shopping List');
+      XLSX.writeFile(wb, 'shopping-list-' + today() + '.xlsx');
+      showToast('Shopping list exported as Excel.');
+      logActivity('export_xlsx', 'Exported shopping list Excel');
+    } catch (e) {
+      reportError('DMG-E041', { phase: 'shopping_xlsx', message: String(e?.message || e) });
+      showToast('Excel export failed (DMG-E041). Try CSV export or retry.', 'error');
+    }
   }
 
   function exportCsv() {
@@ -2081,8 +2129,6 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
     showToast('Shopping list exported as CSV.');
     logActivity('export_csv', 'Exported shopping list CSV');
   }
-
-  const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
 
   return (
     <div>
@@ -2242,6 +2288,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
   ),[purchaseInvoices, items]);
 
   const [showForm, setShowForm] = useState(false);
+  const [editingPurchaseId, setEditingPurchaseId] = useState(null);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
@@ -2262,10 +2309,59 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
     [confirmId, purchaseInvoices]
   );
 
+  function openPurchaseEdit(inv) {
+    const lines = (inv.lineItems && inv.lineItems.length ? inv.lineItems : [{ description:'', quantity:'', unit:'each', unitPrice:'' }]).map((l) => ({
+      description: l.description || '',
+      quantity: String(l.qty ?? l.quantity ?? ''),
+      unit: l.unit || 'each',
+      unitPrice: String(l.price ?? l.unitPrice ?? ''),
+    }));
+    setForm({
+      supplier: inv.supplier || '',
+      date: inv.date || today(),
+      taxEnabled: !!inv.taxEnabled,
+      notes: inv.notes || '',
+      payment: {
+        account: inv.payment?.account || '',
+        date: inv.payment?.date || '',
+        transactionId: inv.payment?.transactionId || '',
+      },
+      lineItems: lines,
+    });
+    setEditingPurchaseId(inv.id);
+    setShowForm(true);
+  }
+
   function saveInvoice(){
     if (!form.supplier.trim()){showToast('Supplier name is required.','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
     if (!valid.length){showToast('Add at least one line item with a description.','error');return;}
+    if (editingPurchaseId) {
+      const prev = purchaseInvoices.find((i) => i.id === editingPurchaseId);
+      if (!prev) { showToast('Invoice not found.', 'error'); return; }
+      const inv = {
+        ...prev,
+        supplier: form.supplier,
+        date: form.date,
+        notes: form.notes,
+        lineItems: valid,
+        subtotal: T.sub,
+        taxEnabled: form.taxEnabled,
+        taxRate: biz.taxRate,
+        taxAmount: T.tax,
+        total: T.total,
+        payment: { ...form.payment },
+      };
+      const u = purchaseInvoices.map((x) => (x.id === editingPurchaseId ? inv : x));
+      setPurchaseInvoices(u);
+      save('purchaseInvoices', u);
+      setShowForm(false);
+      setForm(blankF());
+      setEditingPurchaseId(null);
+      showToast('Purchase invoice updated.');
+      logActivity('edit_item', 'Updated purchase invoice ' + inv.id);
+      return;
+    }
     const inv={id:nextId('purchase'),type:'purchase',business:selectedBusiness,
       supplier:form.supplier,date:form.date,notes:form.notes,
       lineItems:valid,subtotal:T.sub,taxEnabled:form.taxEnabled,taxRate:biz.taxRate,taxAmount:T.tax,
@@ -2283,7 +2379,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Purchase Invoices</div>
-        <Btn className="btn-primary" onClick={()=>{setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
       </div>
 
       {purchaseInvoices.length===0
@@ -2304,6 +2400,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
                       <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
                       <td style={{whiteSpace:'nowrap'}}>
                         <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
+                        <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openPurchaseEdit(inv)}>Edit</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Mark Paid</Btn>}
                         <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
                       </td>
@@ -2316,7 +2413,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
         )
       }
 
-      <Modal open={showForm} onClose={()=>setShowForm(false)} title="New Purchase Invoice" wide>
+      <Modal open={showForm} onClose={()=>{setShowForm(false);setEditingPurchaseId(null);}} title={editingPurchaseId ? `Edit Purchase Invoice ${editingPurchaseId}` : 'New Purchase Invoice'} wide>
         <div className="grid-2">
           <FI label="Supplier Name *" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))} placeholder="Sysco, US Foods…" suggestions={supplierSuggestions} />
           <FI label="Invoice Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
@@ -2362,8 +2459,8 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
         </div>
         <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
         <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
-          <Btn className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</Btn>
-          <Btn className="btn-primary" onClick={saveInvoice}>Create Invoice</Btn>
+          <Btn className="btn-outline" onClick={()=>{setShowForm(false);setEditingPurchaseId(null);}}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveInvoice}>{editingPurchaseId ? 'Save Changes' : 'Create Invoice'}</Btn>
         </div>
       </Modal>
 
@@ -2394,6 +2491,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openPurchaseEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -2437,6 +2535,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     return uniqSuggestions(...fromInv, ...names);
   },[cateringInvoices, items]);
   const [showForm, setShowForm] = useState(false);
+  const [editingCateringId, setEditingCateringId] = useState(null);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
@@ -2462,6 +2561,33 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     [confirmId, cateringInvoices]
   );
 
+  function openCateringEdit(inv) {
+    const lines = (inv.lineItems && inv.lineItems.length ? inv.lineItems : [{ description:'', quantity:'1', unitPrice:'' }]).map((l) => ({
+      description: l.description || '',
+      quantity: String(l.qty ?? l.quantity ?? '1'),
+      unitPrice: String(l.price ?? l.unitPrice ?? ''),
+    }));
+    setForm({
+      customerId: inv.customerId || '',
+      customerName: inv.customerName || '',
+      customerPhone: inv.customerPhone || '',
+      customerEmail: inv.customerEmail || '',
+      useRange: !!inv.useRange,
+      date: inv.date || today(),
+      dateStart: inv.dateStart || today(),
+      dateEnd: inv.dateEnd || today(),
+      eventType: inv.eventType || 'Catering',
+      business: inv.business || selectedBusiness,
+      lineItems: lines,
+      ccFeeEnabled: !!inv.ccFeeEnabled,
+      taxEnabled: inv.taxEnabled !== false,
+      deposit: inv.deposit != null && inv.deposit !== '' ? String(inv.deposit) : '',
+      notes: inv.notes || '',
+    });
+    setEditingCateringId(inv.id);
+    setShowForm(true);
+  }
+
   function saveInvoice(){
     if (!form.customerName.trim()){showToast('Customer name is required.','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
@@ -2473,6 +2599,24 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
       const uc=[...customers,nc];setCustomers(uc);save('customers',uc);custId=nc.id;
     }
     const status=T.dep>=T.grand?'paid':T.dep>0?'partial':'unpaid';
+    if (editingCateringId) {
+      const prev = cateringInvoices.find((i) => i.id === editingCateringId);
+      if (!prev) { showToast('Invoice not found.', 'error'); return; }
+      const inv={
+        ...prev,
+        customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,
+        useRange:form.useRange,date:form.useRange?null:form.date,dateStart:form.useRange?form.dateStart:null,dateEnd:form.useRange?form.dateEnd:null,
+        eventType:form.eventType,lineItems:valid,subtotal:T.sub,
+        ccFeeEnabled:form.ccFeeEnabled,ccFee:T.cc,taxEnabled:form.taxEnabled,taxRate:T.fb.taxRate,taxAmount:T.taxAmt,
+        grandTotal:T.grand,deposit:T.dep,balanceDue:T.balance,status,notes:form.notes,business:form.business||selectedBusiness
+      };
+      const u=cateringInvoices.map(x=>x.id===editingCateringId?inv:x);
+      setCateringInvoices(u);save('cateringInvoices',u);
+      setShowForm(false);setForm(blankF());setEditingCateringId(null);
+      showToast('Catering invoice updated.');
+      logActivity('edit_item', 'Updated catering invoice ' + inv.id);
+      return;
+    }
     const inv={
       id:nextId('catering'),type:'catering',business:form.business||selectedBusiness,
       customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,
@@ -2494,7 +2638,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Catering Invoices</div>
-        <Btn className="btn-primary" onClick={()=>{setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
       </div>
 
       {cateringInvoices.length===0
@@ -2516,6 +2660,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
                       <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
                       <td style={{whiteSpace:'nowrap'}}>
                         <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
+                        <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openCateringEdit(inv)}>Edit</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Paid</Btn>}
                         {isAdmin&&<Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>}
                       </td>
@@ -2529,7 +2674,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
       }
 
       {/* Create Form */}
-      <Modal open={showForm} onClose={()=>setShowForm(false)} title="New Catering Invoice" wide>
+      <Modal open={showForm} onClose={()=>{setShowForm(false);setEditingCateringId(null);}} title={editingCateringId ? `Edit Catering Invoice ${editingCateringId}` : 'New Catering Invoice'} wide>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Customer</div>
         <div className="grid-2 mb-2">
           <FS label="Existing Customer" value={form.customerId} onChange={e=>selCust(e.target.value)}>
@@ -2604,8 +2749,8 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
         </div>
         <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
         <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
-          <Btn className="btn-outline" onClick={()=>setShowForm(false)}>Cancel</Btn>
-          <Btn className="btn-primary" onClick={saveInvoice}>Create Invoice</Btn>
+          <Btn className="btn-outline" onClick={()=>{setShowForm(false);setEditingCateringId(null);}}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveInvoice}>{editingCateringId ? 'Save Changes' : 'Create Invoice'}</Btn>
         </div>
       </Modal>
 
@@ -2645,6 +2790,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
             {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openCateringEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
@@ -3393,6 +3539,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
 
   const [form, setForm] = useState(blankForm);
   const [showForm, setShowForm] = useState(false);
+  const [editingTransferId, setEditingTransferId] = useState(null);
   const [viewId, setViewId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
 
@@ -3413,6 +3560,38 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
   }
   function removeLine(i) {
     setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }));
+  }
+
+  function openTransferEdit(inv) {
+    const raw = transferInvoices.find((x) => x.id === inv.id) || inv;
+    const linesSrc = Array.isArray(raw.lineItems) && raw.lineItems.length ? raw.lineItems : [{ quantity:'', item:'', price:'' }];
+    const lines = linesSrc.map((li) => ({
+      quantity: String(li.quantity ?? li.qty ?? ''),
+      item: String(li.item ?? li.description ?? ''),
+      price: li.price != null && li.price !== '' ? String(li.price) : li.unitPrice != null && li.unitPrice !== '' ? String(li.unitPrice) : '',
+    }));
+    setForm({
+      date: raw.date || today(),
+      from: raw.from || blankForm().from,
+      fromContact: raw.fromContact || '',
+      to: raw.to || blankForm().to,
+      toContact: raw.toContact || '',
+      notes: raw.notes || '',
+      lineItems: lines.length ? lines : [{ quantity:'', item:'', price:'' }],
+    });
+    setEditingTransferId(raw.id);
+    setShowForm(true);
+  }
+
+  function closeTransferForm() {
+    setShowForm(false);
+    setEditingTransferId(null);
+    setForm(blankForm());
+  }
+  function openNewTransferForm() {
+    setEditingTransferId(null);
+    setForm(blankForm());
+    setShowForm(true);
   }
 
   function saveTransferInvoice() {
@@ -3436,6 +3615,33 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
     const subTotal = +lines.reduce((s, l) => s + l.price, 0).toFixed(2);
     const commissionTotal = +lines.reduce((s, l) => s + l.commission, 0).toFixed(2);
     const grandTotal = +(subTotal + commissionTotal).toFixed(2);
+    if (editingTransferId) {
+      const prev = transferInvoices.find((x) => x.id === editingTransferId);
+      if (!prev) { showToast('Invoice not found.', 'error'); return; }
+      const invoice = {
+        ...prev,
+        date: form.date,
+        from: form.from,
+        fromContact: form.fromContact.trim(),
+        to: form.to,
+        toContact: form.toContact.trim(),
+        notes: form.notes.trim(),
+        lineItems: lines,
+        commissionRate: COMMISSION_RATE,
+        subTotal,
+        commissionTotal,
+        grandTotal,
+      };
+      const updated = transferInvoices.map((x) => (x.id === editingTransferId ? invoice : x));
+      setTransferInvoices(updated);
+      save('transferInvoices', updated);
+      logActivity('edit_item', 'Updated transfer invoice ' + invoice.id);
+      showToast('Transfer invoice updated.');
+      setForm(blankForm());
+      setShowForm(false);
+      setEditingTransferId(null);
+      return;
+    }
     const invoice = {
       id: nextTransferId(form.date),
       invoiceType: 'pp_transfer',
@@ -3517,7 +3723,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
         <div className="section-title" style={{margin:0}}>🚚 P&P Transfer Invoice Generator</div>
         <div className="flex gap-2">
           <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
-          <Btn className="btn-primary" onClick={()=>setShowForm(v=>!v)}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
+          <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
         </div>
       </div>
       <p style={{fontSize:13,color:'#666',marginBottom:12}}>
@@ -3526,6 +3732,9 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
 
       {showForm && (
         <div className="card mb-3">
+          {editingTransferId && (
+            <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>Editing {editingTransferId}</div>
+          )}
           <div className="grid-3">
             <FI label="Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
             <FI label="From" value={form.from} onChange={e=>setForm(f=>({...f,from:e.target.value}))} />
@@ -3554,7 +3763,8 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
             </div>
           ))}
           <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:10}}>
-            <Btn className="btn-primary" onClick={saveTransferInvoice}>💾 Save Transfer Invoice</Btn>
+            <Btn className="btn-outline" onClick={closeTransferForm}>Cancel</Btn>
+            <Btn className="btn-primary" onClick={saveTransferInvoice}>{editingTransferId ? '💾 Save Changes' : '💾 Save Transfer Invoice'}</Btn>
           </div>
         </div>
       )}
@@ -3576,6 +3786,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
                     <td>
                       <div className="flex gap-2">
                         <Btn className="btn-outline btn-sm" onClick={()=>setViewId(inv.id)}>View</Btn>
+                        <Btn className="btn-secondary btn-sm" onClick={()=>openTransferEdit(inv)}>Edit</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" onClick={()=>{
                           const updated=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);
                           setTransferInvoices(updated); save('transferInvoices',updated); showToast('Transfer invoice marked paid.');
@@ -3644,6 +3855,7 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
             {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewId(null); openTransferEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
             </div>
           </div>
@@ -5299,7 +5511,7 @@ function App() {
         <div className="header-row">
           <div>
             <div className="header-title">
-              <img className="header-title-logo" src={(BRANDING[biz]?.logo || BRANDING.degrill.logo)} alt={`${bizInfo.name} logo`} />
+              <img className="header-title-logo" src={resolveAssetUrl(BRANDING[biz]?.logo || BRANDING.degrill.logo, documentBaseHref())} alt={`${bizInfo.name} logo`} />
               <h1 style={{margin:0}}>DMG Software Suite</h1>
             </div>
             <div className="sub">{bizInfo.name} · {bizInfo.location} · Tax: {(bizInfo.taxRate*100).toFixed(3)}%</div>

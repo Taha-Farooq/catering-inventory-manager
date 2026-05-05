@@ -12,6 +12,7 @@ import {
   migrateShoppingList,
   uniqSuggestions,
   safePrice,
+  resolveAssetUrl,
 } from './formatters.js';
 
 describe('formatters', () => {
@@ -132,6 +133,19 @@ describe('formatters', () => {
       expect(safePrice('')).toBeNull();
       expect(safePrice(null)).toBeNull();
       expect(safePrice(-1)).toBeNull();
+    });
+  });
+
+  describe('resolveAssetUrl', () => {
+    it('joins relative paths against directory base', () => {
+      expect(resolveAssetUrl('assets/foo.jpg', 'https://example.com/app/')).toBe(
+        'https://example.com/app/assets/foo.jpg'
+      );
+    });
+    it('passes through absolute URLs', () => {
+      expect(resolveAssetUrl('https://cdn.example/x.png', 'https://a.com/')).toBe(
+        'https://cdn.example/x.png'
+      );
     });
   });
 });

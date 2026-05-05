@@ -98,3 +98,25 @@ export function safePrice(v) {
   const n = parseFloat(v);
   return !isNaN(n) && n >= 0 ? n : null;
 }
+
+/**
+ * Resolve relative asset URLs for `<img src>` (print windows, GitHub Pages subpaths).
+ * `baseHref` should be the directory URL of the current HTML document (see `documentBaseHref` in App).
+ */
+export function resolveAssetUrl(src, baseHref = '') {
+  const s = String(src ?? '').trim();
+  if (!s) return '';
+  if (/^(?:https?:|data:|blob:)/i.test(s)) return s;
+  try {
+    const base =
+      typeof baseHref === 'string' && baseHref.trim()
+        ? baseHref.trim()
+        : typeof globalThis !== 'undefined' && globalThis.location?.href
+          ? globalThis.location.href
+          : '';
+    if (!base) return s;
+    return new URL(s, base).href;
+  } catch {
+    return s;
+  }
+}
