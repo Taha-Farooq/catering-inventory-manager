@@ -78,6 +78,64 @@ Boot-related:
 
 - **`DMG-E001`** — Bundle/scripts failed to load or hung before mount (watchdog).
 - **`DMG-E002`** — Mount threw or compile/runtime failure during startup.
+- **`DMG-E003`** — React render error thrown after initial mount. **Not yet wired** — tracked as BL-12. Implement via `src/ErrorBoundary.jsx` class component wrapping `<App>` in `main.jsx`.
+
+## Data namespace policy
+
+**Shared vs. per-business localStorage keys** — all three businesses (DeGrill, Parathas, Dera) read from the same `items`, `purchaseInvoices`, `cateringInvoices`, `customers`, `priceHistory`, etc. keys. `_lastBiz` is a UI context filter only, not a data partition.
+
+**Current intentional design:**
+- `items` (inventory catalog) and `customers` are **shared across all businesses** — the same vendors and clients serve all three locations.
+- Invoice keys (`purchaseInvoices`, `cateringInvoices`, `transferInvoices`, `payrollInvoices`) are also currently shared, meaning invoices from all businesses appear in the same list. This is pragmatic for a small operation but means the Archive tab shows cross-business data unless filtered by a UI field on the invoice record itself.
+
+**Decision needed (BL-17):** If invoices should be strictly isolated per business, add a `businessId` field to each invoice (already present on new records going forward) and filter displays by `_lastBiz`. A scoped-key migration (`purchaseInvoices_degrill`, etc.) is a larger change — track separately if needed.
+
+**Transfer invoices:** The "P&P Transfer Inv." tab refers to inter-business inventory transfers. The name implies Parathas and Platters is always the source, but the tab is available to all businesses. Rename to "Transfer Invoices" when generalizing directions is needed (BL-17).
+
+## Payroll invoices vs. Scan DB
+
+`payrollInvoices` (localStorage) = manually-entered payroll summaries (amounts, periods, notes).
+`backend/data/scan-db.json` = metadata for PDFs ingested via the Scan DB tab (may include payroll PDFs).
+
+These are **separate systems** — scan-db stores document references, not payroll accounting entries. If a scanned PDF is a payroll document, the user must manually create a corresponding `payrollInvoices` entry; there is no automatic link. See BL-18 for the planned integration.
+
+**Scan DB backup gap:** `scan-db.json` lives on the backend and is NOT included in the Settings ZIP export. Use `/api/scan/export` (admin, GET) to download a separate JSON backup. See BL-18 for adding a UI trigger.
+
+## Password hashing
+
+`hashPwd(pwd)` in `App.jsx` computes `SHA-256(password)` with no salt. This is a known weak point: identical passwords across users produce identical hashes. The same hashes are stored in `backend/data/credentials.json`.
+
+Planned improvement (BL-19): use `SHA-256(password + ':' + username.toLowerCase())` as a deterministic per-user salt. Transition plan: attempt old hash first on login, re-hash with salt on success. No stored-salt column needed.
+
+## Storage key reference
+
+| Key | Purpose |
+|-----|---------|
+| `items` | Inventory item catalog (shared across businesses) |
+| `shoppingList` | Current shopping list entries |
+| `purchaseInvoices` | Purchase invoices from suppliers |
+| `transferInvoices` | Inter-business transfer invoices |
+| `payrollInvoices` | Manually-entered payroll summaries |
+| `cateringInvoices` | Invoices issued to catering customers |
+| `customers` | Customer contact database (shared) |
+| `credentials` | SHA-256 password hashes for local auth |
+| `priceHistory` | Historical item prices per supplier |
+| `_dailyFinanceEntries` | Daily income/expense tracker entries |
+| `_menuItems` | Menu item names and pricing (legacy key; see `_menuRecipes`) |
+| `_menuRecipes` | Recipe definitions for menu margin costing (BL-01) |
+| `_session` | Current logged-in user session |
+| `_lastBiz` | UI context: last-selected business ID |
+| `_userPermissions` | Per-user permission overrides |
+| `_kioskLock` | Kiosk mode lock state for Check In/Out tab |
+| `_activityLog` | Audit trail (max 500 entries) |
+| `_profiles` | Staff profile display data |
+| `_seq` | Monotonic sequence counter used for invoice number generation (e.g. `INV-0042`) |
+| `_rememberedCheckinLogin` | Remembered username for kiosk check-in form |
+| `_adminResetApiBase` | Cached backend URL for admin password reset |
+| `_adminResetCodeHash` | Hash of pending admin reset code |
+| `_failureLog` | Persistent error log (max 500 entries; complements sessionStorage ring buffer in `errors.js`) |
+| `_logoOverrides` | Per-business invoice logo HTTPS URL overrides (BL-11) |
+| `settings` | User settings object (page size, preferences, `logoOverrides` for backup round-trip) |
 
 ## Conventions for agents
 
@@ -86,8 +144,11 @@ Boot-related:
 - After editing `src/App.jsx`, `src/ui/*`, or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
 - **Invoice logos:** default files in **`public/assets/logos/*.jpg`**. Optional per-business **HTTPS** overrides in **Settings** → stored in localStorage key **`_logoOverrides`** (`LOGO_OVERRIDES_KEY` in `constants.js`); also embedded in backup ZIP `settings.json` as `logoOverrides` for round-trip.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
+- **Entity IDs** use `crypto.randomUUID()` (BL-14). Existing IDs in localStorage use the old `_xxxxxxxxx` format and remain valid indefinitely.
 
 ## Known technical debt
 
 - `src/App.jsx` is monolithic (~5k lines); **`src/ui/Confirm.jsx`** and **`src/ui/Modal.jsx`** are shared UI extracts — continue with `FI` / `Btn` / tab pages (`BL-07`).
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
+- No React error boundary (DMG-E003) — post-mount render errors blank the screen. Track as BL-12.
+- Password hashing is unsalted SHA-256 — see BL-19 and Password hashing section above.

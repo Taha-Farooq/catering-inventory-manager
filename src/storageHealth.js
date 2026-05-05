@@ -2,6 +2,8 @@
  * localStorage health for DMG-E010 / E011 / E012.
  */
 
+import { LOGO_OVERRIDES_KEY } from './constants.js';
+
 export const STORAGE_SCAN_KEYS = [
   'items',
   'shoppingList',
@@ -27,6 +29,7 @@ export const STORAGE_SCAN_KEYS = [
   '_menuItems',
   '_menuRecipes',
   'settings',
+  LOGO_OVERRIDES_KEY,
 ];
 
 export function probeLocalStorage() {

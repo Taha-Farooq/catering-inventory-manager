@@ -82,4 +82,8 @@ describe('storageHealth', () => {
     expect(STORAGE_SCAN_KEYS).toContain('items');
     expect(STORAGE_SCAN_KEYS).toContain('credentials');
   });
+
+  it('STORAGE_SCAN_KEYS includes _logoOverrides so corrupt logo settings are detected', () => {
+    expect(STORAGE_SCAN_KEYS).toContain('_logoOverrides');
+  });
 });

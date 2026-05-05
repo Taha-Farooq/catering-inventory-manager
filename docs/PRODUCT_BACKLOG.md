@@ -71,7 +71,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 2 — Error surface and diagnostics package
 
-**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`src/ui/Confirm.jsx`** for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal, **and tab delete flows** (items, invoices, customers, archive, transfer, price history) with **DMG-E012** on confirm where relevant. Optional: DMG codes on every validation toast.
+**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`src/ui/Confirm.jsx`** for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal, **and tab delete flows** (items, invoices, customers, archive, transfer, price history) with **DMG-E012** on confirm where relevant. Optional: DMG codes on every validation toast. **DMG-E003 not yet wired** — see BL-12.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
@@ -95,7 +95,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 3 — Storage resilience
 
-**Status:** Partial — probes, quota warn, corrupt-key detection; **Help** can paste JSON to repair one corrupt key (**BL-08** done); remove-all-keys still available from banner.
+**Status:** Partial — probes, quota warn, corrupt-key detection; **Help** can paste JSON to repair one corrupt key (**BL-08** done); remove-all-keys still available from banner. `save()` in `App.jsx` already catches `QuotaExceededError` → DMG-E011 toast. **`_logoOverrides` scan gap fixed** (BL-13 done — key added to `STORAGE_SCAN_KEYS`).
 
 **Objective:** Graceful behavior when storage is full, disabled, or corrupt.
 
@@ -135,7 +135,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 5 — Auth and backend contract hardening
 
-**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; auth and scan/attendance APIs report **DMG-E020–E031**. **Offline banner** (`navigator.onLine` via `useOnlineStatus`). Settings backup **ZIP export/import** failures → toast + **DMG-E041** (no blocking `alert`).
+**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; auth and scan/attendance APIs report **DMG-E020–E031**. **Offline banner** (`navigator.onLine` via `useOnlineStatus`). Settings backup **ZIP export/import** failures → toast + **DMG-E041** (no blocking `alert`). Attendance and Scan DB tabs still show raw error toasts when backend is unavailable — no graceful degraded state; see BL-15. Scan DB backup gap (data on backend not in main ZIP) — see BL-18.
 
 **Objective:** Predictable behavior when Render backend or central auth is down.
 
@@ -169,16 +169,25 @@ Rough **surface area / coupling** only:
 
 | Area | What’s left | Scope |
 |------|-------------|--------|
-| **Slice 2** | Optional DMG codes on validation toasts; optional `Modal` extract to `src/ui/` | Small |
+| **Slice 2** | BL-12 (React error boundary / DMG-E003); optional DMG codes on validation toasts | Small |
 | **Slice 3 defer** | IndexedDB migration | Large |
-| **Slice 5** | Richer API response bodies; remaining alerts → toast | Medium–small |
-| **Slice 6** | Optional extra probes (e.g. StorageManager) | Small |
+| **Slice 5** | BL-15 (backend tab offline degradation); BL-18 (scan DB backup gap) | Medium–small |
+| **Slice 6** | Done — optional extra StorageManager probe deferred | — |
 | **BL-01 COGS** | Recipes, yields, reporting | Very large |
 | **BL-02–BL-05** | Alerts, merge, telemetry | Medium each |
-| **BL-07** | Split `App.jsx` — `src/ui/Confirm.jsx` done; next: `Modal`, `FI`, `Btn`, or tab pages | Large mechanical |
+| **BL-07** | Split `App.jsx` — `src/ui/Confirm.jsx`, `Modal.jsx` done; next: tab pages | Large mechanical |
 | **BL-10** | Optional Playwright smoke; more utils if extracted | Small increments |
+| **BL-12** | React error boundary + DMG-E003 | Small |
+| **BL-13** | ~~`_logoOverrides` in STORAGE_SCAN_KEYS~~ **Done** | — |
+| **BL-14** | ~~`uid()` → `crypto.randomUUID()`~~ **Done** | — |
+| **BL-15** | Backend tab offline degradation (Attendance, Scan DB) | Small |
+| **BL-16** | Invoice archive pagination | Small–medium |
+| **BL-17** | Multi-business data namespace decision + documentation | Design + small/epic |
+| **BL-18** | Payroll ↔ Scan DB integration clarification + scan backup in Settings | Medium |
+| **BL-19** | Password hash security hardening (add username salt) | Small |
+| **BL-20** | Document `_seq` key purpose | Tiny |
 
-**Summary:** Slices **1, 4** largely complete; **2, 3, 5, 6** partial. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** (continue extracting from `App.jsx`).
+**Summary:** Slices **1, 4** done; **2, 3, 5** partial; **6** done. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** (continue extracting from `App.jsx`). Most urgent reliability gap: **BL-12** (DMG-E003 error boundary).
 
 ---
 
@@ -197,6 +206,15 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
 | **BL-10** | Vitest: `apiErrors`, `constants`, `storageHealth`, **`formatters`** (`src/formatters.js`); optional Playwright smoke later | Regression safety | In progress |
 | **BL-11** | **Settings: custom logo URLs** (per business) — **partial:** Settings → “Invoice logos” saves `_logoOverrides`; upload / drag-drop file still **backlog** | Power users; CDN without redeploy | Small follow-up |
+| **BL-12** | **React Error Boundary + DMG-E003** — class component `src/ErrorBoundary.jsx`; wrap `<App>` in `main.jsx`; shows recovery card with “Refresh” + “Copy diagnostics”; calls `reportError(‘DMG-E003’)`. Without this, post-mount render errors blank the screen silently. | Completes Slice 2 | Small |
+| **BL-13** | ~~**`_logoOverrides` in `STORAGE_SCAN_KEYS`**~~ **Done** — `LOGO_OVERRIDES_KEY` imported and added to `STORAGE_SCAN_KEYS` in `src/storageHealth.js`; test asserts coverage. Without it, corrupt logo overrides were invisible to Help tab repair scan. | Slice 3 / BL-11 integrity | — |
+| **BL-14** | ~~**`uid()` → `crypto.randomUUID()`**~~ **Done** — replaced `Math.random()`-based ID generator with `crypto.randomUUID()` in `src/App.jsx`. Existing IDs in localStorage are unaffected. | Correctness | — |
+| **BL-15** | **Backend tab offline degradation** — when backend is unreachable (DMG-E021/E030) or `navigator.onLine` is false, Attendance (Check In/Out) and Scan DB tabs show a styled *”This feature requires the backend server — [DMG-E021]”* banner (reuse `OfflineBanner` style from `ReliabilityBanners.jsx`), not silent toasts. Local state (kiosk lock, last scan summary) still renders. | Completes Slice 5 | Small |
+| **BL-16** | **Invoice archive pagination** — archive tab renders all invoices at once; add `usePagination(items, pageSize)` hook, page controls (prev/next/page N of M), page size selector (10/25/50) persisted in `settings`. | Performance / UX | Small–medium |
+| **BL-17** | **Multi-business data namespace decision** — all three businesses share the same `items`, `cateringInvoices`, `customers`, etc. keys; `_lastBiz` is a UI filter only. (a) If intentional (shared vendor catalog): document explicitly in `AGENTS.md`, rename “P&P Transfer Inv.” tab to “Transfer Invoices”, generalize direction. (b) If invoices need per-business scoping: design `items_degrill` / `items_parathas` / `items_dera` scheme with a `migrateBusinessKeys()` helper — own epic. Owner must decide which path. | Design decision + documentation | Design → small or epic |
+| **BL-18** | **Payroll invoice ↔ Scan DB integration + scan backup** — `payrollInvoices` (localStorage, manual entry) and backend scan-db.json (PDF auto-parse) have undefined overlap. (a) Document whether they are the same or separate. (b) If same: when a scanned doc is classified as “payroll”, offer “Create payroll invoice” pre-filled from parsed fields. (c) Add “Download Scan DB” button in Help/Settings calling `/api/scan/export` so scan history is not orphaned on the backend. | Slice 5 follow-up | Medium |
+| **BL-19** | **Password hash hardening** — `hashPwd()` in `App.jsx` uses unsalted `SHA-256(password)`. Minimum fix: `SHA-256(password + ‘:’ + username.toLowerCase())` (deterministic salt, no stored-salt migration needed). Transition: accept old hash on first login attempt, re-hash and save with salt on success. Update `backend/server.js` login handler to match (it receives the hash from the frontend). Document the scheme in `AGENTS.md`. | Security | Small |
+| **BL-20** | **Document `_seq` key** — `_seq` is in `STORAGE_SCAN_KEYS` and written by `App.jsx` but undocumented. Find all reads/writes, add a one-line comment, add a row to the `AGENTS.md` storage key table. | Maintainability | Tiny |
 
 **Ops note:** Invoice logos 404’d after Vite migration until JPGs lived under **`public/assets/logos/`** (same relative paths as `BRANDING.logo` in `App.jsx`). Updating art: overwrite those files and redeploy.
 

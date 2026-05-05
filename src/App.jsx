@@ -117,7 +117,7 @@ function save(key, val) {
 // UTILS
 // ═══════════════════════════════════════════════════════════
 const today = () => new Date().toISOString().split('T')[0];
-const uid = () => '_'+Math.random().toString(36).substr(2,9);
+const uid = () => crypto.randomUUID();
 /** Directory URL of the current page (no hash/query) — resolves relative assets for print + `<img>`. */
 function documentBaseHref() {
   try {
