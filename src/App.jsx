@@ -1,8 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, useId } from 'react';
-import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from 'recharts';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from 'react';
 import { clearErrorLog, copyDiagnostics, reportError } from './errors.js';
 import {
   classifyFetchException,
@@ -60,6 +56,9 @@ const PROFILE_ICONS = ['👤','👨‍🍳','👩‍🍳','🧑‍💼','👨‍
 
 const CATEGORIES = ['Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Spices','Beverages','Bakery','Supplies','Other'];
 const CHART_COLORS = ['#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642'];
+const LazyDailyFinanceCharts = lazy(() => import('./charts/DailyFinanceCharts.jsx'));
+const LazyAnalyticsCharts = lazy(() => import('./charts/AnalyticsCharts.jsx'));
+const LazyPriceHistoryChart = lazy(() => import('./charts/PriceHistoryChart.jsx'));
 const PAYMENT_TERMS = ['Due on receipt','3% monthly late fee (0.75% weekly)','$40 bounced check fee'];
 const MENU_UNITS = ['each','oz','lb','g','kg','ml','l'];
 const INTERNAL_SELLER_NAME_KEYS = new Set([
@@ -776,6 +775,11 @@ function normalizeTransferInvoice(inv) {
 // ═══════════════════════════════════════════════════════════
 let _toastAdd = null;
 function showToast(msg, type='success') { if (_toastAdd) _toastAdd(msg, type); }
+function toastApiFailure(res, fallback = 'Request failed') {
+  if (!res || res.ok) return;
+  const suffix = res.code ? ` (${res.code})` : '';
+  showToast(`${res.error || fallback}${suffix}`, 'warning');
+}
 function ToastContainer() {
   const [toasts, setToasts] = useState([]);
   useEffect(() => {
@@ -3019,22 +3023,10 @@ function DailyIncomeExpense({ entries, setEntries, selectedBusiness }) {
         {[{v:fmt$(totals.income),l:'Income'},{v:fmt$(totals.expense),l:'Expense'},{v:fmt$(net),l:'Net Profit'},{v:fmt$(estimatedIncomeTax),l:'Estimated Income Tax'},{v:fmt$(salesTaxDue),l:'Sales Tax Due'},{v:filtered.length,l:'Daily Entries'}].map((s,i)=><div key={i} className="stat-card"><div className="stat-val">{s.v}</div><div className="stat-lbl">{s.l}</div></div>)}
       </div>
 
-      {monthly.length > 1 && LineChart && (
-        <div className="card mb-3">
-          <h3 style={{marginBottom:12,color:'var(--brown)',fontSize:15}}>Monthly Income vs Expense vs Net</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={monthly}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
-              <XAxis dataKey="label" tick={{fontSize:11}} />
-              <YAxis tickFormatter={v=>'$'+Number(v).toLocaleString()} tick={{fontSize:11}} width={70} />
-              <Tooltip formatter={v=>fmt$(v)} />
-              <Legend />
-              <Line type="monotone" dataKey="income" stroke="#16a34a" strokeWidth={2.3} dot={{r:3}} name="Income" />
-              <Line type="monotone" dataKey="expense" stroke="#dc2626" strokeWidth={2.3} dot={{r:3}} name="Expense" />
-              <Line type="monotone" dataKey="net" stroke="#8B4513" strokeWidth={2.6} dot={{r:3}} name="Net" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      {monthly.length > 1 && (
+        <Suspense fallback={<div className="card mb-3 text-muted" style={{ padding: 24, textAlign: 'center' }}>Loading chart…</div>}>
+          <LazyDailyFinanceCharts monthly={monthly} fmt$={fmt$} />
+        </Suspense>
       )}
 
       <div className="card" style={{padding:0}}>
@@ -3115,51 +3107,17 @@ function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) 
 
       {!hasData&&<div className="card empty-state">Create invoices to see analytics charts here.</div>}
 
-      {monthRevenue.length>1&&LineChart&&(
-        <div className="card mb-4">
-          <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Monthly Revenue</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={monthRevenue}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
-              <XAxis dataKey="month" tick={{fontSize:11}} />
-              <YAxis tickFormatter={v=>'$'+v.toLocaleString()} tick={{fontSize:11}} width={70} />
-              <Tooltip formatter={v=>[fmt$(v),'Revenue']} />
-              <Line type="monotone" dataKey="total" stroke="#8B4513" strokeWidth={2.5} dot={{r:4}} name="Revenue" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      {(monthRevenue.length > 1 || supplierData.length > 0 || statusData.length > 0) && (
+        <Suspense fallback={<div className="card mb-4 text-muted" style={{ padding: 24, textAlign: 'center' }}>Loading charts…</div>}>
+          <LazyAnalyticsCharts
+            monthRevenue={monthRevenue}
+            supplierData={supplierData}
+            statusData={statusData}
+            fmt$={fmt$}
+            chartColors={CHART_COLORS}
+          />
+        </Suspense>
       )}
-
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:16,marginBottom:16}}>
-        {supplierData.length>0&&BarChart&&(
-          <div className="card">
-            <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Spending by Supplier</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={supplierData} layout="vertical" margin={{left:10}}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
-                <XAxis type="number" tickFormatter={v=>'$'+v} tick={{fontSize:10}} />
-                <YAxis type="category" dataKey="name" tick={{fontSize:10}} width={90} />
-                <Tooltip formatter={v=>[fmt$(v),'Spending']} />
-                <Bar dataKey="total" fill="#D2691E" name="Spending" radius={[0,3,3,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-        {statusData.length>0&&PieChart&&(
-          <div className="card">
-            <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Invoice Status</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                  label={({name,percent})=>`${name} ${(percent*100).toFixed(0)}%`}>
-                  {statusData.map((_,i)=><Cell key={i} fill={CHART_COLORS[i%CHART_COLORS.length]} />)}
-                </Pie>
-                <Tooltip /><Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -3690,20 +3648,16 @@ function PriceHistory({ items, priceHistory, setPriceHistory }) {
 
       {hist.length>0&&(
         <>
-          {chartData.length>1&&LineChart&&(
-            <div className="card mb-4">
-              <h3 style={{marginBottom:14,color:'var(--brown)',fontSize:15}}>Price Trends — {selItem?.name} ({selItem?.unit})</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EED9B0" />
-                  <XAxis dataKey="date" tick={{fontSize:11}} />
-                  <YAxis tickFormatter={v=>'$'+v} tick={{fontSize:11}} width={55} />
-                  <Tooltip formatter={v=>[fmt$(v),'Price']} />
-                  <Legend />
-                  {sellers.map((s,i)=><Line key={s} type="monotone" dataKey={s} stroke={CHART_COLORS[i%CHART_COLORS.length]} strokeWidth={2.5} dot={{r:5}} connectNulls name={s} />)}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+          {chartData.length>1 && (
+            <Suspense fallback={<div className="card mb-4 text-muted" style={{ padding: 24, textAlign: 'center' }}>Loading chart…</div>}>
+              <LazyPriceHistoryChart
+                chartData={chartData}
+                sellers={sellers}
+                itemLabel={`${selItem?.name} (${selItem?.unit})`}
+                fmt$={fmt$}
+                chartColors={CHART_COLORS}
+              />
+            </Suspense>
           )}
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
@@ -3934,28 +3888,36 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
 
   const hasAuth = !!currentUser?.authHash;
 
-  async function refreshStatus() {
+  async function refreshStatus(silent) {
     if (!hasAuth) return;
     const res = await scanApiCall('/api/scan/status', { currentUser });
-    if (!res.ok) { setErr(res.error || 'Failed to load scanner status'); return; }
+    if (!res.ok) {
+      if (!silent) toastApiFailure(res, 'Scanner unavailable');
+      setErr(res.error || 'Failed to load scanner status');
+      return;
+    }
     setErr('');
     setStatus(res.data);
     setConfig(res.data.config || { inboxPath:'', libraryPath:'', enabled:false });
   }
-  async function runSearch() {
+  async function runSearch(silent) {
     if (!hasAuth) return;
     const q = {};
     Object.entries(filters).forEach(([k,v]) => { if (String(v||'').trim()) q[k] = v; });
     const res = await scanApiCall('/api/scan/search', { currentUser, query:q });
-    if (!res.ok) { setErr(res.error || 'Search failed'); return; }
+    if (!res.ok) {
+      if (!silent) toastApiFailure(res, 'Search failed');
+      setErr(res.error || 'Search failed');
+      return;
+    }
     setErr('');
     setResults(res.data.items || []);
   }
   useEffect(() => {
     if (!hasAuth) return;
-    refreshStatus();
-    runSearch();
-    const t = setInterval(() => { refreshStatus(); }, 12000);
+    refreshStatus(true);
+    runSearch(true);
+    const t = setInterval(() => { refreshStatus(true); }, 12000);
     return () => clearInterval(t);
   }, [hasAuth]);
 
@@ -3965,7 +3927,11 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
     const authHash = await hashPwd(pwd);
     const probeUser = { ...currentUser, authHash };
     const probe = await scanApiCall('/api/scan/status', { currentUser: probeUser });
-    if (!probe.ok) { setErr('Admin authentication failed.'); return; }
+    if (!probe.ok) {
+      toastApiFailure(probe, 'Scanner unreachable');
+      setErr('Admin authentication failed.');
+      return;
+    }
     onAuthHashSaved(authHash);
     setPwd('');
   }
@@ -3977,7 +3943,11 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
       body:{ inboxPath: config.inboxPath, libraryPath: config.libraryPath, enabled: !!nextEnabled }
     });
     setBusy(false);
-    if (!res.ok) { setErr(res.error || 'Save failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Save failed');
+      setErr(res.error || 'Save failed');
+      return;
+    }
     setErr('');
     setConfig(res.data.config);
     refreshStatus();
@@ -3986,14 +3956,22 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
     setBusy(true);
     const res = await scanApiCall('/api/scan/scan-now', { currentUser, method:'POST' });
     setBusy(false);
-    if (!res.ok) { setErr(res.error || 'Scan failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Scan failed');
+      setErr(res.error || 'Scan failed');
+      return;
+    }
     showToast('Scan completed.');
     refreshStatus();
     runSearch();
   }
   async function updateOne(item, patch) {
     const res = await scanApiCall(`/api/scan/update/${item.id}`, { currentUser, method:'POST', body: patch });
-    if (!res.ok) { setErr(res.error || 'Update failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Update failed');
+      setErr(res.error || 'Update failed');
+      return;
+    }
     runSearch();
   }
   async function bulkApply() {
@@ -4003,14 +3981,22 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
       method:'POST',
       body:{ ids:selectedIds, businessTag:bulkBusiness, docType:bulkType, status:bulkStatus }
     });
-    if (!res.ok) { setErr(res.error || 'Bulk update failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Bulk update failed');
+      setErr(res.error || 'Bulk update failed');
+      return;
+    }
     showToast(`Updated ${res.data.updated} documents.`);
     setSelectedIds([]);
     runSearch();
   }
   async function exportDb() {
     const res = await scanApiCall('/api/scan/export', { currentUser });
-    if (!res.ok) { setErr(res.error || 'Export failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Export failed');
+      setErr(res.error || 'Export failed');
+      return;
+    }
     const blob = new Blob([JSON.stringify(res.data.data, null, 2)], { type:'application/json;charset=utf-8;' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -4024,7 +4010,11 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
       const text = await file.text();
       const data = JSON.parse(text);
       const res = await scanApiCall('/api/scan/import', { currentUser, method:'POST', body:{ data } });
-      if (!res.ok) { setErr(res.error || 'Import failed'); return; }
+      if (!res.ok) {
+        toastApiFailure(res, 'Import failed');
+        setErr(res.error || 'Import failed');
+        return;
+      }
       showToast('Backup imported.');
       refreshStatus();
       runSearch();
@@ -4091,7 +4081,7 @@ function ScanDatabaseBeta({ currentUser, onAuthHashSaved }) {
             </select>
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-            <Btn className="btn-outline btn-sm" onClick={runSearch}>Search</Btn>
+            <Btn className="btn-outline btn-sm" onClick={()=>runSearch(false)}>Search</Btn>
             <select className="input" style={{maxWidth:160}} value={bulkType} onChange={e=>setBulkType(e.target.value)}>
               <option value="">Bulk Type</option>
               {SCAN_DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -4158,7 +4148,11 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
 
   async function loadMe() {
     const res = await attendanceApiCall('/api/attendance/me', { currentUser });
-    if (!res.ok) { setErr(res.error || 'Failed to load status'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Failed to load status');
+      setErr(res.error || 'Failed to load status');
+      return;
+    }
     setErr('');
     setMe(res.data);
   }
@@ -4182,7 +4176,11 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
   async function loadSummary() {
     if (!isAdmin) return;
     const res = await attendanceApiCall('/api/attendance/admin/summary', { currentUser, query: { weekStart } });
-    if (!res.ok) { setErr(res.error || 'Failed to load payroll summary'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Failed to load payroll summary');
+      setErr(res.error || 'Failed to load payroll summary');
+      return;
+    }
     setSummary(res.data);
   }
   useEffect(() => {
@@ -4201,7 +4199,11 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
       body: { action, token: attendanceToken || '', targetUser: overrideUser || undefined }
     });
     setBusy(false);
-    if (!res.ok) { setErr(res.error || 'Action failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Check in/out failed');
+      setErr(res.error || 'Action failed');
+      return;
+    }
     setErr('');
     showToast(`Checked ${res.data.status === 'in' ? 'in' : 'out'} successfully.`);
     loadMe();
@@ -4209,7 +4211,11 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
   }
   async function createQr() {
     const res = await attendanceApiCall('/api/attendance/qr/create', { currentUser, method:'POST' });
-    if (!res.ok) { setErr(res.error || 'Failed to generate QR'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Failed to generate QR');
+      setErr(res.error || 'Failed to generate QR');
+      return;
+    }
     setQr(res.data);
     setErr('');
   }
@@ -4220,13 +4226,21 @@ function CheckInOutPage({ currentUser, attendanceToken, onEnterKiosk, kioskLock,
       method: 'POST',
       body: { username, hourlyRate: Number(val || 0) }
     });
-    if (!res.ok) { setErr(res.error || 'Failed to save rate'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Failed to save rate');
+      setErr(res.error || 'Failed to save rate');
+      return;
+    }
     showToast(`Pay rate saved for ${username}.`);
     loadSummary();
   }
   async function forceOut(username) {
     const res = await attendanceApiCall('/api/attendance/admin/force-out', { currentUser, method:'POST', body:{ username } });
-    if (!res.ok) { setErr(res.error || 'Force out failed'); return; }
+    if (!res.ok) {
+      toastApiFailure(res, 'Force out failed');
+      setErr(res.error || 'Force out failed');
+      return;
+    }
     showToast(`${username} checked out by admin.`);
     loadSummary();
   }

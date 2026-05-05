@@ -118,13 +118,13 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 4 — CDN elimination for app shell (optional vendor pass)
 
-**Status:** Partially addressed — app shell has **no** CDN scripts in production build; Recharts/xlsx/jszip ship from bundled chunks (still large).
+**Status:** Partial — No CDN for runtime app shell. **Recharts** is lazy-loaded only when Daily Finance / Analytics / Price History charts render (`src/charts/*.jsx` dynamic imports → separate chunk ≈565KB loaded on demand, not on initial route).
 
 **Objective:** If any runtime libs remain external (charts, xlsx, jszip), vendor them into the bundle or self-host alongside GitHub Pages.
 
 **Scope**
 
-- Tree-shake or lazy-load Recharts only on analytics routes if bundle size demands.
+- Tree-shake or further split chart entry points if bundle size becomes an issue.
 - Document remaining external origins if any (should be none for core path).
 
 **Acceptance**
@@ -176,7 +176,6 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
 | **BL-07** | Split `App.jsx` into feature modules + shared hooks | Maintainability; required before large COGS work | After Slice 2 or with BL-01 |
 | **BL-08** | Per-key “repair or reset” for DMG-E012 (restore one key from export) | Safer than wipe-all | Post Slice 3 |
-| **BL-09** | Lazy-load Recharts (`import()` on Analytics only) | Shrink main chunk; Slice 4 follow-up | After Slice 5 |
 
 ---
 

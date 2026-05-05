@@ -14,6 +14,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
 | `src/storageHealth.js` | localStorage probe, quota estimate, corrupt key scan, save-failure notify |
+| `src/charts/` | Lazy `React.lazy` chart panels (Recharts only loads when chart UI mounts) |
 | `src/styles.css` | Global styles (extracted from legacy HTML) |
 | `public/` | Static copies served at site root (e.g. `auth-api-config.json`) |
 | `dist/` | **Production build output** (`npm run build`) — deploy **contents** to Pages |
@@ -56,6 +57,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 
 - **`src/errors.js`** — ring buffer, diagnostics JSON.
 - **`src/apiErrors.js`** — classify backend `fetch` / HTTP → DMG-E020–E031.
+- **`toastApiFailure`** in `App.jsx` — warning toast for failed scan/attendance APIs (includes DMG code when present).
 
 Boot-related:
 
@@ -71,5 +73,5 @@ Boot-related:
 
 ## Known technical debt
 
-- `src/App.jsx` is monolithic (~5k lines); splitting by tab/feature is backlog-worthy but avoid drive-by refactors unless slice-scoped.
-- Recharts chunk is large; lazy-loading analytics-only charts is a future optimization (`PRODUCT_BACKLOG` Slice 4).
+- `src/App.jsx` is monolithic (~5k lines); splitting by tab/feature is backlog-worthy (`BL-07`) but avoid drive-by refactors unless slice-scoped.
+- Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
