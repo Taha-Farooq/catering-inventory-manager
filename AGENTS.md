@@ -14,7 +14,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/browserCaps.js` | Boot checks for Web Crypto + `structuredClone` → DMG-E050/E051 (tests in `browserCaps.test.js`) |
 | `src/useOnlineStatus.js` | Hook: `navigator.onLine` + online/offline events for Slice 5 banner |
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |
-| `src/App.jsx` | Main React application (large; further splits = BL-07) |
+| `src/App.jsx` | Main React application (large; further splits = BL-07). Includes **`Confirm`** modal (replaces `window.confirm`; `z-index: 5000` above nested modals) |
 | `src/toastContext.jsx` | **`ToastProvider`** wraps `<App />` in `main.jsx`; **`showToast`** / **`toastApiFailure`** (global, works on login + modals) |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
@@ -67,6 +67,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`showToast`** / **`toastApiFailure`** — `src/toastContext.jsx` (mounted once in `main.jsx` via `ToastProvider`).
 - **`getBootCapabilityWarnings`** (`src/browserCaps.js`) — DMG-E050/E051 for missing Web Crypto; extra DMG-E050 when `structuredClone` is missing (export/import paths).
 - **`useOnlineStatus`** — offline banner when `navigator.onLine` is false (local app data still saves).
+- **`Confirm`** in `App.jsx` — in-app confirm for destructive flows (settings restore, staff delete, shopping clear, activity log, menu delete, logout, kiosk, corrupt keys). Backdrop click = cancel.
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
 - **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** / **`src/browserCaps.test.js`** — Vitest (run `npm test`).
 

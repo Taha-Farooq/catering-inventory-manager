@@ -729,15 +729,39 @@ function Toggle({ checked, onChange, label }) {
   );
 }
 
-function Confirm({ open, message, onConfirm, onCancel, confirmLabel='Delete', confirmClass='btn-danger' }) {
+function Confirm({
+  open,
+  message,
+  onConfirm,
+  onCancel,
+  confirmLabel = 'Delete',
+  confirmClass = 'btn-danger',
+  title,
+  detail,
+  dangerCode,
+  wide,
+}) {
   if (!open) return null;
   return (
-    <div className="modal-overlay no-print">
-      <div className="modal" style={{maxWidth:380}}>
-        <p style={{marginBottom:20,fontSize:15,color:'#333',lineHeight:1.5}}>{message}</p>
-        <div className="flex gap-2" style={{justifyContent:'flex-end'}}>
-          <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
-          <button className={`btn ${confirmClass}`} onClick={onConfirm}>{confirmLabel}</button>
+    <div
+      className="modal-overlay no-print"
+      style={{ zIndex: 5000 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="modal" style={{ maxWidth: wide ? 520 : 400 }} onClick={(e) => e.stopPropagation()}>
+        {title && (
+          <h3 style={{ margin: '0 0 12px', fontSize: 17, fontWeight: 700, color: 'var(--brown)' }}>{title}</h3>
+        )}
+        <p style={{ marginBottom: detail ? 10 : 18, fontSize: 15, color: '#333', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{message}</p>
+        {detail && (
+          <p style={{ marginBottom: 18, fontSize: 13, color: '#666', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{detail}</p>
+        )}
+        {dangerCode && (
+          <p style={{ marginBottom: 16, fontSize: 12, color: '#92400e', fontFamily: 'monospace' }}>{dangerCode}</p>
+        )}
+        <div className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-outline" onClick={onCancel}>Cancel</button>
+          <button type="button" className={`btn ${confirmClass}`} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -1279,6 +1303,8 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   const [resetCodeMsg, setResetCodeMsg] = useState('');
   const [resetApiInput, setResetApiInput] = useState(() => loadAdminResetApiBase());
   const [resetApiState, setResetApiState] = useState({ kind:'idle', msg:'' });
+  const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
+  const [pendingBackupFile, setPendingBackupFile] = useState(null);
 
   useEffect(() => {
     if (open) {
@@ -1352,7 +1378,11 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   }
 
   function deleteUser(uname) {
-    if (!window.confirm('Delete user "' + uname + '"? This cannot be undone.')) return;
+    setPendingDeleteUser(uname);
+  }
+  function confirmDeleteUser() {
+    const uname = pendingDeleteUser;
+    if (!uname) return;
     const creds = load('credentials', {});
     delete creds[uname];
     save('credentials', creds);
@@ -1360,6 +1390,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     setStaff(s => s.filter(x => x.username !== uname));
     showToast('User removed.');
     logActivity('delete_user', 'Deleted staff user: ' + uname);
+    setPendingDeleteUser(null);
   }
 
   async function saveUserPwd(uname) {
@@ -1470,7 +1501,12 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
 
   function doImport(file) {
     if (!file) return;
-    if (!window.confirm('⚠️ WARNING: This will REPLACE ALL current data with the backup file.\n\nAre you absolutely sure? This cannot be undone.')) return;
+    setPendingBackupFile(file);
+  }
+  function runBackupImport() {
+    const file = pendingBackupFile;
+    if (!file) return;
+    setPendingBackupFile(null);
     JSZip.loadAsync(file).then(zip => {
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices','customers','priceHistory','settings'];
       return Promise.all(keys.map(async k => {
@@ -1503,6 +1539,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   const unpaidBal = cateringInv.reduce((s,i)=>s+(i.balanceDue||0),0);
 
   return (
+    <>
     <Modal open={open} onClose={onClose} title="⚙️ Settings & Backup" wide maxW={680}>
       {/* Data Summary */}
       <div style={{background:'var(--cream)',padding:14,borderRadius:8,marginBottom:20}}>
@@ -1744,6 +1781,30 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
         <Btn className="btn-outline" onClick={onClose}>Close</Btn>
       </div>
     </Modal>
+    <Confirm
+      open={!!pendingDeleteUser}
+      title="Remove staff user"
+      message={`Remove "${pendingDeleteUser}" from this device? Their login will stop working here.`}
+      detail="This cannot be undone on this device. Central sync will update other devices when the network is available."
+      dangerCode="DMG-E012 (destructive local change)"
+      confirmLabel="Remove user"
+      confirmClass="btn-danger"
+      onConfirm={confirmDeleteUser}
+      onCancel={() => setPendingDeleteUser(null)}
+    />
+    <Confirm
+      open={!!pendingBackupFile}
+      title="Replace all data from backup?"
+      message="This will overwrite items, shopping list, invoices, customers, and price history on this device with the contents of the ZIP file."
+      detail={`File: ${pendingBackupFile?.name || 'backup.zip'}\n\nExport a fresh backup first if you are unsure. This cannot be undone.`}
+      dangerCode="DMG-E040 / DMG-E012 — full local restore"
+      confirmLabel="Replace all data"
+      confirmClass="btn-danger"
+      wide
+      onConfirm={runBackupImport}
+      onCancel={() => setPendingBackupFile(null)}
+    />
+    </>
   );
 }
 
@@ -1932,6 +1993,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
   const [showDrop, setShowDrop] = useState(false);
   const [dragFromIdx, setDragFromIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [showClearListConfirm, setShowClearListConfirm] = useState(false);
 
   function reorderRows(from, to) {
     if (from === to) return;
@@ -1985,7 +2047,10 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
   function removeItem(id) { const u=shoppingList.filter(s=>s.id!==id); setShoppingList(u); save('shoppingList',u); }
 
   function clearAll() {
-    if (!window.confirm('Clear the entire shopping list?')) return;
+    setShowClearListConfirm(true);
+  }
+  function confirmClearAll() {
+    setShowClearListConfirm(false);
     setShoppingList([]); save('shoppingList',[]);
   }
 
@@ -2158,6 +2223,17 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
           </>
         )
       }
+      <Confirm
+        open={showClearListConfirm}
+        title="Clear shopping list?"
+        message="Remove every line from the shopping list on this device."
+        detail="You can rebuild the list from the Item Database. This only affects the shopping list, not invoices or inventory."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Clear list"
+        confirmClass="btn-danger"
+        onConfirm={confirmClearAll}
+        onCancel={() => setShowClearListConfirm(false)}
+      />
     </div>
   );
 }
@@ -3714,10 +3790,14 @@ function ActivityLog() {
   const [userF, setUserF] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [showClearLogConfirm, setShowClearLogConfirm] = useState(false);
 
   function refresh() { setLog(load('_activityLog',[])); showToast('Log refreshed'); }
   function clearLog() {
-    if (!window.confirm('Clear all activity logs? This cannot be undone.')) return;
+    setShowClearLogConfirm(true);
+  }
+  function confirmClearLog() {
+    setShowClearLogConfirm(false);
     save('_activityLog',[]); setLog([]);
     showToast('Activity log cleared');
   }
@@ -3787,6 +3867,17 @@ function ActivityLog() {
           </div>
         </div>
       )}
+      <Confirm
+        open={showClearLogConfirm}
+        title="Clear activity log?"
+        message="Remove all recorded actions from this device’s activity log."
+        detail="This cannot be undone. Invoices and other business data are not deleted — only the audit trail here."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Clear log"
+        confirmClass="btn-danger"
+        onConfirm={confirmClearLog}
+        onCancel={() => setShowClearLogConfirm(false)}
+      />
     </div>
   );
 }
@@ -4464,6 +4555,7 @@ function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
   const [showMenuForm, setShowMenuForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [expandedId, setExpandedId] = useState('');
+  const [pendingDeleteMenuId, setPendingDeleteMenuId] = useState(null);
   const [menuForm, setMenuForm] = useState(() => ({
     name:'',
     menuType:'regular',
@@ -4601,7 +4693,12 @@ function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
     resetMenuForm();
   }
   function deleteMenuItem(menuId) {
-    if (!window.confirm('Delete this menu item and all recipe versions?')) return;
+    setPendingDeleteMenuId(menuId);
+  }
+  function confirmDeleteMenuItem() {
+    const menuId = pendingDeleteMenuId;
+    if (!menuId) return;
+    setPendingDeleteMenuId(null);
     setMenuItems(prev => prev.filter(x => x.id !== menuId));
     setRecipes(prev => prev.filter(x => x.menuItemId !== menuId));
     showToast('Menu item deleted.');
@@ -4819,12 +4916,20 @@ function MenuMarginsLab({ items, priceHistory, selectedBusiness }) {
           <Btn className="btn-primary" onClick={saveMenuItem}>{editingId?'Save Changes':'Add Item'}</Btn>
         </div>
       </Modal>
+      <Confirm
+        open={!!pendingDeleteMenuId}
+        title="Delete menu item?"
+        message="This removes the menu item and every saved recipe version for it on this device."
+        detail="Export a backup from Settings first if you might need to recover this data."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete menu item"
+        confirmClass="btn-danger"
+        onConfirm={confirmDeleteMenuItem}
+        onCancel={() => setPendingDeleteMenuId(null)}
+      />
     </div>
   );
 }
-
-// ═══════════════════════════════════════════════════════════
-// ROOT APP
 // ═══════════════════════════════════════════════════════════
 function App() {
   useEffect(() => { initGlobalFailureCapture(); }, []);
@@ -4859,6 +4964,9 @@ function App() {
   const [storageQuotaWarn, setStorageQuotaWarn] = useState(null);
   const [storageCorruptKeys, setStorageCorruptKeys] = useState([]);
   const storageWarnRef = useRef({ quota: false });
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmKiosk, setConfirmKiosk] = useState(false);
+  const [confirmClearCorrupt, setConfirmClearCorrupt] = useState(false);
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
     return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
@@ -4982,7 +5090,10 @@ function App() {
   }
 
   function handleLogout() {
-    if (!window.confirm('Sign out?')) return;
+    setConfirmLogout(true);
+  }
+  function confirmDoLogout() {
+    setConfirmLogout(false);
     logActivity('logout', 'Signed out');
     setCurrentUser(null);
     save('_session', null);
@@ -5015,7 +5126,10 @@ function App() {
   }
   function enterKioskMode() {
     if (currentUser?.role !== 'admin') return;
-    if (!window.confirm('Enter Check-In Kiosk mode? You must logout/login to return to admin tools.')) return;
+    setConfirmKiosk(true);
+  }
+  function confirmDoKiosk() {
+    setConfirmKiosk(false);
     setKioskLock(true);
     save('_kioskLock', true);
     setTab('checkio');
@@ -5057,9 +5171,12 @@ function App() {
   function handleClearCorruptKeys() {
     const keys = [...storageCorruptKeys];
     if (!keys.length) return;
-    if (!window.confirm(
-      `Remove ${keys.length} unreadable storage key(s)? Export a backup from Settings first if unsure.\n\nKeys: ${keys.join(', ')}`
-    )) return;
+    setConfirmClearCorrupt(true);
+  }
+  function confirmDoClearCorruptKeys() {
+    const keys = [...storageCorruptKeys];
+    if (!keys.length) { setConfirmClearCorrupt(false); return; }
+    setConfirmClearCorrupt(false);
     removeStorageKeys(keys);
     reportError('DMG-E012', { phase: 'cleared_keys', cleared: keys });
     setStorageCorruptKeys([]);
@@ -5214,6 +5331,39 @@ function App() {
       {/* ── Modals ── */}
       <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
+
+      <Confirm
+        open={confirmLogout}
+        title="Sign out?"
+        message="You will need to sign in again to use the app on this device."
+        confirmLabel="Sign out"
+        confirmClass="btn-danger"
+        onConfirm={confirmDoLogout}
+        onCancel={() => setConfirmLogout(false)}
+      />
+      <Confirm
+        open={confirmKiosk}
+        title="Enter Check-In Kiosk mode?"
+        message="The screen will lock to Check In/Out only until you sign out and sign back in as admin."
+        detail="Use this on a shared device at the counter. Keep the admin password private."
+        dangerCode="DMG-E022 (session scope change)"
+        confirmLabel="Enter kiosk mode"
+        confirmClass="btn-danger"
+        onConfirm={confirmDoKiosk}
+        onCancel={() => setConfirmKiosk(false)}
+      />
+      <Confirm
+        open={confirmClearCorrupt}
+        title="Remove unreadable storage keys?"
+        message={`Remove ${storageCorruptKeys.length} key(s) that could not be read as JSON?`}
+        detail={`Keys: ${storageCorruptKeys.join(', ')}\n\nExport a backup from Settings first if unsure. The page will reload after removal.`}
+        dangerCode="DMG-E012"
+        confirmLabel="Remove keys"
+        confirmClass="btn-danger"
+        wide
+        onConfirm={confirmDoClearCorruptKeys}
+        onCancel={() => setConfirmClearCorrupt(false)}
+      />
     </div>
   );
 }

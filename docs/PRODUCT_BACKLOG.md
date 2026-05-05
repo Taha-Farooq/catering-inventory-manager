@@ -71,14 +71,14 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 2 — Error surface and diagnostics package
 
-**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** for user messages (including **`save()`** failures DMG-E010/E011 — no `alert`). Form validation and API toasts use the same stack. **Remaining:** `window.confirm` for destructive actions; optional DMG codes on every validation string.
+**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`Confirm`** modal for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal. Optional: DMG codes on every validation toast.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
 **Scope**
 
 - Small `reportError(code, context)` helper; optional ring buffer in sessionStorage for last N errors (privacy: no passwords).
-- Replace scattered `alert()` on critical paths with modal/banner + code (keep `alert` only where unavoidable).
+- Replace scattered `alert()` / native confirms on critical paths with modal/banner + code where practical.
 - “Copy diagnostics” includes: codes, app version/build hash, browser, storage available flag.
 
 **Acceptance**
@@ -169,7 +169,7 @@ Rough **surface area / coupling** only:
 
 | Area | What’s left | Scope |
 |------|-------------|--------|
-| **Slice 2** | Replace `window.confirm` with coded confirm modal; optional DMG on validation toasts | Medium |
+| **Slice 2** | Typed confirm for tab-level deletes (reuse `Confirm`); DMG on validation toasts | Small–medium |
 | **Slice 3 defer** | IndexedDB migration | Large |
 | **Slice 5** | Richer API response bodies; remaining alerts → toast | Medium–small |
 | **Slice 6** | Optional extra probes (e.g. StorageManager) | Small |
