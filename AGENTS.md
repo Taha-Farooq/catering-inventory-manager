@@ -15,6 +15,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/useOnlineStatus.js` | Hook: `navigator.onLine` + online/offline events for Slice 5 banner |
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |
 | `src/ui/Confirm.jsx` | Reusable destructive-confirm modal (used from `App.jsx`; z-index above nested modals) |
+| `src/ui/Modal.jsx` | Reusable dialog shell (used from `App.jsx` for settings, invoice forms, profile) |
 | `src/App.jsx` | Main React shell + tab implementations (large; BL-07 — extract more from here over time) |
 | `src/toastContext.jsx` | **`ToastProvider`** wraps `<App />` in `main.jsx`; **`showToast`** / **`toastApiFailure`** (global, works on login + modals) |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
@@ -83,9 +84,10 @@ Boot-related:
 - Prefer **small, focused PRs** matching backlog slices.
 - Do not revert **additive** `localStorage` keys without migration notes (see comments in `App.jsx` about compatibility).
 - After editing `src/App.jsx`, `src/ui/*`, or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
+- **Invoice logos:** default files in **`public/assets/logos/*.jpg`**. Optional per-business **HTTPS** overrides in **Settings** → stored in localStorage key **`_logoOverrides`** (`LOGO_OVERRIDES_KEY` in `constants.js`); also embedded in backup ZIP `settings.json` as `logoOverrides` for round-trip.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 
 ## Known technical debt
 
-- `src/App.jsx` is monolithic (~5k lines); **`src/ui/Confirm.jsx`** is the first shared UI extract — continue with `Modal` / `FI` / tab pages (`BL-07`).
+- `src/App.jsx` is monolithic (~5k lines); **`src/ui/Confirm.jsx`** and **`src/ui/Modal.jsx`** are shared UI extracts — continue with `FI` / `Btn` / tab pages (`BL-07`).
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.

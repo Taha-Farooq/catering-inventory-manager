@@ -13,6 +13,7 @@ import {
   uniqSuggestions,
   safePrice,
   resolveAssetUrl,
+  normalizeLogoOverrides,
 } from './formatters.js';
 
 describe('formatters', () => {
@@ -133,6 +134,18 @@ describe('formatters', () => {
       expect(safePrice('')).toBeNull();
       expect(safePrice(null)).toBeNull();
       expect(safePrice(-1)).toBeNull();
+    });
+  });
+
+  describe('normalizeLogoOverrides', () => {
+    it('keeps only non-empty string values for known keys', () => {
+      expect(
+        normalizeLogoOverrides({ degrill: '  https://x/a.png  ', parathas: '', dera: null, other: 'x' })
+      ).toEqual({ degrill: 'https://x/a.png' });
+    });
+    it('maps transfer from transfer or pp_transfer', () => {
+      expect(normalizeLogoOverrides({ transfer: ' https://t/1 ' })).toEqual({ transfer: 'https://t/1' });
+      expect(normalizeLogoOverrides({ pp_transfer: 'https://t/2' })).toEqual({ transfer: 'https://t/2' });
     });
   });
 

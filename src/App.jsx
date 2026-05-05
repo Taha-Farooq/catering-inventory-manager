@@ -20,6 +20,7 @@ import {
 } from './storageHealth.js';
 import HelpCenter from './HelpCenter.jsx';
 import Confirm from './ui/Confirm.jsx';
+import Modal from './ui/Modal.jsx';
 import {
   BUSINESSES,
   TABS_ADMIN,
@@ -42,6 +43,7 @@ import {
   CENTRAL_AUTH_CONFIG_PATH,
   ADMIN_RESET_CODE_KEY,
   FAILURE_LOG_KEY,
+  LOGO_OVERRIDES_KEY,
   SCAN_DOC_TYPES,
   ATT_QR_QUERY_KEY,
 } from './constants.js';
@@ -59,6 +61,7 @@ import {
   uniqSuggestions,
   safePrice,
   resolveAssetUrl,
+  normalizeLogoOverrides,
 } from './formatters.js';
 import * as XLSX from 'xlsx';
 
@@ -588,9 +591,19 @@ const BRANDING = {
   dera:     { mark:'DMG', name:'Dera Masala Grill Inc', location:'Clifton, NJ', logo:'assets/logos/dera.jpg' },
   transfer: { mark:'PP', name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood', logo:'assets/logos/parathas.jpg' }
 };
-function getInvoiceBranding(inv) {
-  if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return BRANDING.transfer;
-  return BRANDING[inv?.business] || { mark:'INV', name:'Invoice', location:'' };
+function mergeBrandingWithOverrides(overrides) {
+  const o = normalizeLogoOverrides(overrides);
+  return {
+    degrill: { ...BRANDING.degrill, logo: o.degrill || BRANDING.degrill.logo },
+    parathas: { ...BRANDING.parathas, logo: o.parathas || BRANDING.parathas.logo },
+    dera: { ...BRANDING.dera, logo: o.dera || BRANDING.dera.logo },
+    transfer: { ...BRANDING.transfer, logo: o.transfer || BRANDING.transfer.logo },
+  };
+}
+function getInvoiceBranding(inv, brandingMap) {
+  const b = brandingMap || mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}));
+  if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return b.transfer;
+  return b[inv?.business] || { mark:'INV', name:'Invoice', location:'' };
 }
 function printHtmlDocument(html, title='Invoice') {
   const w = window.open('', '_blank', 'width=1024,height=768');
@@ -738,24 +751,6 @@ function normalizeTransferInvoice(inv) {
   };
 }
 
-// ═══════════════════════════════════════════════════════════
-// UI PRIMITIVES
-// ═══════════════════════════════════════════════════════════
-function Modal({ open, onClose, title, children, wide, maxW, closeOnBackdrop = false }) {
-  if (!open) return null;
-  return (
-    <div className="modal-overlay no-print" onClick={closeOnBackdrop ? (e=>{ if (e.target===e.currentTarget) onClose(); }) : undefined}>
-      <div className="modal" style={{maxWidth:maxW||(wide?840:560)}} onClick={e=>e.stopPropagation()}>
-        <div className="flex-between mb-4">
-          <h2 style={{color:'var(--brown)',fontSize:'clamp(15px,2vw,18px)',fontWeight:700}}>{title}</h2>
-          <button onClick={onClose} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb',lineHeight:1}}>✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function Toggle({ checked, onChange, label }) {
   return (
     <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',userSelect:'none',margin:0}}>
@@ -874,6 +869,7 @@ function LoginScreen({ onLogin, bootWarnings, online }) {
   const [resetErr, setResetErr] = useState('');
   const [rememberDevice, setRememberDevice] = useState(() => !!parseAttendanceParams());
   const attParams = useMemo(() => parseAttendanceParams(), []);
+  const loginBranding = useMemo(() => mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {})), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1017,9 +1013,9 @@ function LoginScreen({ onLogin, bootWarnings, online }) {
         <BrowserCapsBanner warnings={bootWarnings} />
         <div className="login-logo">
           <div className="login-brand-row">
-            <img className="login-brand-logo" src={resolveAssetUrl(BRANDING.degrill.logo, documentBaseHref())} alt="DeGrill logo" />
-            <img className="login-brand-logo" src={resolveAssetUrl(BRANDING.parathas.logo, documentBaseHref())} alt="Parathas and Platters logo" />
-            <img className="login-brand-logo" src={resolveAssetUrl(BRANDING.dera.logo, documentBaseHref())} alt="Dera Masala Grill logo" />
+            <img className="login-brand-logo" src={resolveAssetUrl(loginBranding.degrill.logo, documentBaseHref())} alt="DeGrill logo" />
+            <img className="login-brand-logo" src={resolveAssetUrl(loginBranding.parathas.logo, documentBaseHref())} alt="Parathas and Platters logo" />
+            <img className="login-brand-logo" src={resolveAssetUrl(loginBranding.dera.logo, documentBaseHref())} alt="Dera Masala Grill logo" />
           </div>
           <h1>DMG Software Suite</h1>
           <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
@@ -1271,9 +1267,10 @@ function ProfileModal({ open, onClose, username, profile, onSave }) {
 // ═══════════════════════════════════════════════════════════
 // SETTINGS MODAL (admin only)
 // ═══════════════════════════════════════════════════════════
-function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning }) {
+function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap }) {
   const { items, shopping, purchaseInv, cateringInv, customers, priceHist,
-          setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz } = appState;
+          setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz,
+          logoOverrides, setLogoOverrides } = appState;
   const importRef = useRef();
   const [diagPayload, setDiagPayload] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
@@ -1305,14 +1302,44 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   const [resetApiState, setResetApiState] = useState({ kind:'idle', msg:'' });
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
   const [pendingBackupFile, setPendingBackupFile] = useState(null);
+  const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
 
   useEffect(() => {
-    if (open) {
-      setStaff(loadStaff());
-      setResetApiInput(loadAdminResetApiBase());
-      setResetApiState({ kind:'idle', msg:'' });
-    }
+    if (!open) return;
+    setStaff(loadStaff());
+    setResetApiInput(loadAdminResetApiBase());
+    setResetApiState({ kind:'idle', msg:'' });
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLogoFields({
+      degrill: logoOverrides.degrill || '',
+      parathas: logoOverrides.parathas || '',
+      dera: logoOverrides.dera || '',
+      transfer: logoOverrides.transfer || '',
+    });
+  }, [open, logoOverrides]);
+
+  function commitLogoOverrides() {
+    const next = normalizeLogoOverrides({
+      degrill: logoFields.degrill,
+      parathas: logoFields.parathas,
+      dera: logoFields.dera,
+      transfer: logoFields.transfer,
+    });
+    setLogoOverrides(next);
+    save(LOGO_OVERRIDES_KEY, next);
+    showToast('Logo URLs saved. Invoices and the header use them immediately.');
+    logActivity('profile_update', 'Saved invoice logo URL overrides');
+  }
+  function clearLogoOverrides() {
+    setLogoFields({ degrill:'', parathas:'', dera:'', transfer:'' });
+    setLogoOverrides({});
+    save(LOGO_OVERRIDES_KEY, {});
+    showToast('Logo overrides cleared — default images from the site are used.');
+    logActivity('profile_update', 'Cleared invoice logo URL overrides');
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -1476,7 +1503,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
       const payload = {
         items, shoppingList:shopping, purchaseInvoices:purchaseInv,
         cateringInvoices:cateringInv, customers, priceHistory:priceHist,
-        settings:{ selectedBusiness: load('_lastBiz','degrill') },
+        settings:{ selectedBusiness: load('_lastBiz','degrill'), logoOverrides },
         exportDate: new Date().toISOString(), version:'2.0'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
@@ -1524,6 +1551,11 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
         if (k==='customers')        { setCustomers(v);   save('customers',v); }
         if (k==='priceHistory')     { setPriceHist(v);   save('priceHistory',v); }
         if (k==='settings'&&v.selectedBusiness) { setBiz(v.selectedBusiness); save('_lastBiz',v.selectedBusiness); }
+        if (k==='settings'&&v.logoOverrides!=null) {
+          const next = normalizeLogoOverrides(v.logoOverrides);
+          setLogoOverrides(next);
+          save(LOGO_OVERRIDES_KEY, next);
+        }
       });
       logActivity('restore_backup', 'Restored data from backup');
       showToast('Backup restored! All data has been loaded.');
@@ -1550,6 +1582,33 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
               <div style={{fontWeight:700,color:'var(--brown)',fontSize:18}}>{v}</div>
               <div style={{fontSize:11,color:'#999',marginTop:3}}>{l}</div>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Invoice logos — optional HTTPS URLs override bundled JPGs */}
+      <div style={{border:'1px solid #EED9B0',borderRadius:8,padding:14,marginBottom:20,background:'#fffdf8'}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:14}}>🖼 Invoice logos (optional)</div>
+        <p style={{fontSize:12,color:'#6b4b20',marginBottom:12,lineHeight:1.55}}>
+          Leave blank to use the images shipped with the app (<code style={{fontSize:11}}>public/assets/logos/</code>).
+          Paste a full <strong>https://…</strong> URL to use your own hosted logo for that business (transfers use “P&amp;P transfer” row).
+          Saved on this device and included in backup ZIP <code>settings.json</code>.
+        </p>
+        <div className="grid-2" style={{gap:10}}>
+          <FI label="DeGrill logo URL" value={logoFields.degrill} onChange={e=>setLogoFields(f=>({...f,degrill:e.target.value}))} placeholder="https://…" />
+          <FI label="Parathas & Platters logo URL" value={logoFields.parathas} onChange={e=>setLogoFields(f=>({...f,parathas:e.target.value}))} placeholder="https://…" />
+          <FI label="Dera Masala Grill logo URL" value={logoFields.dera} onChange={e=>setLogoFields(f=>({...f,dera:e.target.value}))} placeholder="https://…" />
+          <FI label="Internal transfer logo URL" value={logoFields.transfer} onChange={e=>setLogoFields(f=>({...f,transfer:e.target.value}))} placeholder="https://…" />
+        </div>
+        <div className="flex gap-2 flex-wrap" style={{marginTop:12,alignItems:'center'}}>
+          <Btn className="btn-primary btn-sm" onClick={commitLogoOverrides}>Save logo URLs</Btn>
+          <Btn className="btn-outline btn-sm" onClick={clearLogoOverrides}>Clear overrides</Btn>
+        </div>
+        <div style={{display:'flex',gap:12,marginTop:14,flexWrap:'wrap',alignItems:'center'}}>
+          <span style={{fontSize:12,color:'#888'}}>Preview:</span>
+          {(['degrill','parathas','dera','transfer']).map((key)=>(
+            <img key={key} alt={`${key} logo preview`} src={resolveAssetUrl(brandingMap[key]?.logo || '', documentBaseHref())}
+              style={{width:40,height:40,objectFit:'cover',borderRadius:'50%',border:'1px solid #EED9B0',background:'#fff'}} />
           ))}
         </div>
       </div>
@@ -2267,7 +2326,7 @@ function ShoppingList({ items, shoppingList, setShoppingList }) {
 // ═══════════════════════════════════════════════════════════
 // TAB 3 — PURCHASE INVOICES
 // ═══════════════════════════════════════════════════════════
-function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [] }) {
+function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], brandingMap }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
@@ -2469,8 +2528,8 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
           <div id={`purchase-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv)} />
-                <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv).location}</div></div>
+                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).location}</div></div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}><div><strong>Invoice #:</strong> {viewInv.id}</div><div><strong>Date:</strong> {fmtDate(viewInv.date)}</div><div><strong>Supplier:</strong> {viewInv.supplier}</div></div>
             </div>
@@ -2516,7 +2575,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
   );
 }
 // ═══════════════════════════════════════════════════════════
-function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [] }) {
+function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [], brandingMap }) {
   const isAdmin = userRole==='admin';
   const blankF = () => ({
     customerId:'',customerName:'',customerPhone:'',customerEmail:'',
@@ -2760,8 +2819,8 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
           <div id={`catering-view-${viewInv.id}`} style={{fontFamily:'Georgia,serif'}}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv)} />
-                <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv).location}</div></div>
+                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).location}</div></div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div><div><strong>Event:</strong> {viewInv.eventType}</div></div>
             </div>
@@ -3296,7 +3355,7 @@ function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) 
 // ═══════════════════════════════════════════════════════════
 // TAB 7 — INVOICE ARCHIVE
 // ═══════════════════════════════════════════════════════════
-function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, payrollInvoices, setPayrollInvoices, userRole }) {
+function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, payrollInvoices, setPayrollInvoices, userRole, brandingMap }) {
   const isAdmin=userRole==='admin';
   const [typeF,setTypeF]=useState('all');
   const [statusF,setStatusF]=useState('all');
@@ -3461,8 +3520,8 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
           <div id={`archive-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv)} />
-                <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):getInvoiceBranding(viewInv).location}</div></div>
+                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):getInvoiceBranding(viewInv, brandingMap).location}</div></div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}><div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.customerName||viewInv.supplier}</div><span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span></div>
             </div>
@@ -3519,7 +3578,7 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
 // ═══════════════════════════════════════════════════════════
 // INTERNAL TRANSFER INVOICES (P&P Hackensack -> Englewood)
 // ═══════════════════════════════════════════════════════════
-function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] }) {
+function TransferInvoices({ transferInvoices, setTransferInvoices, items = [], brandingMap }) {
   const COMMISSION_RATE = 0.15;
   const transferItemListId = useId();
   const itemSuggestions = useMemo(()=>{
@@ -3807,10 +3866,10 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [] })
           <div id={`transfer-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv)} />
+                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
                 <div>
-                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv).name}</div>
-                  <div style={{fontSize:13,color:'#666'}}>{getInvoiceBranding(viewInv).location}</div>
+                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
+                  <div style={{fontSize:13,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).location}</div>
                 </div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}>
@@ -5243,6 +5302,8 @@ function App() {
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
+  const [logoOverrides, setLogoOverrides] = useState(() => normalizeLogoOverrides(load(LOGO_OVERRIDES_KEY, {})));
+  const brandingMap = useMemo(() => mergeBrandingWithOverrides(logoOverrides), [logoOverrides]);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [navGroup, setNavGroup] = useState('ops');
@@ -5464,7 +5525,8 @@ function App() {
   const bizInfo = BUSINESSES[biz];
 
   const appState = { items, shopping, purchaseInv, cateringInv, customers, priceHist,
-    setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz };
+    setItems, setShopping, setPurchaseInv, setCateringInv, setCustomers, setPriceHist, setBiz,
+    logoOverrides, setLogoOverrides };
 
   function handleClearCorruptKeys() {
     const keys = [...storageCorruptKeys];
@@ -5511,7 +5573,7 @@ function App() {
         <div className="header-row">
           <div>
             <div className="header-title">
-              <img className="header-title-logo" src={resolveAssetUrl(BRANDING[biz]?.logo || BRANDING.degrill.logo, documentBaseHref())} alt={`${bizInfo.name} logo`} />
+              <img className="header-title-logo" src={resolveAssetUrl(brandingMap[biz]?.logo || brandingMap.degrill.logo, documentBaseHref())} alt={`${bizInfo.name} logo`} />
               <h1 style={{margin:0}}>DMG Software Suite</h1>
             </div>
             <div className="sub">{bizInfo.name} · {bizInfo.location} · Tax: {(bizInfo.taxRate*100).toFixed(3)}%</div>
@@ -5612,13 +5674,13 @@ function App() {
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
-        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} />}
-        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} />}
-        {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} brandingMap={brandingMap} />}
+        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} />}
+        {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
         {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} />}
-        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} />}
+        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} brandingMap={brandingMap} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}
@@ -5627,7 +5689,7 @@ function App() {
       </div>
 
       {/* ── Modals ── */}
-      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
+      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} brandingMap={brandingMap} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
 
       <Confirm

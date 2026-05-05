@@ -99,6 +99,19 @@ export function safePrice(v) {
   return !isNaN(n) && n >= 0 ? n : null;
 }
 
+/** Keep only non-empty string URLs for known keys (+ transfer). */
+export function normalizeLogoOverrides(raw, businessKeys = ['degrill', 'parathas', 'dera']) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const k of businessKeys) {
+    const v = raw[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+  }
+  const t = raw.transfer ?? raw.pp_transfer;
+  if (typeof t === 'string' && t.trim()) out.transfer = t.trim();
+  return out;
+}
+
 /**
  * Resolve relative asset URLs for `<img src>` (print windows, GitHub Pages subpaths).
  * `baseHref` should be the directory URL of the current HTML document (see `documentBaseHref` in App).
