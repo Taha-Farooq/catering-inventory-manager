@@ -12,12 +12,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>DMG Software Suite</title>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <script>
+    window.__dmgBoot = { start: Date.now(), rendered: false };
+    window.addEventListener('error', function (ev) {
+      if (!window.__dmgBoot) return;
+      window.__dmgBoot.scriptError = ev && ev.message ? ev.message : 'Script error';
+    }, true);
+    window.addEventListener('unhandledrejection', function (ev) {
+      if (!window.__dmgBoot) return;
+      window.__dmgBoot.scriptError = String(ev.reason || ev);
+    });
+  </script>
+  <!-- Production UMD bundles (smaller/faster than dev); jsDelivr is widely reachable -->
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.0/babel.min.js"></script>
   <style>
     :root {
       --brown:      #8B4513;
@@ -138,6 +152,27 @@
     .divider { border:none; border-top:1px solid #EED9B0; margin:10px 0; }
     .empty-state { padding:48px 24px; text-align:center; color:#bbb; font-size:15px; line-height:1.6; }
 
+    /* Boot / fatal load UI (shown until React mounts or if scripts fail) */
+    .boot-shell { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px; }
+    .boot-card {
+      background:white; border:1px solid #EED9B0; border-radius:12px; padding:clamp(20px,4vw,36px);
+      max-width:420px; width:100%; text-align:center; box-shadow:0 4px 24px rgba(139,69,19,.12);
+    }
+    .boot-title { font-size:clamp(18px,4vw,22px); font-weight:700; color:var(--brown); margin-bottom:12px; }
+    .boot-msg { font-size:15px; color:var(--text); margin-bottom:8px; }
+    .boot-sub { font-size:12.5px; color:#888; line-height:1.5; }
+    .boot-dots::after { content:''; animation:boot-dots 1.2s steps(4,end) infinite; }
+    @keyframes boot-dots { 0%,100%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} }
+    .boot-fatal {
+      display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px;
+    }
+    .boot-fatal .boot-card { max-width:480px; text-align:left; }
+    .boot-fatal h1 { font-size:18px; color:var(--danger); margin-bottom:10px; }
+    .boot-fatal pre {
+      font-size:12px; background:#faf5ef; border:1px solid #EED9B0; border-radius:6px; padding:10px;
+      overflow:auto; margin:10px 0; white-space:pre-wrap; word-break:break-word;
+    }
+
     /* Shopping list row reorder */
     .shopping-drag-handle {
       cursor: grab; user-select: none; -webkit-user-select: none; color: #a0522d;
@@ -201,7 +236,15 @@
   </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root">
+  <div id="boot-loading" class="boot-shell" role="status" aria-live="polite">
+    <div class="boot-card">
+      <div class="boot-title">DMG Software Suite</div>
+      <p class="boot-msg">Loading application<span class="boot-dots"></span></p>
+      <p class="boot-sub">First load may take a moment while scripts download. If this screen stays more than a minute, refresh the page or try another network.</p>
+    </div>
+  </div>
+</div>
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef, useCallback, useId } = React;
 const RC = window.Recharts || {};
@@ -5330,7 +5373,84 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+(function mountApp() {
+  try {
+    var el = document.getElementById('root');
+    if (!el) throw new Error('Missing #root container.');
+    if (typeof React === 'undefined' || typeof ReactDOM === 'undefined')
+      throw new Error('React failed to load. Check your network or whether scripts are blocked.');
+    var root = ReactDOM.createRoot(el);
+    root.render(<App />);
+    window.__dmgBoot = window.__dmgBoot || {};
+    window.__dmgBoot.rendered = true;
+  } catch (err) {
+    window.__dmgBoot = window.__dmgBoot || {};
+    window.__dmgBoot.rendered = false;
+    window.__dmgBoot.bootError = err && err.message ? err.message : String(err);
+    var rootEl = document.getElementById('root');
+    var detail = window.__dmgBoot.bootError;
+    if (rootEl) {
+      window.__dmgBoot.fatalUi = true;
+      rootEl.innerHTML =
+        '<div class="boot-fatal" role="alert"><div class="boot-card">' +
+        '<h1>Could not start the application</h1>' +
+        '<p>Something went wrong while starting the app. Try refreshing the page.</p>' +
+        '<pre>' + String(detail).replace(/</g,'&lt;') + '</pre>' +
+        '<p class="boot-sub">If this keeps happening, your network or security software may be blocking script downloads from the CDN.</p>' +
+        '</div></div>';
+    }
+  }
+})();
+</script>
+<script>
+(function () {
+  function showFatal(title, bodyHtml) {
+    if (window.__dmgBoot && window.__dmgBoot.rendered) return;
+    if (window.__dmgBoot && window.__dmgBoot.fatalUi) return;
+    var root = document.getElementById('root');
+    if (!root) return;
+    if (window.__dmgBoot) window.__dmgBoot.fatalUi = true;
+    root.innerHTML =
+      '<div class="boot-fatal" role="alert"><div class="boot-card">' +
+      '<h1>' + title + '</h1>' +
+      bodyHtml +
+      '</div></div>';
+  }
+  function checkMissingLibs() {
+    if (window.__dmgBoot && window.__dmgBoot.rendered) return;
+    if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
+      showFatal(
+        'Scripts did not load',
+        '<p>The page could not load React from the network. You may be offline, or a firewall may be blocking <code>cdn.jsdelivr.net</code>.</p>' +
+        '<p class="boot-sub">Try another network, disable VPN temporarily, or ask IT to allow this CDN.</p>'
+      );
+    }
+  }
+  window.addEventListener('load', function () {
+    setTimeout(checkMissingLibs, 10000);
+  });
+  setTimeout(function () {
+    if (window.__dmgBoot && window.__dmgBoot.rendered) return;
+    if (window.__dmgBoot && window.__dmgBoot.fatalUi) return;
+    if (typeof React !== 'undefined' && typeof ReactDOM !== 'undefined') return;
+    checkMissingLibs();
+  }, 35000);
+  setTimeout(function () {
+    if (window.__dmgBoot && window.__dmgBoot.rendered) return;
+    if (window.__dmgBoot && window.__dmgBoot.fatalUi) return;
+    var extra = '';
+    if (window.__dmgBoot && window.__dmgBoot.bootError)
+      extra = '<pre>' + String(window.__dmgBoot.bootError).replace(/</g,'&lt;') + '</pre>';
+    else if (window.__dmgBoot && window.__dmgBoot.scriptError)
+      extra = '<pre>' + String(window.__dmgBoot.scriptError).replace(/</g,'&lt;') + '</pre>';
+    showFatal(
+      'Still not ready',
+      '<p>The app is taking unusually long to start. Try <strong>refresh</strong> or open the site in a private window.</p>' +
+      extra +
+      '<p class="boot-sub">Slow devices may need up to a minute on first visit while libraries download.</p>'
+    );
+  }, 90000);
+})();
 </script>
 </body>
 </html>
