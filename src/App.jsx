@@ -40,6 +40,20 @@ import {
   SCAN_DOC_TYPES,
   ATT_QR_QUERY_KEY,
 } from './constants.js';
+import {
+  fmt$,
+  fmtBytes,
+  fmtDate,
+  safeQty,
+  sellerKey,
+  normalizeApiBase,
+  parseUrlSafe,
+  isLoopbackHost,
+  trimText,
+  migrateShoppingList,
+  uniqSuggestions,
+  safePrice,
+} from './formatters.js';
 
 const LazyDailyFinanceCharts = lazy(() => import('./charts/DailyFinanceCharts.jsx'));
 const LazyAnalyticsCharts = lazy(() => import('./charts/AnalyticsCharts.jsx'));
@@ -84,38 +98,12 @@ function save(key, val) {
  * — Prefer additive fields (optional props on objects) over renames; use migrate* helpers when normalizing.
  * — `load()` returns the default if JSON is missing or corrupt — never throws to the UI.
  */
-function migrateShoppingList(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter(e => e && typeof e === 'object' && e.id && (e.itemId || e.itemName))
-    .map(e => ({
-      ...e,
-      itemName: e.itemName != null ? String(e.itemName) : '',
-      itemId: e.itemId != null ? e.itemId : '',
-      unit: e.unit != null ? String(e.unit) : '',
-      upc: e.upc != null ? String(e.upc) : '',
-      selectedSeller: e.selectedSeller != null ? String(e.selectedSeller) : '',
-      quantity: e.quantity !== undefined && e.quantity !== '' ? e.quantity : 1,
-      sellers: Array.isArray(e.sellers) ? e.sellers : [],
-      notes: e.notes != null ? String(e.notes) : ''
-    }));
-}
 
 // ═══════════════════════════════════════════════════════════
 // UTILS
 // ═══════════════════════════════════════════════════════════
-const fmt$ = n => '$' + (parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-const fmtBytes = (n) => {
-  if (n == null || !Number.isFinite(n)) return '';
-  if (n < 1024) return `${Math.round(n)} B`;
-  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1048576).toFixed(1)} MB`;
-};
-const fmtDate = d => { if(!d) return ''; try { return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return d; } };
 const today = () => new Date().toISOString().split('T')[0];
 const uid = () => '_'+Math.random().toString(36).substr(2,9);
-const safeQty = v => { const n=parseFloat(v); return (!isNaN(n)&&n>=0)?n:0; };
-const sellerKey = n => String(n ?? '').trim().toLowerCase();
 const parseAdminResetParams = () => {
   try {
     const q = new URLSearchParams(window.location.search);
@@ -144,9 +132,6 @@ const loadAdminResetApiBase = () => {
   return ADMIN_RESET_API_BASE;
 };
 const saveAdminResetApiBase = (url) => save(ADMIN_RESET_API_BASE_KEY, String(url || '').trim());
-const normalizeApiBase = (url) => String(url || '').trim().replace(/\/+$/, '');
-const parseUrlSafe = (url) => { try { return new URL(url); } catch { return null; } };
-const isLoopbackHost = (host) => host === 'localhost' || host === '127.0.0.1' || host === '::1';
 const shouldSkipApiCandidate = (base) => {
   if (!base) return true;
   const parsed = parseUrlSafe(base);
@@ -383,10 +368,6 @@ const pushAuditEvent = (action, details) => {
   log.push(entry);
   if (log.length > 2000) log.splice(0, log.length - 2000);
   save('_activityLog', log);
-};
-const trimText = (v, max=1000) => {
-  const s = String(v ?? '');
-  return s.length > max ? s.slice(0, max) + '...(truncated)' : s;
 };
 const parseErrorDetail = (errorLike) => {
   if (!errorLike) return 'Unknown error';
@@ -651,18 +632,6 @@ function saveProfileData(username, data) {
   const profiles = load('_profiles', {});
   profiles[username] = { ...(profiles[username]||{}), ...data };
   save('_profiles', profiles);
-}
-const safePrice = v => { if(v===''||v==null) return null; const n=parseFloat(v); return(!isNaN(n)&&n>=0)?n:null; };
-
-/** Dedupe + sort for datalist / autocomplete */
-function uniqSuggestions(...vals) {
-  const set = new Set();
-  for (const v of vals) {
-    if (v == null || v === '') continue;
-    const s = String(v).trim();
-    if (s) set.add(s);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
 let _seq = load('_seq',{purchase:0,catering:0});

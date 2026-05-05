@@ -176,7 +176,7 @@ Rough **surface area / coupling** only:
 | **BL-01 COGS** | Recipes, yields, reporting | Very large |
 | **BL-02–BL-05** | Alerts, merge, telemetry | Medium each |
 | **BL-07** | Split tab components from `App.jsx` | Large mechanical |
-| **BL-10** | Next: formatters/utils tests; optional Playwright | Small increments |
+| **BL-10** | Optional Playwright smoke; more utils if extracted | Small increments |
 
 **Summary:** Slices **1, 4** largely complete; **2, 3, 5, 6** partial. Largest remaining **product** lift: **BL-01**. Largest **refactor** lift: **BL-07** + Slice 2 alert cleanup.
 
@@ -195,7 +195,7 @@ Items intentionally **not** in slices 1–6; pull into planning when capacity al
 | **BL-05** | Admin dashboard for error telemetry | Optional privacy-preserving counts—needs consent copy | Post Slice 2 |
 | **BL-07** | Split `App.jsx` further (`src/constants.js` done; next: tab pages) | `HelpCenter` + constants extracted | Ongoing |
 | **BL-08** | ~~Per-key repair for DMG-E012~~ **Done** — Help → paste JSON for one key | Safer than wipe-all | — |
-| **BL-10** | Expand Vitest (`storageHealth`, apiErrors, constants); optional Playwright smoke later | Regression safety | In progress |
+| **BL-10** | Vitest: `apiErrors`, `constants`, `storageHealth`, **`formatters`** (`src/formatters.js`); optional Playwright smoke later | Regression safety | In progress |
 
 ---
 

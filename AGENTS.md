@@ -10,6 +10,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 |------|------|
 | `index.html` | Vite entry shell (lightweight); boots `/src/main.jsx` |
 | `src/constants.js` | Businesses, tabs, nav groups, storage/auth key names (shared) |
+| `src/formatters.js` | Pure helpers: currency/date/bytes, `migrateShoppingList`, API URL helpers |
 | `src/App.jsx` | Main React application (large; further splits = BL-07) |
 | `src/main.jsx` | `createRoot`, `StrictMode`, boot integration |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
@@ -30,7 +31,7 @@ npm install          # deps at repo root
 npm run dev          # local dev server (Vite)
 npm run build        # production bundle → dist/
 npm run preview      # serve dist locally
-npm test             # Vitest (apiErrors, constants, storageHealth mock LS)
+npm test             # Vitest (apiErrors, constants, storageHealth, formatters)
 ```
 
 Backend (optional): see `backend/README.md`.
@@ -62,7 +63,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`src/apiErrors.js`** — classify backend `fetch` / HTTP → DMG-E020–E031.
 - **`toastApiFailure`** in `App.jsx` — warning toast for failed scan/attendance APIs (includes DMG code when present).
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
-- **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** — Vitest (run `npm test`).
+- **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** — Vitest (run `npm test`).
 
 Boot-related:
 
@@ -73,7 +74,7 @@ Boot-related:
 
 - Prefer **small, focused PRs** matching backlog slices.
 - Do not revert **additive** `localStorage` keys without migration notes (see comments in `App.jsx` about compatibility).
-- After editing `src/App.jsx` or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, or adding `*.test.js`.
+- After editing `src/App.jsx` or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, or adding `*.test.js`.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 
 ## Known technical debt
