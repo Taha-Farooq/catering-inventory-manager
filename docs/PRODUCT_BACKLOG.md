@@ -135,14 +135,14 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 5 — Auth and backend contract hardening
 
-**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; `getAuthStatus`, `loginViaBackend`, `syncCredentialsToBackend`, `scanApiCall`, and `attendanceApiCall` report **DMG-E020–E031** and return `code` where useful; central-auth login shows network/CORS messages instead of only “Invalid password”.
+**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; auth and scan/attendance APIs report **DMG-E020–E031**. **Offline banner** (`navigator.onLine` via `useOnlineStatus`). Settings backup **ZIP export/import** failures → toast + **DMG-E041** (no blocking `alert`).
 
 **Objective:** Predictable behavior when Render backend or central auth is down.
 
 **Scope**
 
+- Offline banner when `navigator.onLine` is false — **done** (`useOnlineStatus`, blue banner on login + main).
 - Map fetch failures to `DMG-E021` / `DMG-E030`; distinguish timeout vs HTTP error body if API sends codes later.
-- Offline banner: “Working locally; sync when online” if product decision allows local-only mode (design decision).
 
 **Design gap**
 
@@ -152,13 +152,13 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 6 — Browser support matrix and guardrails
 
-**Status:** Partial — `crypto.subtle` banner (DMG-E050/E051); **Help** documents supported browsers (Chrome / Edge / Firefox, HTTPS, storage).
+**Status:** Partial — **`getBootCapabilityWarnings`** (`src/browserCaps.js`, Vitest): missing **`crypto.subtle`** → DMG-E050/E051; missing **`structuredClone`** → extra DMG-E050 banner. Same banners on **login** and main shell; **Help** documents browsers + offline behavior.
 
 **Objective:** Fail fast with `DMG-E050` / `DMG-E051` instead of obscure runtime errors.
 
 **Scope**
 
-- Feature checks at boot: `crypto.subtle`, required ES APIs.
+- Feature checks at boot: `crypto.subtle`, **`structuredClone`** (needed for some structured-copy paths).
 - Document supported browsers in README and Help.
 
 ---
@@ -171,8 +171,8 @@ Rough **surface area / coupling** only:
 |------|-------------|--------|
 | **Slice 2** | Replace scattered `alert()` with coded UI | Large — wide `App.jsx` sweep |
 | **Slice 3 defer** | IndexedDB migration | Large |
-| **Slice 5** | Offline banner, richer API errors | Medium |
-| **Slice 6** | More feature probes | Small–medium |
+| **Slice 5** | Richer API response bodies; remaining alerts → toast | Medium–small |
+| **Slice 6** | Optional extra probes (e.g. StorageManager) | Small |
 | **BL-01 COGS** | Recipes, yields, reporting | Very large |
 | **BL-02–BL-05** | Alerts, merge, telemetry | Medium each |
 | **BL-07** | Split tab components from `App.jsx` | Large mechanical |

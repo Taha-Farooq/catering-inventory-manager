@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from 'react';
+import { getBootCapabilityWarnings } from './browserCaps.js';
+import { useOnlineStatus } from './useOnlineStatus.js';
+import { OfflineBanner, BrowserCapsBanner } from './ReliabilityBanners.jsx';
 import { reportError } from './errors.js';
 import {
   classifyFetchException,
@@ -60,6 +63,9 @@ const LazyAnalyticsCharts = lazy(() => import('./charts/AnalyticsCharts.jsx'));
 const LazyPriceHistoryChart = lazy(() => import('./charts/PriceHistoryChart.jsx'));
 
 async function hashPwd(pwd) {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Web Crypto is not available (DMG-E050/E051)');
+  }
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
 }
@@ -456,6 +462,7 @@ async function gatherDiagnosticsPayload(localFeatureWarning) {
   const healthResetApi = await probeResetApi(loadAdminResetApiBase());
   const storageHint = await getStorageQuotaHint();
   const failures = load(FAILURE_LOG_KEY, []);
+  const bootCaps = getBootCapabilityWarnings();
   return {
     generatedAt: new Date().toISOString(),
     app: 'DMG Software Suite',
@@ -466,6 +473,11 @@ async function gatherDiagnosticsPayload(localFeatureWarning) {
     healthResetApi,
     storageHint,
     localFeatureWarning: localFeatureWarning || '',
+    navigatorOnline:
+      typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+        ? navigator.onLine
+        : null,
+    bootCapabilityCodes: bootCaps.map((w) => w.code),
     failuresRecent: failures.slice(-40)
   };
 }
@@ -480,6 +492,8 @@ Browser: ${payload.userAgent}
 Reset API URL: ${payload.resetApiUrl}
 Backend /health: ${payload.healthResetApi?.ok ? `OK (${payload.healthResetApi.base})` : `FAIL — ${payload.healthResetApi?.error || 'unknown'}`}
 ${payload.storageHint?.msg || ''}
+Navigator onLine: ${payload.navigatorOnline === null ? 'unknown' : payload.navigatorOnline ? 'true (browser thinks online)' : 'false (offline or flaky network)'}
+Boot capability warnings: ${(payload.bootCapabilityCodes || []).length ? (payload.bootCapabilityCodes || []).join(', ') : 'none'}
 `;
   if (payload.localFeatureWarning) s += `\nBanner warning on main screen:\n${payload.localFeatureWarning}\n`;
   s += `\n--- Logged errors (last ${payload.failuresRecent?.length || 0}) ---\n`;
@@ -849,7 +863,7 @@ function FirstRunSetup({ onDone, apiBase }) {
   );
 }
 
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, bootWarnings, online }) {
   const [needsSetup, setNeedsSetup] = useState(() => load('credentials', null) === null);
   const [checkingSetup, setCheckingSetup] = useState(true);
   const [authApiBase, setAuthApiBase] = useState(() => loadAdminResetApiBase());
@@ -918,6 +932,8 @@ function LoginScreen({ onLogin }) {
     return (
       <div className="login-screen">
         <div className="login-card">
+          <OfflineBanner online={online} />
+          <BrowserCapsBanner warnings={bootWarnings} />
           <div className="text-center" style={{color:'#777'}}>Checking account setup...</div>
         </div>
       </div>
@@ -929,6 +945,11 @@ function LoginScreen({ onLogin }) {
     e.preventDefault();
     setErr('');
     try {
+      if (!globalThis.crypto?.subtle) {
+        const wc = bootWarnings.find((m) => m.message.includes('Password hashing'));
+        setErr(wc?.message || 'Cannot sign in: Web Crypto is not available (DMG-E050/E051).');
+        return;
+      }
       const creds = load('credentials', null);
       const key = uname.trim().toLowerCase();
       setLoading(true);
@@ -971,6 +992,11 @@ function LoginScreen({ onLogin }) {
     setResetMsg('');
     const codeHash = load(ADMIN_RESET_CODE_KEY, '');
     if (!codeHash) { setResetErr('Reset is not configured yet. Ask manager to set Reset Code in Settings.'); return; }
+    if (!globalThis.crypto?.subtle) {
+      const wc = bootWarnings.find((m) => m.message.includes('Password hashing'));
+      setResetErr(wc?.message || 'Cannot reset: Web Crypto is not available (DMG-E050/E051).');
+      return;
+    }
     if (!resetCode) { setResetErr('Enter Reset Code.'); return; }
     if (resetPwd.length < 6) { setResetErr('New password must be at least 6 characters.'); return; }
     if (resetPwd !== resetPwdC) { setResetErr('Passwords do not match.'); return; }
@@ -994,6 +1020,8 @@ function LoginScreen({ onLogin }) {
   return (
     <div className="login-screen">
       <div className="login-card">
+        <OfflineBanner online={online} />
+        <BrowserCapsBanner warnings={bootWarnings} />
         <div className="login-logo">
           <div className="login-brand-row">
             <img className="login-brand-logo" src={BRANDING.degrill.logo} alt="DeGrill logo" />
@@ -1464,7 +1492,11 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
       document.body.removeChild(a); URL.revokeObjectURL(url);
       logActivity('export_backup', 'Exported data backup');
       showToast('Backup exported! Save the ZIP file somewhere safe.');
-    } catch(e) { alert('Export failed: ' + e.message); }
+    } catch (e) {
+      reportError('DMG-E041', { phase: 'export_zip', message: String(e?.message || e) });
+      logFailure({ area: 'settings', action: 'export_backup', error: e });
+      showToast(`Export failed (DMG-E041): ${e.message}`, 'error');
+    }
   }
 
   function doImport(file) {
@@ -1491,7 +1523,11 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
       logActivity('restore_backup', 'Restored data from backup');
       showToast('Backup restored! All data has been loaded.');
       onClose();
-    }).catch(e => alert('Import failed: ' + e.message));
+    }).catch(e => {
+      reportError('DMG-E041', { phase: 'import_zip', message: String(e?.message || e) });
+      logFailure({ area: 'settings', action: 'import_backup', error: e });
+      showToast(`Import failed (DMG-E041): ${e.message}`, 'error');
+    });
   }
 
   const totalInvoices = purchaseInv.length + cateringInv.length;
@@ -4825,6 +4861,13 @@ function App() {
   useEffect(() => { initGlobalFailureCapture(); }, []);
   const attendanceParams = useMemo(() => parseAttendanceParams(), []);
 
+  const bootWarnings = useMemo(() => getBootCapabilityWarnings(), []);
+  const online = useOnlineStatus();
+
+  useEffect(() => {
+    bootWarnings.forEach((w) => reportError(w.code, { phase: 'boot_caps', detail: w.message }));
+  }, [bootWarnings]);
+
   const [currentUser, setCurrentUser] = useState(()=>load('_session',null));
   const [tab, setTab] = useState('items');
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
@@ -4846,7 +4889,6 @@ function App() {
   const [storageEnvOk, setStorageEnvOk] = useState(true);
   const [storageQuotaWarn, setStorageQuotaWarn] = useState(null);
   const [storageCorruptKeys, setStorageCorruptKeys] = useState([]);
-  const [browserGuardNote, setBrowserGuardNote] = useState('');
   const storageWarnRef = useRef({ quota: false });
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
@@ -4856,21 +4898,6 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!window.crypto?.subtle) {
-        const msg =
-          window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-            ? 'Password hashing needs a secure (HTTPS) site or localhost (DMG-E051).'
-            : 'This browser is missing Web Crypto. Try Chrome, Edge, or Firefox (DMG-E050).';
-        setBrowserGuardNote(msg);
-        reportError(
-          window.location.protocol === 'http:' &&
-            window.location.hostname !== 'localhost' &&
-            window.location.hostname !== '127.0.0.1'
-            ? 'DMG-E051'
-            : 'DMG-E050',
-          { protocol: window.location.protocol }
-        );
-      }
       const probe = probeLocalStorage();
       if (!probe.ok) {
         setStorageEnvOk(false);
@@ -5024,7 +5051,7 @@ function App() {
     save('_kioskLock', true);
     setTab('checkio');
   }
-  if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
+  if (!currentUser) return <LoginScreen onLogin={handleLogin} bootWarnings={bootWarnings} online={online} />;
 
   const isAdmin = currentUser.role === 'admin';
   const TABS = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
@@ -5161,11 +5188,8 @@ function App() {
         <div className="hint-card no-print">
           {isAdmin ? 'Use top groups to find tools faster. Start with Stock or Invoices for daily work.' : 'Use top groups to find what you need quickly. Start with Work or Stock.'}
         </div>
-        {browserGuardNote && (
-          <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#991b1b'}}>
-            {browserGuardNote}
-          </div>
-        )}
+        <OfflineBanner online={online} />
+        <BrowserCapsBanner warnings={bootWarnings} />
         {!storageEnvOk && (
           <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#9a3412'}}>
             <strong>DMG-E010:</strong> Browser storage is not available or blocked. The app cannot save changes reliably. Allow site data / exit strict private browsing, then refresh.

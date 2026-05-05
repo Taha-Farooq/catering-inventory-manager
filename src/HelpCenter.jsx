@@ -133,6 +133,7 @@ export default function HelpCenter({
         <div style={{ fontSize: 13, lineHeight: 1.75, color: '#555' }}>
           Use a current <strong>Chrome</strong>, <strong>Microsoft Edge</strong>, or <strong>Firefox</strong> on desktop for best results.
           The app needs modern JavaScript, <strong>localStorage</strong>, and (for password hashing) <strong>HTTPS</strong> or <strong>localhost</strong>.
+          If you go offline, inventory still saves on this device; central login and scanner sync need the network when you reconnect.
           Safari and mobile browsers often work but are less tested; enable site storage if saves fail.
         </div>
       </div>
@@ -156,7 +157,7 @@ export default function HelpCenter({
           <br />
           <strong>DMG-E040–E041</strong> — Import/export problems.
           <br />
-          <strong>DMG-E050–E051</strong> — Browser too old or page not served over HTTPS (needed for some security APIs).
+          <strong>DMG-E050–E051</strong> — Browser too old, missing Web Crypto / structured clone, or page not served over HTTPS (needed for some security APIs).
         </div>
       </div>
       <div className="card mb-3">
