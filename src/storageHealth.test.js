@@ -86,4 +86,8 @@ describe('storageHealth', () => {
   it('STORAGE_SCAN_KEYS includes _logoOverrides so corrupt logo settings are detected', () => {
     expect(STORAGE_SCAN_KEYS).toContain('_logoOverrides');
   });
+
+  it('STORAGE_SCAN_KEYS includes _bizContact so corrupt contact overrides are detected', () => {
+    expect(STORAGE_SCAN_KEYS).toContain('_bizContact');
+  });
 });

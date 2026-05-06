@@ -46,6 +46,7 @@ import {
   ADMIN_RESET_CODE_KEY,
   FAILURE_LOG_KEY,
   LOGO_OVERRIDES_KEY,
+  BIZ_CONTACT_KEY,
   SCAN_DOC_TYPES,
   ATT_QR_QUERY_KEY,
 } from './constants.js';
@@ -596,13 +597,22 @@ const BRANDING = {
   dera:     { mark:'DMG', name:'Dera Masala Grill Inc',              location:'Clifton, NJ',           address:'Clifton, NJ 07011',                phone:'(973) 555-0300', email:'info@deramasala.com',logo:'assets/logos/dera.jpg' },
   transfer: { mark:'PP',  name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood', address:'Hackensack, NJ 07601',        phone:'(201) 555-0200', email:'info@parathas.com',  logo:'assets/logos/parathas.jpg' },
 };
-function mergeBrandingWithOverrides(overrides) {
-  const o = normalizeLogoOverrides(overrides);
-  const merge = (key) => ({ ...BRANDING[key], logo: o[key] || BRANDING[key].logo });
+function mergeBrandingWithOverrides(logoOverrides, contactOverrides) {
+  const o = normalizeLogoOverrides(logoOverrides);
+  const c = contactOverrides || {};
+  const merge = (key) => ({
+    ...BRANDING[key],
+    logo: o[key] || BRANDING[key].logo,
+    ...(c[key] ? {
+      phone:   c[key].phone   !== undefined ? c[key].phone   : BRANDING[key].phone,
+      address: c[key].address !== undefined ? c[key].address : BRANDING[key].address,
+      email:   c[key].email   !== undefined ? c[key].email   : BRANDING[key].email,
+    } : {}),
+  });
   return { degrill: merge('degrill'), parathas: merge('parathas'), dera: merge('dera'), transfer: merge('transfer') };
 }
 function getInvoiceBranding(inv, brandingMap) {
-  const b = brandingMap || mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}));
+  const b = brandingMap || mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}), load(BIZ_CONTACT_KEY, {}));
   if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return b.transfer;
   return b[inv?.business] || { mark:'INV', name:'Invoice', location:'' };
 }
@@ -871,7 +881,7 @@ function LoginScreen({ onLogin, bootWarnings, online }) {
   const [resetErr, setResetErr] = useState('');
   const [rememberDevice, setRememberDevice] = useState(() => !!parseAttendanceParams());
   const attParams = useMemo(() => parseAttendanceParams(), []);
-  const loginBranding = useMemo(() => mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {})), []);
+  const loginBranding = useMemo(() => mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}), load(BIZ_CONTACT_KEY, {})), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1307,7 +1317,8 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
           dailyFinanceEntries, customers, priceHist,
           setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
           setPayrollInvoices, setDailyFinanceEntries, setCustomers, setPriceHist, setBiz,
-          logoOverrides, setLogoOverrides } = appState;
+          logoOverrides, setLogoOverrides,
+          bizContact, setBizContact } = appState;
   const importRef = useRef();
   const [diagPayload, setDiagPayload] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
@@ -1341,6 +1352,9 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   const [pendingBackupFile, setPendingBackupFile] = useState(null);
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
   const logoFileRefs = { degrill: useRef(), parathas: useRef(), dera: useRef(), transfer: useRef() };
+  const BIZ_KEYS = ['degrill', 'parathas', 'dera', 'transfer'];
+  const blankContact = () => BIZ_KEYS.reduce((acc,k) => ({...acc,[k]:{phone:'',address:'',email:''}}), {});
+  const [contactFields, setContactFields] = useState(blankContact);
   const MAX_LOGO_BYTES = 500 * 1024;
 
   async function handleLogoFile(key, file) {
@@ -1373,7 +1387,12 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
       dera: logoOverrides.dera || '',
       transfer: logoOverrides.transfer || '',
     });
-  }, [open, logoOverrides]);
+    const bc = bizContact || {};
+    setContactFields(BIZ_KEYS.reduce((acc, k) => ({
+      ...acc,
+      [k]: { phone: bc[k]?.phone || '', address: bc[k]?.address || '', email: bc[k]?.email || '' },
+    }), {}));
+  }, [open, logoOverrides, bizContact]);
 
   function commitLogoOverrides() {
     const next = normalizeLogoOverrides({
@@ -1393,6 +1412,28 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
     save(LOGO_OVERRIDES_KEY, {});
     showToast('Logo overrides cleared — default images from the site are used.');
     logActivity('profile_update', 'Cleared invoice logo URL overrides');
+  }
+
+  function commitContactOverrides() {
+    const cleaned = BIZ_KEYS.reduce((acc, k) => ({
+      ...acc,
+      [k]: {
+        phone:   (contactFields[k]?.phone   || '').trim(),
+        address: (contactFields[k]?.address || '').trim(),
+        email:   (contactFields[k]?.email   || '').trim(),
+      },
+    }), {});
+    setBizContact(cleaned);
+    save(BIZ_CONTACT_KEY, cleaned);
+    showToast('Business contact info saved. Invoices updated immediately.');
+    logActivity('profile_update', 'Saved business contact overrides');
+  }
+  function clearContactOverrides() {
+    setContactFields(blankContact());
+    setBizContact({});
+    save(BIZ_CONTACT_KEY, {});
+    showToast('Contact overrides cleared — built-in placeholders restored.');
+    logActivity('profile_update', 'Cleared business contact overrides');
   }
 
   useEffect(() => {
@@ -1560,8 +1601,8 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
         payrollInvoices:(payrollInvoices||[]),
         dailyFinanceEntries:(dailyFinanceEntries||[]),
         customers, priceHistory:priceHist,
-        settings:{ selectedBusiness: load('_lastBiz','degrill'), logoOverrides },
-        exportDate: new Date().toISOString(), version:'2.1'
+        settings:{ selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact },
+        exportDate: new Date().toISOString(), version:'2.2'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
@@ -1622,6 +1663,10 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
           const next = normalizeLogoOverrides(v.logoOverrides);
           setLogoOverrides(next);
           save(LOGO_OVERRIDES_KEY, next);
+        }
+        if (k==='settings'&&v.bizContact!=null) {
+          setBizContact(v.bizContact);
+          save(BIZ_CONTACT_KEY, v.bizContact);
         }
       });
       logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
@@ -1687,6 +1732,34 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
             <img key={key} alt={`${key} logo preview`} src={resolveAssetUrl(brandingMap[key]?.logo || '', documentBaseHref())}
               style={{width:40,height:40,objectFit:'cover',borderRadius:'50%',border:'1px solid #EED9B0',background:'#fff'}} />
           ))}
+        </div>
+      </div>
+
+      {/* Business contact info */}
+      <div style={{border:'1px solid #EED9B0',borderRadius:8,padding:14,marginBottom:20,background:'#fffdf8'}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:14}}>📇 Business contact info</div>
+        <p style={{fontSize:12,color:'#6b4b20',marginBottom:12,lineHeight:1.55}}>
+          Override the phone, address and email shown on invoices for each business.
+          Leave blank to use the built-in defaults.
+        </p>
+        {[
+          {key:'degrill',  label:'DeGrill Inc'},
+          {key:'parathas', label:'Parathas and Platters Inc'},
+          {key:'dera',     label:'Dera Masala Grill Inc'},
+          {key:'transfer', label:'Internal Transfer (Parathas brand)'},
+        ].map(({key, label}) => (
+          <div key={key} style={{marginBottom:14}}>
+            <div style={{fontWeight:600,fontSize:13,color:'var(--brown)',marginBottom:6}}>{label}</div>
+            <div className="grid-2 mb-2" style={{gap:8}}>
+              <FI label="Phone" value={contactFields[key]?.phone||''} onChange={e=>setContactFields(f=>({...f,[key]:{...f[key],phone:e.target.value}}))} placeholder={BRANDING[key]?.phone||'(555) 000-0000'} />
+              <FI label="Email" type="email" value={contactFields[key]?.email||''} onChange={e=>setContactFields(f=>({...f,[key]:{...f[key],email:e.target.value}}))} placeholder={BRANDING[key]?.email||'info@example.com'} />
+            </div>
+            <FI label="Address" value={contactFields[key]?.address||''} onChange={e=>setContactFields(f=>({...f,[key]:{...f[key],address:e.target.value}}))} placeholder={BRANDING[key]?.address||'Street, City, State ZIP'} />
+          </div>
+        ))}
+        <div className="flex gap-2 flex-wrap" style={{marginTop:4}}>
+          <Btn className="btn-primary btn-sm" onClick={commitContactOverrides}>Save contact info</Btn>
+          <Btn className="btn-outline btn-sm" onClick={clearContactOverrides}>Clear overrides</Btn>
         </div>
       </div>
 
@@ -5486,7 +5559,8 @@ function App() {
   const [tab, setTab] = useState('items');
   const [biz, setBiz] = useState(()=>load('_lastBiz','degrill'));
   const [logoOverrides, setLogoOverrides] = useState(() => normalizeLogoOverrides(load(LOGO_OVERRIDES_KEY, {})));
-  const brandingMap = useMemo(() => mergeBrandingWithOverrides(logoOverrides), [logoOverrides]);
+  const [bizContact, setBizContact] = useState(() => load(BIZ_CONTACT_KEY, {}));
+  const brandingMap = useMemo(() => mergeBrandingWithOverrides(logoOverrides, bizContact), [logoOverrides, bizContact]);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [navGroup, setNavGroup] = useState('ops');
@@ -5713,6 +5787,7 @@ function App() {
     setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
     setPayrollInvoices, setDailyFinanceEntries, setCustomers, setPriceHist, setBiz,
     logoOverrides, setLogoOverrides,
+    bizContact, setBizContact,
   };
 
   function handleClearCorruptKeys() {

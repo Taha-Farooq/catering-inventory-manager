@@ -133,6 +133,7 @@ These are **separate systems** — scan-db stores document references, not payro
 | `_adminResetCodeHash` | Hash of pending admin reset code |
 | `_failureLog` | Persistent error log (max 500 entries; complements sessionStorage ring buffer in `errors.js`) |
 | `_logoOverrides` | Per-business invoice logo HTTPS URL overrides (BL-11) |
+| `_bizContact` | Per-business phone/address/email overrides editable in Settings (Slice 15) |
 | `settings` | User settings object (page size, preferences, `logoOverrides` for backup round-trip) |
 
 ## Conventions for agents
@@ -150,9 +151,10 @@ These are **separate systems** — scan-db stores document references, not payro
 |---------|----------------|
 | `1.x` | items, shoppingList, purchaseInvoices, cateringInvoices, customers, priceHistory |
 | `2.0` | + settings (selectedBusiness, logoOverrides) |
-| `2.1` | + transferInvoices, payrollInvoices, dailyFinanceEntries — **current** |
+| `2.1` | + transferInvoices, payrollInvoices, dailyFinanceEntries |
+| `2.2` | + settings.bizContact (editable business phone/address/email) — **current** |
 
-Restoring a v2.0 or older ZIP leaves `transferInvoices`, `payrollInvoices`, and `dailyFinanceEntries` unchanged on the device. Slice 13 (BL-22) will add a visible warning at import time.
+Restoring an older ZIP shows a version-gap warning for any missing keys (Slice 13). The `bizContact` field within `settings.json` in the ZIP is optional — missing it leaves contact overrides unchanged on device.
 
 ## Key storage keys added since last audit
 
@@ -190,5 +192,5 @@ Restoring a v2.0 or older ZIP leaves `transferInvoices`, `payrollInvoices`, and 
 - ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).
 - ~~QR code uses external CDN (`api.qrserver.com`)~~ — **Fixed** (Slice 12, replaced with `qrcode` npm package).
 - ~~Old backup ZIPs (v2.0) are missing transfer/payroll/dailyFin~~ — **Fixed** (Slice 13, restore warning).
-- BRANDING phone/address/email are hardcoded constants — editable in Settings planned (BL-23).
+- ~~BRANDING phone/address/email are hardcoded constants~~ — **Fixed** (Slice 15, `_bizContact` overrides editable in Settings).
 - Transfer invoice direction is hardcoded to Parathas as default origin — generalize as part of Epic A.

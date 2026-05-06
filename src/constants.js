@@ -94,6 +94,8 @@ export const CENTRAL_AUTH_CONFIG_PATH = './auth-api-config.json';
 export const ADMIN_RESET_CODE_KEY = '_adminResetCodeHash';
 /** Optional per-business logo URLs (Settings); merged with built-in `assets/logos/*.jpg` paths in `App.jsx`. */
 export const LOGO_OVERRIDES_KEY = '_logoOverrides';
+/** Optional per-business contact info overrides (phone/address/email) editable in Settings. */
+export const BIZ_CONTACT_KEY = '_bizContact';
 export const FAILURE_LOG_KEY = '_failureLog';
 export const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
 export const ATT_QR_QUERY_KEY = 'attToken';
