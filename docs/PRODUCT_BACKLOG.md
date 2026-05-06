@@ -273,7 +273,7 @@ Large items that need their own kick-off before breaking into slices.
 |----|------|--------------------|-----------| 
 | **Epic A** (BL-17) | **Multi-business data namespace** | Shared catalog intentional? Invoices per-business? `_lastBiz` filter vs. scoped keys? | Large if scoped keys chosen |
 | **Epic B** (BL-18 full) | **Payroll ↔ Scan DB integration** | Are they the same system or separate? Auto-link scanned payroll PDFs to invoice entries? | Medium |
-| **Epic C** (BL-07) | **App.jsx extraction** — continued tab-by-tab extraction into `src/tabs/*.jsx` | Which tab extracts next? | Large mechanical (ongoing) |
+| **Epic C** (BL-07) | **App.jsx extraction** — all major tabs extracted to `src/tabs/`; shared utilities in `src/utils/` and `src/ui/BrandMark.jsx`; App.jsx is now shell-only | **Done** — see Slice 16 below | Large mechanical |
 | **Epic D** (BL-01/02) | **COGS / Recipe costing** — recipe yields, waste %, period COGS reports, supplier price alerts | Per-business or global recipe catalog? Tax incl/excl for margins? | Very large |
 
 ---
@@ -307,6 +307,21 @@ Large items that need their own kick-off before breaking into slices.
 ---
 
 ## Slice 14 — Business identity, auth hardening, payroll manual entry
+
+---
+
+## Slice 16 — Epic C: App.jsx full tab extraction + shared utility modules (BL-07)
+
+**Status:** Done — all major tab components extracted from App.jsx to `src/tabs/`; shared utility modules created in `src/utils/` and `src/ui/`.
+
+**What was implemented:**
+
+- **Shared utility modules:** `src/utils/storage.js` (`load`, `save`, `uid`, `today`), `src/utils/activity.js` (`logActivity`), `src/utils/print.js` (`printHtmlDocument`, `printInvoiceById`, `documentBaseHref`, `rewriteImgSrcsForPrint`), `src/utils/invoiceIds.js` (`nextId`, `nextTransferId`, `normalizeTransferInvoice`), `src/ui/BrandMark.jsx` (`BrandMark` component).
+- **Tab extractions:** CheckInOutPage, MenuMarginsLab, ItemDatabase, ShoppingList, PurchaseInvoices, CateringInvoices, TransferInvoices, InvoiceArchive, Analytics, PriceHistory, PriceUpdater — all moved to `src/tabs/`.
+- **App.jsx reduced:** from ~5900 lines to ~1800 lines (shell only: auth, routing, settings modal, login screen, first-run wizard).
+- **`getInvoiceBranding` stays in App.jsx** and is passed as a prop to invoice tabs (depends on `BRANDING` constant + `mergeBrandingWithOverrides`).
+
+---
 
 **Status:** Done — multi-feature slice addressing business contact info on invoices, per-business filtering, admin-only access, and standalone payroll invoice management.
 

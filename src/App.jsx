@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from 'react';
 import QRCode from 'qrcode';
+import { load, save, uid, today } from './utils/storage.js';
+import { logActivity } from './utils/activity.js';
+import { documentBaseHref, rewriteImgSrcsForPrint, printHtmlDocument, printInvoiceById } from './utils/print.js';
+import { nextId, nextTransferId, normalizeTransferInvoice } from './utils/invoiceIds.js';
+import { BrandMark } from './ui/BrandMark.jsx';
 import { getBootCapabilityWarnings } from './browserCaps.js';
 import { useOnlineStatus } from './useOnlineStatus.js';
 import { OfflineBanner, BrowserCapsBanner, BackendUnavailableBanner } from './ReliabilityBanners.jsx';
@@ -87,76 +92,12 @@ async function hashPwd(pwd, username = '') {
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-// ═══════════════════════════════════════════════════════════
-// STORAGE
-// ═══════════════════════════════════════════════════════════
-function load(key, def) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
-  catch { return def; }
-}
-function save(key, val) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-    return true;
-  } catch (e) {
-    const msg = e?.message || String(e);
-    const code =
-      e && (e.name === 'QuotaExceededError' || /quota|exceeded/i.test(msg))
-        ? 'DMG-E011'
-        : 'DMG-E010';
-    reportError(code, { key, message: msg });
-    notifySaveFailure({ code, key, message: msg });
-    showToast(
-      code === 'DMG-E011'
-        ? `Storage is full (${code}). Export a backup from Settings, then free space or remove old data.`
-        : `Cannot save data (${code}). Enable browser storage — avoid strict private mode if saves fail.`,
-      'error'
-    );
-    return false;
-  }
-}
-
 /*
  * Data compatibility (GitHub Pages / localStorage):
  * — Keys like `items`, `shoppingList`, `credentials` are stable API surface for users’ backups.
  * — Prefer additive fields (optional props on objects) over renames; use migrate* helpers when normalizing.
- * — `load()` returns the default if JSON is missing or corrupt — never throws to the UI.
+ * — `load()` / `save()` are imported from utils/storage.js.
  */
-
-// ═══════════════════════════════════════════════════════════
-// UTILS
-// ═══════════════════════════════════════════════════════════
-const today = () => new Date().toISOString().split('T')[0];
-const uid = () => crypto.randomUUID();
-/** Directory URL of the current page (no hash/query) — resolves relative assets for print + `<img>`. */
-function documentBaseHref() {
-  try {
-    const u = new URL(window.location.href);
-    u.hash = '';
-    u.search = '';
-    const path = u.pathname || '/';
-    const i = path.lastIndexOf('/');
-    u.pathname = i >= 0 ? path.slice(0, i + 1) : '/';
-    return u.href;
-  } catch {
-    return window.location.href.split('#')[0].split('?')[0];
-  }
-}
-function rewriteImgSrcsForPrint(html, baseHref) {
-  const base = baseHref || documentBaseHref();
-  try {
-    const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html');
-    const root = doc.getElementById('root');
-    if (!root) return html;
-    root.querySelectorAll('img[src]').forEach((img) => {
-      const raw = img.getAttribute('src') || '';
-      img.setAttribute('src', resolveAssetUrl(raw, base));
-    });
-    return root.innerHTML;
-  } catch {
-    return html;
-  }
-}
 const parseAdminResetParams = () => {
   try {
     const q = new URLSearchParams(window.location.search);
@@ -618,36 +559,7 @@ function mergeBrandingWithOverrides(logoOverrides, contactOverrides) {
 function getInvoiceBranding(inv, brandingMap) {
   const b = brandingMap || mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}), load(BIZ_CONTACT_KEY, {}));
   if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return b.transfer;
-  return b[inv?.business] || { mark:'INV', name:'Invoice', location:'' };
-}
-function printHtmlDocument(html, title='Invoice') {
-  const w = window.open('', '_blank', 'width=1024,height=768');
-  if (!w) { showToast('Pop-up blocked. Please allow pop-ups.', 'error'); return false; }
-  const base = documentBaseHref();
-  const safeHtml = rewriteImgSrcsForPrint(html, base);
-  const escBase = base.replace(/"/g, '&quot;');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><base href="${escBase}"/><title>${title}</title>
-<style>
-  body{font-family:Segoe UI,Arial,sans-serif;margin:20px;color:#222}
-  .print-wrap{max-width:900px;margin:0 auto}
-  .invoice-mark{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:#8B4513;color:#fff;font-weight:800;font-size:13px;margin-right:10px;overflow:hidden}
-  .invoice-mark img{width:42px;height:42px;object-fit:cover}
-  table{width:100%;border-collapse:collapse;margin-top:10px}
-  th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px}
-  th{background:#f7f7f7}
-  .text-right{text-align:right}
-  .muted{color:#666;font-size:12px}
-  @media print{body{margin:8mm} .no-print{display:none}}
-</style></head><body><div class="print-wrap">${safeHtml}</div></body></html>`);
-  w.document.close();
-  w.focus();
-  setTimeout(()=>w.print(), 300);
-  return true;
-}
-function printInvoiceById(sectionId) {
-  const el = document.getElementById(sectionId);
-  if (!el) { showToast('Invoice content not found.', 'error'); return; }
-  printHtmlDocument(el.outerHTML, 'Invoice');
+  return b[inv?.business] || { mark: 'INV', name: 'Invoice', location: '' };
 }
 function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchive }) {
   const hasResetCode = !!load(ADMIN_RESET_CODE_KEY, '');
@@ -681,32 +593,6 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
     </div>
   );
 }
-function BrandMark({ brand }) {
-  const [failed, setFailed] = useState(false);
-  const logoSrc = useMemo(
-    () => (brand.logo ? resolveAssetUrl(brand.logo, documentBaseHref()) : ''),
-    [brand.logo]
-  );
-  return (
-    <div className="invoice-mark">
-      {!failed && logoSrc
-        ? <img src={logoSrc} alt={`${brand.name} logo`} onError={()=>setFailed(true)} />
-        : <span>{brand.mark}</span>}
-    </div>
-  );
-}
-
-function logActivity(action, details='') {
-  try {
-    const session = load('_session', null);
-    if (!session) return;
-    const entry = { id:uid(), username:session.username, action, details, timestamp:new Date().toISOString() };
-    const log = load('_activityLog', []);
-    log.push(entry);
-    if (log.length > 2000) log.splice(0, log.length - 2000);
-    save('_activityLog', log);
-  } catch(e) {}
-}
 function getProfile(username) {
   const profiles = load('_profiles', {});
   return profiles[username] || { displayName: username==='admin'?'Administrator':'Staff User', icon: username==='admin'?'👤':'👨‍🍳' };
@@ -715,56 +601,6 @@ function saveProfileData(username, data) {
   const profiles = load('_profiles', {});
   profiles[username] = { ...(profiles[username]||{}), ...data };
   save('_profiles', profiles);
-}
-
-// _seq: monotonic counters for human-readable invoice IDs (P-0001, C-0001, PPH-ENG-date-0001).
-let _seq = load('_seq',{purchase:0,catering:0});
-function nextId(type) {
-  _seq[type]=(_seq[type]||0)+1; save('_seq',_seq);
-  return (type==='purchase'?'P-':'C-')+String(_seq[type]).padStart(4,'0');
-}
-function nextTransferId(dateStr) {
-  const d = (dateStr || today()).replace(/-/g,'');
-  _seq.transfer = (_seq.transfer || 0) + 1;
-  save('_seq', _seq);
-  return `PPH-ENG-${d}-${String(_seq.transfer).padStart(4,'0')}`;
-}
-function normalizeTransferInvoice(inv) {
-  const date = inv?.date || today();
-  const lineItems = Array.isArray(inv?.lineItems) ? inv.lineItems : [];
-  const normalizedLines = lineItems.map(li => {
-    const price = +((li?.price ?? li?.unitPrice ?? 0) || 0);
-    const commission = +(li?.commission ?? (price * 0.15)).toFixed(2);
-    const total = +(li?.total ?? (price + commission)).toFixed(2);
-    return {
-      quantity: li?.quantity ?? li?.qty ?? '',
-      item: li?.item ?? li?.description ?? '',
-      price: +price.toFixed(2),
-      commission,
-      total
-    };
-  });
-  const subTotal = +(inv?.subTotal ?? normalizedLines.reduce((s, l) => s + (l.price || 0), 0)).toFixed(2);
-  const commissionTotal = +(inv?.commissionTotal ?? normalizedLines.reduce((s, l) => s + (l.commission || 0), 0)).toFixed(2);
-  const grandTotal = +(inv?.grandTotal ?? (subTotal + commissionTotal)).toFixed(2);
-  return {
-    ...inv,
-    id: inv?.id || nextTransferId(date),
-    invoiceType: inv?.invoiceType || 'pp_transfer',
-    status: inv?.status || 'unpaid',
-    date,
-    from: inv?.from || 'Parathas & Platters - Hackensack',
-    fromContact: inv?.fromContact || 'Hackensack Branch',
-    to: inv?.to || 'Parathas & Platters - Englewood',
-    toContact: inv?.toContact || 'Englewood Branch',
-    notes: inv?.notes || '',
-    lineItems: normalizedLines,
-    commissionRate: inv?.commissionRate ?? 0.15,
-    subTotal,
-    commissionTotal,
-    grandTotal,
-    createdAt: inv?.createdAt || new Date().toISOString()
-  };
 }
 
 function Toggle({ checked, onChange, label }) {

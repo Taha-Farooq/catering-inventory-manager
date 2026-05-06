@@ -16,8 +16,13 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |
 | `src/ui/Confirm.jsx` | Reusable destructive-confirm modal (used from `App.jsx`; z-index above nested modals) |
 | `src/ui/Modal.jsx` | Reusable dialog shell (used from `App.jsx` for settings, invoice forms, profile) |
-| `src/App.jsx` | Main React shell + tab implementations (large; BL-07 — extract more from here over time) |
+| `src/App.jsx` | Main React shell + remaining in-file tab components (BL-07 extraction in progress) |
 | `src/toastContext.jsx` | **`ToastProvider`** wraps `<App />` in `main.jsx`; **`showToast`** / **`toastApiFailure`** (global, works on login + modals) |
+| `src/utils/storage.js` | `load`, `save` (with quota/DMG-E010/E011 handling), `uid`, `today` — importable by any tab |
+| `src/utils/activity.js` | `logActivity(action, details)` — writes to `_activityLog`; imports from `storage.js` |
+| `src/utils/print.js` | `documentBaseHref`, `rewriteImgSrcsForPrint`, `printHtmlDocument`, `printInvoiceById` |
+| `src/utils/invoiceIds.js` | `nextId(type)`, `nextTransferId(dateStr)`, `normalizeTransferInvoice(inv)` — ID generators + transfer normaliser |
+| `src/ui/BrandMark.jsx` | `BrandMark` React component — renders business logo/mark badge on invoice headers |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |
 | `src/storageHealth.js` | localStorage probe, quota estimate, corrupt key scan, save-failure notify |
@@ -78,7 +83,7 @@ Boot-related:
 
 - **`DMG-E001`** — Bundle/scripts failed to load or hung before mount (watchdog).
 - **`DMG-E002`** — Mount threw or compile/runtime failure during startup.
-- **`DMG-E003`** — React render error thrown after initial mount. **Not yet wired** — tracked as BL-12. Implement via `src/ErrorBoundary.jsx` class component wrapping `<App>` in `main.jsx`.
+- **`DMG-E003`** — React render error thrown after initial mount. **Fixed** — `src/ErrorBoundary.jsx` wraps `<App>` in `main.jsx` (Slice 7).
 
 ## Data namespace policy
 
@@ -151,7 +156,7 @@ The Scan DB (`src/tabs/ScanDatabaseBeta.jsx`) is intentionally **admin-device-on
 
 - Prefer **small, focused PRs** matching backlog slices.
 - Do not revert **additive** `localStorage` keys without migration notes (see comments in `App.jsx` about compatibility).
-- After editing `src/App.jsx`, `src/ui/*`, or shared modules, run **`npm run build`**; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
+- After editing `src/App.jsx`, `src/ui/*`, `src/utils/*`, or `src/tabs/*`, run **`npm run build`** to confirm no import errors; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
 - **Invoice logos:** default files in **`public/assets/logos/*.jpg`**. Optional per-business **HTTPS** overrides in **Settings** → stored in localStorage key **`_logoOverrides`** (`LOGO_OVERRIDES_KEY` in `constants.js`); also embedded in backup ZIP `settings.json` as `logoOverrides` for round-trip.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 - **Entity IDs** use `crypto.randomUUID()` (BL-14). Existing IDs in localStorage use the old `_xxxxxxxxx` format and remain valid indefinitely.
@@ -179,27 +184,48 @@ Restoring an older ZIP shows a version-gap warning for any missing keys (Slice 1
 
 ## BRANDING constant (App.jsx)
 
-`BRANDING` in `App.jsx` (≈ line 592) holds per-business display data: `mark`, `name`, `location`, `address`, `phone`, `email`, `logo`. Update the `address`, `phone`, `email` fields with real contact info when deploying. These are hardcoded constants — making them editable in Settings is tracked as BL-23.
+`BRANDING` in `App.jsx` (search for `const BRANDING`) holds per-business display data: `mark`, `name`, `location`, `address`, `phone`, `email`, `logo`. Update the `address`, `phone`, `email` fields with real contact info when deploying. These are hardcoded constants — making them editable in Settings is tracked as BL-23.
 
 `getInvoiceBranding(inv, brandingMap)` resolves the correct brand for an invoice (falls back to `b[inv.business]` or a generic fallback). All four invoice types (Purchase, Catering, Transfer, Payroll) render the full business header (name, address, phone, email) on their view/print modals.
 
 ## Tab file layout
 
-| Component | File | Notes |
-|-----------|------|-------|
-| `PurchaseInvoices` | `src/App.jsx` | in-file component |
-| `CateringInvoices` | `src/App.jsx` | in-file component; `customerAddress` field added |
-| `TransferInvoices` | `src/App.jsx` | in-file component |
-| `PayrollInvoices` | `src/tabs/PayrollInvoices.jsx` | **extracted** — manual payroll creation + edit/view/print |
-| `InvoiceArchive` | `src/App.jsx` | in-file; `selectedBusiness` + `bizF` business filter added |
-| `ActivityLog` | `src/tabs/ActivityLog.jsx` | **extracted** — audit trail, user/date filters, clear-with-confirm |
-| `ScanDatabaseBeta` | `src/tabs/ScanDatabaseBeta.jsx` | **extracted** — admin-device scan organiser; props: `scanApiCall`, `hashPwd` |
+| Component | File | Status |
+|-----------|------|--------|
+| `PayrollInvoices` | `src/tabs/PayrollInvoices.jsx` | extracted — manual payroll creation + edit/view/print |
+| `ActivityLog` | `src/tabs/ActivityLog.jsx` | extracted — audit trail, user/date filters, clear-with-confirm |
+| `ScanDatabaseBeta` | `src/tabs/ScanDatabaseBeta.jsx` | extracted — admin-device scan organiser; props: `scanApiCall`, `hashPwd` |
+| `CustomerManagement` | `src/tabs/CustomerManagement.jsx` | extracted — customer CRUD, contact database |
+| `DailyIncomeExpense` | `src/tabs/DailyIncomeExpense.jsx` | extracted — daily finance tracker |
+| `CheckInOutPage` | `src/tabs/CheckInOutPage.jsx` | extracted — QR attendance + kiosk; prop: `attendanceApiCall` |
+| `MenuMarginsLab` | `src/tabs/MenuMarginsLab.jsx` | extracted — menu costing & margin analytics |
+| `ItemDatabase` | `src/tabs/ItemDatabase.jsx` | extracted — inventory item catalog |
+| `ShoppingList` | `src/tabs/ShoppingList.jsx` | extracted — shopping list + auto-complete |
+| `PurchaseInvoices` | `src/tabs/PurchaseInvoices.jsx` | extracted — purchase invoices; prop: `getInvoiceBranding` |
+| `CateringInvoices` | `src/tabs/CateringInvoices.jsx` | extracted — catering invoices; prop: `getInvoiceBranding` |
+| `TransferInvoices` | `src/tabs/TransferInvoices.jsx` | extracted — inter-business transfer invoices; prop: `getInvoiceBranding` |
+| `InvoiceArchive` | `src/tabs/InvoiceArchive.jsx` | extracted — cross-type invoice archive; prop: `getInvoiceBranding` |
+| `Analytics` | `src/tabs/Analytics.jsx` | extracted — revenue/cost analytics with Recharts |
+| `PriceHistory` | `src/tabs/PriceHistory.jsx` | extracted — price history table + chart |
+| `PriceUpdater` | `src/tabs/PriceUpdater.jsx` | extracted — bulk price update workflow |
 
-`src/tabs/` is the target directory for all future tab extractions (Epic C / BL-07).
+`src/tabs/` is the extraction target for all tab components (Epic C / BL-07). `src/App.jsx` now holds only the shell: auth, settings modal, login screen, and routing.
+
+### Shared utilities pattern for extracted tabs
+
+Each extracted tab file imports only what it needs — no props drilling of utility functions:
+```js
+import { load, save, uid, today } from '../utils/storage.js';
+import { logActivity } from '../utils/activity.js';
+import { printHtmlDocument, printInvoiceById } from '../utils/print.js';
+import { nextId, nextTransferId, normalizeTransferInvoice } from '../utils/invoiceIds.js';
+import { BrandMark } from '../ui/BrandMark.jsx';
+```
+Exception: `getInvoiceBranding` remains in `App.jsx` (depends on `BRANDING` constant + `mergeBrandingWithOverrides`) and is passed as a prop to invoice tabs.
 
 ## Known technical debt
 
-- `src/App.jsx` is monolithic (~5650 lines); **`src/ui/Confirm.jsx`**, **`src/ui/Modal.jsx`**, **`src/tabs/PayrollInvoices.jsx`**, **`src/tabs/ActivityLog.jsx`**, and **`src/tabs/ScanDatabaseBeta.jsx`** are extracts — continue with other tabs (`BL-07`).
+- `src/App.jsx` shell (~1800 lines after Epic C extraction); all tabs are in `src/tabs/`, utility functions in `src/utils/`. Continue shrinking App.jsx with SettingsModal + LoginScreen extractions as BL-07 follow-ups.
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
 - ~~No React error boundary (DMG-E003)~~ — **Fixed** (Slice 7, `src/ErrorBoundary.jsx`).
 - ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).
