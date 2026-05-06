@@ -101,6 +101,17 @@ These are **separate systems** — scan-db stores document references, not payro
 
 **Scan DB backup gap:** `scan-db.json` lives on the backend and is NOT included in the Settings ZIP export. Use `/api/scan/export` (admin, GET) to download a separate JSON backup. See BL-18 for adding a UI trigger.
 
+## Scan DB architecture (admin-device only)
+
+The Scan DB (`src/tabs/ScanDatabaseBeta.jsx`) is intentionally **admin-device-only**. It requires the Node backend running locally (typically `http://localhost:8787`). The system:
+
+- Watches a configured inbox folder for newly scanned files (PDFs, images)
+- Organises them into a **Windows folder-based archive**: `Library Root / Year / DocType / descriptive-filename`
+- Descriptive filenames encode sender, date, and document type at a glance (e.g. `2026-04-15_Invoice_SupplierX.pdf`)
+- Stores metadata (sender, docType, businessTag, status) in `backend/data/scan-db.json`
+
+**This system is entirely separate from the invoice database on the site.** Overlaps are intentional (e.g. a scanned supplier invoice may also appear as a `purchaseInvoice` record), but the two are not linked. The scan DB tracks raw document files; the invoice DB tracks accounting entries entered by users. Do NOT attempt to merge or auto-sync them without explicit design work (BL-18).
+
 ## Password hashing
 
 `hashPwd(pwd, username)` in `App.jsx` computes `SHA-256(pwd + ':' + username.toLowerCase())` — a deterministic per-user salt (Slice 10, BL-19). Login tries the salted hash first; on a legacy no-salt match it silently upgrades the stored credential. `saveResetCode` intentionally stays unsalted (standalone PIN, not user-linked).
@@ -172,7 +183,7 @@ Restoring an older ZIP shows a version-gap warning for any missing keys (Slice 1
 
 `getInvoiceBranding(inv, brandingMap)` resolves the correct brand for an invoice (falls back to `b[inv.business]` or a generic fallback). All four invoice types (Purchase, Catering, Transfer, Payroll) render the full business header (name, address, phone, email) on their view/print modals.
 
-## Invoice tabs file layout
+## Tab file layout
 
 | Component | File | Notes |
 |-----------|------|-------|
@@ -181,12 +192,14 @@ Restoring an older ZIP shows a version-gap warning for any missing keys (Slice 1
 | `TransferInvoices` | `src/App.jsx` | in-file component |
 | `PayrollInvoices` | `src/tabs/PayrollInvoices.jsx` | **extracted** — manual payroll creation + edit/view/print |
 | `InvoiceArchive` | `src/App.jsx` | in-file; `selectedBusiness` + `bizF` business filter added |
+| `ActivityLog` | `src/tabs/ActivityLog.jsx` | **extracted** — audit trail, user/date filters, clear-with-confirm |
+| `ScanDatabaseBeta` | `src/tabs/ScanDatabaseBeta.jsx` | **extracted** — admin-device scan organiser; props: `scanApiCall`, `hashPwd` |
 
 `src/tabs/` is the target directory for all future tab extractions (Epic C / BL-07).
 
 ## Known technical debt
 
-- `src/App.jsx` is monolithic (~5900 lines); **`src/ui/Confirm.jsx`**, **`src/ui/Modal.jsx`**, and **`src/tabs/PayrollInvoices.jsx`** are extracts — continue with other tabs (`BL-07`).
+- `src/App.jsx` is monolithic (~5650 lines); **`src/ui/Confirm.jsx`**, **`src/ui/Modal.jsx`**, **`src/tabs/PayrollInvoices.jsx`**, **`src/tabs/ActivityLog.jsx`**, and **`src/tabs/ScanDatabaseBeta.jsx`** are extracts — continue with other tabs (`BL-07`).
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
 - ~~No React error boundary (DMG-E003)~~ — **Fixed** (Slice 7, `src/ErrorBoundary.jsx`).
 - ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).
