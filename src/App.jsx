@@ -20,6 +20,7 @@ import {
   notifySaveFailure,
 } from './storageHealth.js';
 import HelpCenter from './HelpCenter.jsx';
+import PayrollInvoices from './tabs/PayrollInvoices.jsx';
 import Confirm from './ui/Confirm.jsx';
 import Modal from './ui/Modal.jsx';
 import {
@@ -590,19 +591,15 @@ function openDiagnosticsGitHubIssue(localFeatureWarning) {
 }
 
 const BRANDING = {
-  degrill:  { mark:'DG', name:'DeGrill Inc', location:'Spring Valley, NY', logo:'assets/logos/degrill.jpg' },
-  parathas: { mark:'PP', name:'Parathas and Platters Inc', location:'Hackensack, NJ', logo:'assets/logos/parathas.jpg' },
-  dera:     { mark:'DMG', name:'Dera Masala Grill Inc', location:'Clifton, NJ', logo:'assets/logos/dera.jpg' },
-  transfer: { mark:'PP', name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood', logo:'assets/logos/parathas.jpg' }
+  degrill:  { mark:'DG',  name:'DeGrill Inc',                        location:'Spring Valley, NY',     address:'Spring Valley, NY 10977',          phone:'(845) 555-0100', email:'info@degrill.com',   logo:'assets/logos/degrill.jpg' },
+  parathas: { mark:'PP',  name:'Parathas and Platters Inc',          location:'Hackensack, NJ',        address:'Hackensack, NJ 07601',             phone:'(201) 555-0200', email:'info@parathas.com',  logo:'assets/logos/parathas.jpg' },
+  dera:     { mark:'DMG', name:'Dera Masala Grill Inc',              location:'Clifton, NJ',           address:'Clifton, NJ 07011',                phone:'(973) 555-0300', email:'info@deramasala.com',logo:'assets/logos/dera.jpg' },
+  transfer: { mark:'PP',  name:'Parathas & Platters Internal Transfer', location:'Hackensack -> Englewood', address:'Hackensack, NJ 07601',        phone:'(201) 555-0200', email:'info@parathas.com',  logo:'assets/logos/parathas.jpg' },
 };
 function mergeBrandingWithOverrides(overrides) {
   const o = normalizeLogoOverrides(overrides);
-  return {
-    degrill: { ...BRANDING.degrill, logo: o.degrill || BRANDING.degrill.logo },
-    parathas: { ...BRANDING.parathas, logo: o.parathas || BRANDING.parathas.logo },
-    dera: { ...BRANDING.dera, logo: o.dera || BRANDING.dera.logo },
-    transfer: { ...BRANDING.transfer, logo: o.transfer || BRANDING.transfer.logo },
-  };
+  const merge = (key) => ({ ...BRANDING[key], logo: o[key] || BRANDING[key].logo });
+  return { degrill: merge('degrill'), parathas: merge('parathas'), dera: merge('dera'), transfer: merge('transfer') };
 }
 function getInvoiceBranding(inv, brandingMap) {
   const b = brandingMap || mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}));
@@ -2514,22 +2511,31 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
   function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
   function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);showToast('Purchase invoice marked paid.');logActivity('mark_paid','Marked purchase invoice paid '+id);}
 
+  const [showAllBiz, setShowAllBiz] = useState(false);
+  const visiblePurchase = showAllBiz ? [...purchaseInvoices].reverse() : [...purchaseInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
+
   return (
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
-        <div className="section-title" style={{margin:0}}>Purchase Invoices</div>
-        <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        <div className="section-title" style={{margin:0}}>Purchase Invoices — {BUSINESSES[selectedBusiness]?.name||selectedBusiness}</div>
+        <div className="flex gap-2 flex-wrap" style={{alignItems:'center'}}>
+          <label style={{fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}>
+            <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
+            All businesses
+          </label>
+          <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        </div>
       </div>
 
-      {purchaseInvoices.length===0
-        ? <div className="card empty-state">No purchase invoices yet. Click "+ New Invoice" to create one.</div>
+      {visiblePurchase.length===0
+        ? <div className="card empty-state">{purchaseInvoices.length===0 ? 'No purchase invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>
         : (
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
                 <thead><tr><th>Invoice #</th><th>Supplier</th><th>Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
-                  {[...purchaseInvoices].reverse().map(inv=>(
+                  {visiblePurchase.map(inv=>(
                     <tr key={inv.id}>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td style={{fontWeight:600}}>{inv.supplier}</td>
@@ -2609,9 +2615,18 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
-                <div><div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).location}</div></div>
+                <div>
+                  <div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
+                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#888'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
+                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                </div>
               </div>
-              <div style={{textAlign:'right',fontSize:13}}><div><strong>Invoice #:</strong> {viewInv.id}</div><div><strong>Date:</strong> {fmtDate(viewInv.date)}</div><div><strong>Supplier:</strong> {viewInv.supplier}</div></div>
+              <div style={{textAlign:'right',fontSize:13}}>
+                <div><strong>Invoice #:</strong> {viewInv.id}</div>
+                <div><strong>Date:</strong> {fmtDate(viewInv.date)}</div>
+                <div><strong>Supplier:</strong> {viewInv.supplier}</div>
+              </div>
             </div>
             <div className="tbl-wrap" style={{marginBottom:14}}>
               <table><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th></tr></thead>
@@ -2658,7 +2673,7 @@ function PurchaseInvoices({ purchaseInvoices, setPurchaseInvoices, selectedBusin
 function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [], brandingMap }) {
   const isAdmin = userRole==='admin';
   const blankF = () => ({
-    customerId:'',customerName:'',customerPhone:'',customerEmail:'',
+    customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:'',
     useRange:false,date:today(),dateStart:today(),dateEnd:today(),
     eventType:'Catering',business:selectedBusiness,
     lineItems:[{description:'',quantity:'1',unitPrice:''}],
@@ -2680,7 +2695,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
   const [confirmId, setConfirmId] = useState(null);
 
   function setLine(i,f2,v){setForm(f=>{const l=[...f.lineItems];l[i]={...l[i],[f2]:v};return{...f,lineItems:l};});}
-  function selCust(id){const c=customers.find(x=>x.id===id);if(c)setForm(f=>({...f,customerId:c.id,customerName:c.name,customerPhone:c.phone,customerEmail:c.email}));else setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:''}));}
+  function selCust(id){const c=customers.find(x=>x.id===id);if(c)setForm(f=>({...f,customerId:c.id,customerName:c.name,customerPhone:c.phone||'',customerEmail:c.email||'',customerAddress:c.address||''}));else setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:''}));}
 
   function calcT(){
     const fb=BUSINESSES[form.business]||BUSINESSES[selectedBusiness];
@@ -2711,6 +2726,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
       customerName: inv.customerName || '',
       customerPhone: inv.customerPhone || '',
       customerEmail: inv.customerEmail || '',
+      customerAddress: inv.customerAddress || '',
       useRange: !!inv.useRange,
       date: inv.date || today(),
       dateStart: inv.dateStart || today(),
@@ -2734,7 +2750,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     if (T.dep<0){showToast('Deposit cannot be negative.','error');return;}
     let custId=form.customerId;
     if (!custId&&form.customerName.trim()){
-      const nc={id:uid(),name:form.customerName,phone:form.customerPhone,email:form.customerEmail,address:'',notes:'',createdAt:today()};
+      const nc={id:uid(),name:form.customerName,phone:form.customerPhone,email:form.customerEmail,address:form.customerAddress||'',notes:'',createdAt:today()};
       const uc=[...customers,nc];setCustomers(uc);save('customers',uc);custId=nc.id;
     }
     const status=T.dep>=T.grand?'paid':T.dep>0?'partial':'unpaid';
@@ -2743,7 +2759,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
       if (!prev) { showToast('Invoice not found.', 'error'); return; }
       const inv={
         ...prev,
-        customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,
+        customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,customerAddress:form.customerAddress||'',
         useRange:form.useRange,date:form.useRange?null:form.date,dateStart:form.useRange?form.dateStart:null,dateEnd:form.useRange?form.dateEnd:null,
         eventType:form.eventType,lineItems:valid,subtotal:T.sub,
         ccFeeEnabled:form.ccFeeEnabled,ccFee:T.cc,taxEnabled:form.taxEnabled,taxRate:T.fb.taxRate,taxAmount:T.taxAmt,
@@ -2758,7 +2774,7 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
     }
     const inv={
       id:nextId('catering'),type:'catering',business:form.business||selectedBusiness,
-      customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,
+      customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,customerAddress:form.customerAddress||'',
       useRange:form.useRange,date:form.useRange?null:form.date,dateStart:form.useRange?form.dateStart:null,dateEnd:form.useRange?form.dateEnd:null,
       eventType:form.eventType,lineItems:valid,subtotal:T.sub,
       ccFeeEnabled:form.ccFeeEnabled,ccFee:T.cc,taxEnabled:form.taxEnabled,taxRate:T.fb.taxRate,taxAmount:T.taxAmt,
@@ -2773,22 +2789,31 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
   function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);showToast('Catering invoice deleted.');logActivity('delete_invoice','Deleted catering invoice '+id);}
   function markPaid(id){const u=cateringInvoices.map(x=>x.id===id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);showToast('Catering invoice marked paid.');logActivity('mark_paid','Marked catering invoice paid '+id);}
 
+  const [showAllBiz, setShowAllBiz] = useState(false);
+  const visibleCatering = showAllBiz ? [...cateringInvoices].reverse() : [...cateringInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
+
   return (
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
-        <div className="section-title" style={{margin:0}}>Catering Invoices</div>
-        <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        <div className="section-title" style={{margin:0}}>Catering Invoices — {BUSINESSES[selectedBusiness]?.name||selectedBusiness}</div>
+        <div className="flex gap-2 flex-wrap" style={{alignItems:'center'}}>
+          <label style={{fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}>
+            <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
+            All businesses
+          </label>
+          <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        </div>
       </div>
 
-      {cateringInvoices.length===0
-        ? <div className="card empty-state">No catering invoices yet. Click "+ New Invoice" to create one.</div>
+      {visibleCatering.length===0
+        ? <div className="card empty-state">{cateringInvoices.length===0 ? 'No catering invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>
         : (
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
                 <thead><tr><th>Invoice #</th><th>Customer</th><th>Event Date</th><th>Event</th><th>Total</th><th>Balance Due</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
-                  {[...cateringInvoices].reverse().map(inv=>(
+                  {visibleCatering.map(inv=>(
                     <tr key={inv.id}>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td style={{fontWeight:600}}>{inv.customerName}</td>
@@ -2822,9 +2847,12 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
           </FS>
           <FI label="Customer Name *" value={form.customerName} onChange={e=>setForm(f=>({...f,customerName:e.target.value,customerId:''}))} placeholder="Full name" />
         </div>
-        <div className="grid-2 mb-4">
+        <div className="grid-2 mb-3">
           <FI label="Phone" value={form.customerPhone} onChange={e=>setForm(f=>({...f,customerPhone:e.target.value}))} />
           <FI label="Email" type="email" value={form.customerEmail} onChange={e=>setForm(f=>({...f,customerEmail:e.target.value}))} />
+        </div>
+        <div className="mb-4">
+          <FI label="Customer Address" value={form.customerAddress||''} onChange={e=>setForm(f=>({...f,customerAddress:e.target.value}))} placeholder="Street, City, State ZIP" />
         </div>
 
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:14}}>Event Details</div>
@@ -2900,14 +2928,24 @@ function CateringInvoices({ cateringInvoices, setCateringInvoices, customers, se
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
-                <div><div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div><div style={{fontSize:13,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).location}</div></div>
+                <div>
+                  <div style={{fontWeight:700,fontSize:19,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
+                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#888'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
+                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                </div>
               </div>
-              <div style={{textAlign:'right',fontSize:13}}><div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div><div><strong>Event:</strong> {viewInv.eventType}</div></div>
+              <div style={{textAlign:'right',fontSize:13}}>
+                <div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div>
+                <div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div>
+                <div><strong>Event:</strong> {viewInv.eventType}</div>
+              </div>
             </div>
             <div style={{padding:'10px 14px',background:'var(--cream)',borderRadius:6,marginBottom:16,fontSize:14}}>
               <strong style={{fontSize:15}}>{viewInv.customerName}</strong>
-              {viewInv.customerPhone&&<div>📞 {viewInv.customerPhone}</div>}
-              {viewInv.customerEmail&&<div>✉️ {viewInv.customerEmail}</div>}
+              {viewInv.customerPhone&&<div>Tel: {viewInv.customerPhone}</div>}
+              {viewInv.customerEmail&&<div>{viewInv.customerEmail}</div>}
+              {viewInv.customerAddress&&<div style={{fontSize:12,color:'#666',marginTop:2}}>{viewInv.customerAddress}</div>}
             </div>
             <div className="tbl-wrap" style={{marginBottom:16}}>
               <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
@@ -3435,10 +3473,11 @@ function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) 
 // ═══════════════════════════════════════════════════════════
 // TAB 7 — INVOICE ARCHIVE
 // ═══════════════════════════════════════════════════════════
-function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, payrollInvoices, setPayrollInvoices, userRole, brandingMap }) {
+function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoices, setCateringInvoices, transferInvoices, setTransferInvoices, payrollInvoices, setPayrollInvoices, userRole, brandingMap, selectedBusiness }) {
   const isAdmin=userRole==='admin';
   const [typeF,setTypeF]=useState('all');
   const [statusF,setStatusF]=useState('all');
+  const [bizF,setBizF]=useState(selectedBusiness||'all');
   const [search,setSearch]=useState('');
   const [dateFrom,setDateFrom]=useState('');
   const [dateTo,setDateTo]=useState('');
@@ -3461,12 +3500,13 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
   const filtered=useMemo(()=>all.filter(inv=>{
     if(typeF!=='all'&&inv._type!==typeF) return false;
     if(statusF!=='all'&&inv.status!==statusF) return false;
+    if(bizF!=='all'&&inv.business&&inv.business!==bizF) return false;
     const q=search.toLowerCase();
     if(q&&![(inv.customerName||''),(inv.supplier||''),inv.id].some(s=>s.toLowerCase().includes(q))) return false;
     if(dateFrom&&inv._date&&inv._date<dateFrom) return false;
     if(dateTo&&inv._date&&inv._date>dateTo) return false;
     return true;
-  }),[all,typeF,statusF,search,dateFrom,dateTo]);
+  }),[all,typeF,statusF,bizF,search,dateFrom,dateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -3552,6 +3592,12 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
       </div>
       <div className="card mb-4">
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:12}}>
+          <div className="field" style={{margin:0}}><label>Business</label>
+            <select className="input" value={bizF} onChange={e=>{setBizF(e.target.value);setPage(1);}}>
+              <option value="all">All Businesses</option>
+              {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
+            </select>
+          </div>
           <div className="field" style={{margin:0}}><label>Type</label>
             <select className="input" value={typeF} onChange={e=>setTypeF(e.target.value)}>
               <option value="all">All Types</option><option value="catering">Catering</option><option value="purchase">Purchase</option><option value="transfer">Transfer</option><option value="payroll">Payroll</option>
@@ -3627,9 +3673,18 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
-                <div><div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div><div style={{fontSize:13,color:'#888'}}>{viewInv._type==='transfer'?(viewInv.supplier||'Hackensack -> Englewood'):getInvoiceBranding(viewInv, brandingMap).location}</div></div>
+                <div>
+                  <div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
+                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#888'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
+                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                </div>
               </div>
-              <div style={{textAlign:'right',fontSize:13}}><div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div><div>{viewInv.customerName||viewInv.supplier}</div><span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span></div>
+              <div style={{textAlign:'right',fontSize:13}}>
+                <div style={{fontWeight:700,fontSize:18,color:'var(--brown)'}}>{viewInv.id}</div>
+                <div>{viewInv.customerName||viewInv.supplier||viewInv.employeeName}</div>
+                <span className={`badge badge-${viewInv.status}`} style={{marginTop:4,display:'inline-block'}}>{viewInv.status}</span>
+              </div>
             </div>
             {viewInv.lineItems&&(
               <div className="tbl-wrap" style={{marginBottom:14}}>
@@ -3648,11 +3703,17 @@ function InvoiceArchive({ purchaseInvoices, setPurchaseInvoices, cateringInvoice
             </div>
             {viewInv._type==='catering'&&<div style={{marginTop:12,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}><strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}</div>}
             {viewInv._type==='payroll'&&(
-              <div style={{marginTop:12,padding:10,background:'#E8F4FC',borderRadius:6,fontSize:12,color:'#1e4f72'}}>
-                <strong>Payroll Standard:</strong> {viewInv.invoiceStandard || 'PAYROLL_WEEKLY_V1'}
-                <br /><strong>Employee:</strong> {viewInv.employeeName || viewInv.customerName} (@{viewInv.employeeUsername || 'user'})
-                <br /><strong>Hours:</strong> {viewInv.hours || 0} (Regular {viewInv.regularHours || 0}, OT {viewInv.overtimeHours || 0})
-                <br /><strong>Rate:</strong> {fmt$(viewInv.hourlyRate || 0)} / hour
+              <div style={{marginTop:12,padding:12,background:'#E8F4FC',borderRadius:6,fontSize:13,color:'#1e4f72'}}>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <tbody>
+                    <tr><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>Employee</td><td style={{padding:'5px 8px',border:'1px solid #c8e0f0',fontWeight:600}}>{viewInv.employeeName||viewInv.customerName}{viewInv.employeeUsername?` (@${viewInv.employeeUsername})`:''}</td></tr>
+                    {(viewInv.periodStart||viewInv.periodEnd)&&<tr><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>Pay Period</td><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>{fmtDate(viewInv.periodStart||viewInv.date)} – {fmtDate(viewInv.periodEnd||viewInv.date)}</td></tr>}
+                    <tr><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>Regular Hours</td><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>{viewInv.regularHours||0}</td></tr>
+                    {+viewInv.overtimeHours>0&&<tr><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>Overtime Hours (1.5×)</td><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>{viewInv.overtimeHours}</td></tr>}
+                    <tr><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>Hourly Rate</td><td style={{padding:'5px 8px',border:'1px solid #c8e0f0'}}>{fmt$(viewInv.hourlyRate||0)}/hr</td></tr>
+                    <tr><td style={{padding:'5px 8px',border:'1px solid #c8e0f0',fontWeight:700}}>Total Pay</td><td style={{padding:'5px 8px',border:'1px solid #c8e0f0',fontWeight:700,color:'var(--brown)'}}>{fmt$(viewInv.total||0)}</td></tr>
+                  </tbody>
+                </table>
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
@@ -3975,7 +4036,9 @@ function TransferInvoices({ transferInvoices, setTransferInvoices, items = [], b
                 <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
                 <div>
                   <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
-                  <div style={{fontSize:13,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).location}</div>
+                  <div style={{fontSize:12,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
+                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#666'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
+                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
                 </div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}>
@@ -5800,11 +5863,12 @@ function App() {
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} brandingMap={brandingMap} />}
         {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} />}
-        {tab==='catering'  && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} />}
+        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
         {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} />}
-        {tab==='archive'   && <InvoiceArchive   purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} brandingMap={brandingMap} />}
+        {tab==='payroll'   && isAdmin && <PayrollInvoices payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} selectedBusiness={biz} brandingMap={brandingMap} />}
+        {tab==='archive'   && isAdmin && <InvoiceArchive purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} brandingMap={brandingMap} selectedBusiness={biz} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog />}

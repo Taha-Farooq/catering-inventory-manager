@@ -245,6 +245,26 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ---
 
+### Slice 15 — Editable business contact info in Settings (BL-27)
+
+**Status:** Queued
+
+**Problem:** `BRANDING` phone/address/email are hardcoded constants in `App.jsx`. Updating them requires a code change and redeploy — no admin can change them without touching source.
+
+**Scope:**
+- Add a "Business Contact Info" section to `SettingsModal` with fields for each business: phone, address, email.
+- Store in localStorage key `_bizContact` (JSON object keyed by business ID).
+- `mergeBrandingWithOverrides` (or a new `resolveBranding`) reads `_bizContact` overrides on top of BRANDING defaults.
+- Include `_bizContact` in backup ZIP (bump to v2.2) and restore in `runBackupImport`.
+- Add `_bizContact` to `STORAGE_SCAN_KEYS` in `storageHealth.js`.
+
+**Acceptance:**
+- Admin can set phone/address/email per business in Settings; saved immediately.
+- Invoice prints show the updated contact info.
+- Backup ZIP includes the contact overrides; restoring a ZIP restores them.
+
+---
+
 ## Epics (own planning cycle)
 
 Large items that need their own kick-off before breaking into slices.
@@ -277,6 +297,28 @@ Large items that need their own kick-off before breaking into slices.
 | BL-20 | Document `_seq` key | **Done** — Slice 10 |
 | BL-21 | QR code self-hosting (remove api.qrserver.com) | Done → Slice 12 |
 | BL-22 | Backup version migration warning (v2.0 ZIPs) | Done → Slice 13 |
+| BL-23 | Business contact info on invoices (phone/address/email) | **Done** — Slice 14 |
+| BL-24 | Per-business invoice filtering (UI) | **Done** — Slice 14 |
+| BL-25 | Invoice tabs admin-only auth restriction | **Done** — Slice 14 |
+| BL-26 | Manual payroll invoice creation + edit (PayrollInvoices tab) | **Done** — Slice 14 |
+| BL-27 | Editable BRANDING contact info in Settings | Queued → Slice 15 |
+| BL-28 | Customer address field on catering invoices | **Done** — Slice 14 |
+
+---
+
+## Slice 14 — Business identity, auth hardening, payroll manual entry
+
+**Status:** Done — multi-feature slice addressing business contact info on invoices, per-business filtering, admin-only access, and standalone payroll invoice management.
+
+**What was implemented:**
+
+- **BRANDING expanded:** `phone`, `address`, `email` fields added to all four brand entries in `App.jsx`; all invoice view/print modals (Purchase, Catering, Transfer, Archive) now show full business header.
+- **Customer address:** `customerAddress` field added to catering invoice form, save paths, and view display (BL-28).
+- **Per-business filtering:** Purchase and Catering invoice tabs now default to the selected business with an "All businesses" checkbox toggle. Archive tab has a Business dropdown filter (defaults to selected business).
+- **Auth hardening (BL-25):** `catering` and `archive` tabs now require `isAdmin`. Non-admin `ALL_USER_TABS` no longer includes any invoice tab — staff see only Check In/Out, Shopping, Items, Price Updater, Daily Finance, Help.
+- **Payroll Invoices tab (BL-26):** New `src/tabs/PayrollInvoices.jsx` component — first tab extracted to `src/tabs/`. Features: list with business filter, create form (employee name, business, pay period type, start/end date, hourly rate, regular/overtime hours, live pay preview), view modal with business branding header, edit, mark paid, delete, print. Payroll records use `invoiceStandard: 'PAYROLL_MANUAL_V1'` to distinguish from auto-generated weekly records.
+- **Transfer tab rename:** "P&P Transfer Inv." → "Transfer Inv." (BL-17 partial).
+- **Tests:** constants.test.js expanded to 6 tests; 51 total passing.
 
 ---
 
@@ -285,7 +327,7 @@ Large items that need their own kick-off before breaking into slices.
 1. **Support channel:** Single email vs in-app only? (Affects diagnostics copy format.)
 2. **Admin reset:** When `DMG-E012` triggers, is backend reset always allowed or device-local only?
 3. **COGS (Epic D / BL-01):** Per-business recipes vs global catalog? Tax inclusive/exclusive for margin?
-4. **Multi-business (Epic A / BL-17):** Is the shared item/customer catalog intentional across all three locations, or should DeGrill, Parathas, and Dera have isolated data stores?
+4. **Multi-business (Epic A / BL-17):** Shared item/customer catalog is intentional. Invoice filtering is now UI-level (by `business` field on each record). Scoped localStorage keys remain deferred unless scale demands it.
 
 ---
 

@@ -86,11 +86,11 @@ Boot-related:
 
 **Current intentional design:**
 - `items` (inventory catalog) and `customers` are **shared across all businesses** — the same vendors and clients serve all three locations.
-- Invoice keys (`purchaseInvoices`, `cateringInvoices`, `transferInvoices`, `payrollInvoices`) are also currently shared, meaning invoices from all businesses appear in the same list. This is pragmatic for a small operation but means the Archive tab shows cross-business data unless filtered by a UI field on the invoice record itself.
+- Invoice keys (`purchaseInvoices`, `cateringInvoices`, `transferInvoices`, `payrollInvoices`) are shared in localStorage but each invoice record carries a `business` field (string key e.g. `'degrill'`). Each invoice tab defaults to filtering by the currently selected business, with an "All businesses" toggle available to admins. This lets each business see their own data while keeping a single storage key.
 
-**Decision needed (BL-17):** If invoices should be strictly isolated per business, add a `businessId` field to each invoice (already present on new records going forward) and filter displays by `_lastBiz`. A scoped-key migration (`purchaseInvoices_degrill`, etc.) is a larger change — track separately if needed.
+**Invoice auth:** All invoice and customer tabs (`purchase`, `catering`, `transfer`, `payroll`, `archive`, `customers`) are **admin-only**. Non-admin staff only see: Check In/Out, Shopping, Items, Price Updater, Daily Finance, Help.
 
-**Transfer invoices:** The "P&P Transfer Inv." tab refers to inter-business inventory transfers. The name implies Parathas and Platters is always the source, but the tab is available to all businesses. Rename to "Transfer Invoices" when generalizing directions is needed (BL-17).
+**Transfer invoices:** Tab renamed to "Transfer Inv." (from "P&P Transfer Inv.") to reflect that any business can originate a transfer. Source/destination are stored in `from`/`to` fields on the invoice record.
 
 ## Payroll invoices vs. Scan DB
 
@@ -103,9 +103,7 @@ These are **separate systems** — scan-db stores document references, not payro
 
 ## Password hashing
 
-`hashPwd(pwd)` in `App.jsx` computes `SHA-256(password)` with no salt. This is a known weak point: identical passwords across users produce identical hashes. The same hashes are stored in `backend/data/credentials.json`.
-
-Planned improvement (BL-19): use `SHA-256(password + ':' + username.toLowerCase())` as a deterministic per-user salt. Transition plan: attempt old hash first on login, re-hash with salt on success. No stored-salt column needed.
+`hashPwd(pwd, username)` in `App.jsx` computes `SHA-256(pwd + ':' + username.toLowerCase())` — a deterministic per-user salt (Slice 10, BL-19). Login tries the salted hash first; on a legacy no-salt match it silently upgrades the stored credential. `saveResetCode` intentionally stays unsalted (standalone PIN, not user-linked).
 
 ## Storage key reference
 
@@ -166,11 +164,31 @@ Restoring a v2.0 or older ZIP leaves `transferInvoices`, `payrollInvoices`, and 
 
 `CheckInOutPage` generates kiosk QR images using the `qrcode` npm package (Slice 12, BL-21). The previous external `api.qrserver.com` CDN call has been removed. QR is generated client-side via `QRCode.toDataURL(url)` and stored as a data-URL in `qrDataUrl` state — no outbound network requests for QR rendering.
 
+## BRANDING constant (App.jsx)
+
+`BRANDING` in `App.jsx` (≈ line 592) holds per-business display data: `mark`, `name`, `location`, `address`, `phone`, `email`, `logo`. Update the `address`, `phone`, `email` fields with real contact info when deploying. These are hardcoded constants — making them editable in Settings is tracked as BL-23.
+
+`getInvoiceBranding(inv, brandingMap)` resolves the correct brand for an invoice (falls back to `b[inv.business]` or a generic fallback). All four invoice types (Purchase, Catering, Transfer, Payroll) render the full business header (name, address, phone, email) on their view/print modals.
+
+## Invoice tabs file layout
+
+| Component | File | Notes |
+|-----------|------|-------|
+| `PurchaseInvoices` | `src/App.jsx` | in-file component |
+| `CateringInvoices` | `src/App.jsx` | in-file component; `customerAddress` field added |
+| `TransferInvoices` | `src/App.jsx` | in-file component |
+| `PayrollInvoices` | `src/tabs/PayrollInvoices.jsx` | **extracted** — manual payroll creation + edit/view/print |
+| `InvoiceArchive` | `src/App.jsx` | in-file; `selectedBusiness` + `bizF` business filter added |
+
+`src/tabs/` is the target directory for all future tab extractions (Epic C / BL-07).
+
 ## Known technical debt
 
-- `src/App.jsx` is monolithic (~5k lines); **`src/ui/Confirm.jsx`** and **`src/ui/Modal.jsx`** are shared UI extracts — continue with `FI` / `Btn` / tab pages (`BL-07`).
+- `src/App.jsx` is monolithic (~5900 lines); **`src/ui/Confirm.jsx`**, **`src/ui/Modal.jsx`**, and **`src/tabs/PayrollInvoices.jsx`** are extracts — continue with other tabs (`BL-07`).
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
 - ~~No React error boundary (DMG-E003)~~ — **Fixed** (Slice 7, `src/ErrorBoundary.jsx`).
 - ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).
 - ~~QR code uses external CDN (`api.qrserver.com`)~~ — **Fixed** (Slice 12, replaced with `qrcode` npm package).
-- Old backup ZIPs (v2.0) are missing transfer/payroll/dailyFin — restore warning planned (Slice 13 / BL-22).
+- ~~Old backup ZIPs (v2.0) are missing transfer/payroll/dailyFin~~ — **Fixed** (Slice 13, restore warning).
+- BRANDING phone/address/email are hardcoded constants — editable in Settings planned (BL-23).
+- Transfer invoice direction is hardcoded to Parathas as default origin — generalize as part of Epic A.

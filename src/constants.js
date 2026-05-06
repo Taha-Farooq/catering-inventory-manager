@@ -14,8 +14,9 @@ export const TABS_ADMIN = [
   { id: 'items', label: '📦 Items' },
   { id: 'shopping', label: '🛒 Shopping' },
   { id: 'purchase', label: '📋 Purchase Inv.' },
-  { id: 'transfer', label: '🚚 P&P Transfer Inv.' },
+  { id: 'transfer', label: '🚚 Transfer Inv.' },
   { id: 'catering', label: '🍽️ Catering Inv.' },
+  { id: 'payroll', label: '💼 Payroll Inv.' },
   { id: 'customers', label: '👥 Customers' },
   { id: 'analytics', label: '📊 Analytics' },
   { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
@@ -27,14 +28,13 @@ export const TABS_ADMIN = [
   { id: 'help', label: '❓ Help' },
 ];
 
+// Non-admin staff: no invoice or customer access — invoice data is admin-only
 export const ALL_USER_TABS = [
   { id: 'checkio', label: '✅ Check In/Out' },
   { id: 'shopping', label: '🛒 Shopping List' },
   { id: 'items', label: '📦 Add Items' },
   { id: 'pricer', label: '💰 Price Updater' },
-  { id: 'catering', label: '🍽️ Catering Invoices' },
-  { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
-  { id: 'archive', label: '🗂️ Invoice Archive' },
+  { id: 'dailyfin', label: '🧾 Daily Finance' },
   { id: 'help', label: '❓ Help' },
 ];
 
@@ -72,7 +72,7 @@ export const INTERNAL_SELLER_NAME_KEYS = new Set([
 
 export const NAV_GROUPS_ADMIN = [
   { id: 'ops', label: 'Stock', tabs: ['items', 'shopping', 'pricer'] },
-  { id: 'inv', label: 'Invoices', tabs: ['purchase', 'catering', 'transfer', 'archive'] },
+  { id: 'inv', label: 'Invoices', tabs: ['purchase', 'catering', 'transfer', 'payroll', 'archive'] },
   { id: 'people', label: 'Staff', tabs: ['checkio', 'customers', 'actlog'] },
   { id: 'finance', label: 'Money', tabs: ['analytics', 'dailyfin', 'margins', 'history'] },
   { id: 'admin', label: 'Tools', tabs: ['scanbeta', 'help'] },
@@ -80,9 +80,7 @@ export const NAV_GROUPS_ADMIN = [
 
 export const NAV_GROUPS_USER = [
   { id: 'ops', label: 'Stock', tabs: ['shopping', 'items', 'pricer'] },
-  { id: 'work', label: 'Work', tabs: ['checkio'] },
-  { id: 'inv', label: 'Invoices', tabs: ['catering', 'archive'] },
-  { id: 'money', label: 'Money', tabs: ['dailyfin'] },
+  { id: 'work', label: 'Work', tabs: ['checkio', 'dailyfin'] },
   { id: 'help', label: 'Help', tabs: ['help'] },
 ];
 
