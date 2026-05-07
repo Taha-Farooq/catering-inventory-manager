@@ -52,12 +52,18 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   const [editingTransferId, setEditingTransferId] = useState(null);
   const [viewId, setViewId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('all');
 
   const pendingDeleteTransfer = useMemo(
     () => (confirmId ? transferInvoices.find((i) => i.id === confirmId) : null),
     [confirmId, transferInvoices]
   );
   const sorted = useMemo(() => [...transferInvoices].map(normalizeTransferInvoice).sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
+  const visible = useMemo(() => {
+    let list = sorted;
+    if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    return list;
+  }, [sorted, filterStatus]);
   const viewInv = sorted.find(x => x.id === viewId);
 
   function setLine(i, field, value) {
@@ -241,12 +247,35 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
     showToast('Transfer invoices exported to Excel.');
   }
 
+  function exportCsv() {
+    if (!visible.length) { showToast('No transfer invoices to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Invoice#', 'Date', 'From', 'To', 'Status', 'Total', 'Notes'];
+    const rows = visible.map(inv => [
+      inv.id, inv.date || '', inv.from || '', inv.to || '',
+      inv.status || '', +(inv.grandTotal || 0).toFixed(2), inv.notes || ''
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'transfer-invoices-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Transfer invoices exported.');
+  }
+
   return (
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>🚚 P&P Transfer Invoice Generator</div>
-        <div className="flex gap-2">
+        <div className="flex gap-2" style={{alignItems:'center',flexWrap:'wrap'}}>
+          <select className="input" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{width:'auto',marginBottom:0}}>
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
           <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
         </div>
       </div>
@@ -293,14 +322,14 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
         </div>
       )}
 
-      {sorted.length===0 && <div className="card empty-state">No transfer invoices yet.</div>}
-      {sorted.length>0 && (
+      {visible.length===0 && <div className="card empty-state">{sorted.length===0 ? 'No transfer invoices yet.' : 'No transfer invoices match the selected filter.'}</div>}
+      {visible.length>0 && (
         <div className="card">
           <div className="tbl-wrap">
             <table>
               <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Total</th><th></th></tr></thead>
               <tbody>
-                {sorted.map(inv=>(
+                {visible.map(inv=>(
                   <tr key={inv.id}>
                     <td>{inv.id}</td>
                     <td>{fmtDate(inv.date)}</td>

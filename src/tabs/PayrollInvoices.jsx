@@ -161,6 +161,18 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     showToast('Payroll exported as CSV.');
   }
 
+  const monthlyPayroll = useMemo(() => {
+    const m = {};
+    inv.forEach(r => {
+      const d = (r.periodStart || r.date || '').slice(0, 7);
+      if (!d) return;
+      if (!m[d]) m[d] = { month: d, total: 0, count: 0 };
+      m[d].total += r.total || 0;
+      m[d].count++;
+    });
+    return Object.values(m).sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6);
+  }, [inv]);
+
   function save(data) {
     setPayrollInvoices(data);
     try { localStorage.setItem('payrollInvoices', JSON.stringify(data)); } catch (e) {
@@ -321,6 +333,29 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
         <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13.5, color: '#92400E', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 700 }}>⚠ Outstanding:</span>
           {fmt$(outstandingTotal)} unpaid across {inv.filter(i => i.status !== 'paid').length} payroll record{inv.filter(i => i.status !== 'paid').length !== 1 ? 's' : ''}
+        </div>
+      )}
+
+      {monthlyPayroll.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 10 }}>Monthly Payroll (Last 6 Months)</div>
+          {(() => {
+            const maxV = Math.max(...monthlyPayroll.map(m => m.total), 1);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {monthlyPayroll.map(m => (
+                  <div key={m.month} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <div style={{ width: 52, color: '#888', textAlign: 'right', flexShrink: 0 }}>{m.month.slice(5) + '/' + m.month.slice(2, 4)}</div>
+                    <div style={{ flex: 1, background: '#F5ECD7', borderRadius: 4, overflow: 'hidden', height: 16 }}>
+                      <div style={{ width: `${m.total / maxV * 100}%`, background: 'var(--brown)', height: '100%', borderRadius: 4 }} />
+                    </div>
+                    <div style={{ width: 68, fontWeight: 600, color: 'var(--brown)', flexShrink: 0 }}>{fmt$(m.total)}</div>
+                    <div style={{ width: 40, color: '#888', textAlign: 'right', fontSize: 11, flexShrink: 0 }}>{m.count} rec</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

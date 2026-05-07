@@ -200,6 +200,23 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
   function updateRecipe(recipeId, updater) {
     setRecipes(prev => prev.map(r => r.id === recipeId ? updater(r) : r));
   }
+  function exportCsv() {
+    if (!menuItems.length) { showToast('No menu items to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Name', 'Type', 'Business', 'Sale Price', 'Target Margin %'];
+    const rows = menuItems.map(item => [
+      item.name || '', item.type || '', item.business || '',
+      item.salePrice != null ? +parseFloat(item.salePrice).toFixed(2) : '',
+      item.targetMargin != null ? item.targetMargin : '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'menu-items-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Menu items exported.');
+  }
   function exportMarginsCsv() {
     const header = ['Menu Item','Type','Store','Price','Current Cost','Current Margin %','AsOf Cost','AsOf Margin %','Recommended Price','Low Margin'];
     const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
@@ -252,6 +269,7 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
         <div className="section-title" style={{margin:0}}>Menu Costing & Margin Analytics</div>
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={exportMarginsCsv}>⬇ Export Margin CSV</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-primary btn-sm" onClick={()=>{resetMenuForm();setShowMenuForm(true);}}>+ Add Menu Item</Btn>
         </div>
       </div>

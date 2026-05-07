@@ -389,7 +389,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><SortTh col="name">Name</SortTh><SortTh col="category">Category</SortTh><SortTh col="unit">Unit</SortTh><th>UPC</th><SortTh col="stock">Stock</SortTh><SortTh col="price">Sellers / Prices</SortTh>{isAdmin&&<th>Actions</th>}</tr></thead>
+                <thead><tr><SortTh col="name">Name</SortTh><SortTh col="category">Category</SortTh><SortTh col="unit">Unit</SortTh><th>UPC</th><th>Notes</th><SortTh col="stock">Stock</SortTh><SortTh col="price">Sellers / Prices</SortTh>{isAdmin&&<th>Actions</th>}</tr></thead>
                 <tbody>
                   {sorted.map(item=>(
                     <tr key={item.id} style={isLowStock(item)?{background:'#FFF5F5'}:{}}>
@@ -400,6 +400,9 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                       <td><span style={{fontSize:11.5,background:'#FFF0D4',color:'var(--brown)',padding:'2px 7px',borderRadius:10}}>{item.category}</span></td>
                       <td>{item.unit}</td>
                       <td style={{fontFamily:'monospace',fontSize:12,color:'#888'}}>{item.upc||'—'}</td>
+                      <td style={{maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12,color:'#666'}} title={item.notes||''}>
+                        {item.notes ? item.notes : <span style={{color:'#ddd'}}>—</span>}
+                      </td>
                       <td style={{fontSize:12}}>
                         {LOCATIONS.map(loc => {
                           const lc = loc.toLowerCase();

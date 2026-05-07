@@ -1,7 +1,7 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
-import { save } from '../utils/storage.js';
+import { save, today } from '../utils/storage.js';
 const LazyPriceHistoryChart = lazy(() => import('../charts/PriceHistoryChart.jsx'));
 
 function Btn({ className='', children, ...p }) {
@@ -30,9 +30,28 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
 
   function delEntry(id){const u=priceHistory.filter(h=>h.id!==id);setPriceHistory(u);save('priceHistory',u);setConfirmId(null);}
 
+  function exportCsv() {
+    const data = selId ? hist : [...priceHistory].sort((a,b)=>a.date.localeCompare(b.date));
+    if (!data.length) { return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Date', 'Item', 'Seller', 'Old Price', 'New Price'];
+    const rows = data.map(h => [h.date, h.itemName || '', h.seller || '', h.oldPrice != null ? +h.oldPrice : '', h.newPrice != null ? +h.newPrice : '']);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'price-history-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
-      <div className="section-title">Price History</div>
+      <div className="flex-between mb-4">
+        <div className="section-title" style={{margin:0}}>Price History</div>
+        {priceHistory.length > 0 && (
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
+        )}
+      </div>
       <div className="card mb-4">
         <label>Select Item to View Price Trends</label>
         <select className="input" value={selId} onChange={e=>setSelId(e.target.value)}>
