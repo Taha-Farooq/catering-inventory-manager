@@ -16,7 +16,12 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/ReliabilityBanners.jsx` | Offline banner + shared browser-capability banner UI |
 | `src/ui/Confirm.jsx` | Reusable destructive-confirm modal (used from `App.jsx`; z-index above nested modals) |
 | `src/ui/Modal.jsx` | Reusable dialog shell (used from `App.jsx` for settings, invoice forms, profile) |
-| `src/App.jsx` | Main React shell + remaining in-file tab components (BL-07 extraction in progress) |
+| `src/ui/SettingsModal.jsx` | Admin settings panel (backup/restore, staff user management, logo/contact overrides, diagnostics, reset API config) |
+| `src/ui/LoginScreen.jsx` | Login form with central-auth support, quick admin reset, and device-remember flow |
+| `src/ui/FirstRunSetup.jsx` | First-run starter-file import wizard (shown when no credentials exist) |
+| `src/ui/AdminResetPortal.jsx` | Private admin password reset portal (accessed via deep-link token) |
+| `src/authHelpers.js` | Shared module-level helpers: `hashPwd`, auth API calls (`loginViaBackend`, `syncCredentialsToBackend`, `scanApiCall`, `attendanceApiCall`, `getAuthStatus`), `logFailure`, `downloadFailureLog`, diagnostics utilities, `BRANDING`, `mergeBrandingWithOverrides` |
+| `src/App.jsx` | Main React shell (~700 lines): routing, `getInvoiceBranding`, `SetupQuickActions`, `ProfileModal`, `App` component |
 | `src/toastContext.jsx` | **`ToastProvider`** wraps `<App />` in `main.jsx`; **`showToast`** / **`toastApiFailure`** (global, works on login + modals) |
 | `src/utils/storage.js` | `load`, `save` (with quota/DMG-E010/E011 handling), `uid`, `today` — importable by any tab |
 | `src/utils/activity.js` | `logActivity(action, details)` — writes to `_activityLog`; imports from `storage.js` |
@@ -231,7 +236,7 @@ Exception: `getInvoiceBranding` remains in `App.jsx` (depends on `BRANDING` cons
 
 ## Known technical debt
 
-- `src/App.jsx` shell (~1800 lines after Epic C extraction); all tabs are in `src/tabs/`, utility functions in `src/utils/`. Continue shrinking App.jsx with SettingsModal + LoginScreen extractions as BL-07 follow-ups.
+- `src/App.jsx` shell (~700 lines after Epic C full extraction); all tabs in `src/tabs/`, UI components in `src/ui/`, utility functions in `src/utils/`, shared auth/backend helpers in `src/authHelpers.js`. Epic C (BL-07) is complete.
 - Recharts (~565KB min) loads **on demand** via `src/charts/*` lazy imports; initial shell avoids it until a chart tab renders charts.
 - ~~No React error boundary (DMG-E003)~~ — **Fixed** (Slice 7, `src/ErrorBoundary.jsx`).
 - ~~Password hashing is unsalted SHA-256~~ — **Fixed** (Slice 10, username salt added with silent legacy upgrade).

@@ -54,7 +54,7 @@ function calcPayroll(form) {
   return { rate, reg, ot, total };
 }
 
-function PayrollInvoiceView({ inv, brandingMap, onClose, onEdit, onPrint }) {
+function PayrollInvoiceView({ inv, brandingMap, onClose, onEdit, onCopy, onPrint }) {
   const brand = (() => {
     const b = brandingMap?.[inv.business];
     return b || { mark: 'PAY', name: inv.business || 'Business', address: '', phone: '', email: '' };
@@ -112,6 +112,7 @@ function PayrollInvoiceView({ inv, brandingMap, onClose, onEdit, onPrint }) {
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
         <Btn className="btn-outline" onClick={onPrint}>🖨 Print / Save PDF</Btn>
+        <Btn className="btn-outline" onClick={onCopy}>Copy</Btn>
         <Btn className="btn-secondary" onClick={onEdit}>Edit</Btn>
         <Btn className="btn-primary" onClick={onClose}>Close</Btn>
       </div>
@@ -163,6 +164,25 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
       status: record.status || 'unpaid',
     });
     setShowForm(true);
+  }
+
+  function copyRecord(record) {
+    setEditingId(null);
+    setViewInv(null);
+    setForm({
+      employeeName: record.employeeName || '',
+      business: record.business || selectedBusiness,
+      payPeriod: record.payPeriod || 'weekly',
+      periodStart: today(),
+      periodEnd: '',
+      hourlyRate: String(record.hourlyRate || ''),
+      regularHours: String(record.regularHours || ''),
+      overtimeHours: String(record.overtimeHours || ''),
+      notes: record.notes || '',
+      status: 'unpaid',
+    });
+    setShowForm(true);
+    showToast('Payroll record copied — review and save as new.');
   }
 
   function submit() {
@@ -296,6 +316,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <Btn className="btn-secondary btn-sm" style={{ marginRight: 4 }} onClick={() => setViewInv(r)}>View</Btn>
                       <Btn className="btn-outline btn-sm" style={{ marginRight: 4 }} onClick={() => openEdit(r)}>Edit</Btn>
+                      <Btn className="btn-outline btn-sm" style={{ marginRight: 4 }} onClick={() => copyRecord(r)}>Copy</Btn>
                       {r.status !== 'paid' && <Btn className="btn-success btn-sm" style={{ marginRight: 4 }} onClick={() => markPaid(r.id)}>Mark Paid</Btn>}
                       <Btn className="btn-danger btn-sm" onClick={() => setConfirmObj(r)}>Delete</Btn>
                     </td>
@@ -359,6 +380,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
             brandingMap={brandingMap}
             onClose={() => setViewInv(null)}
             onEdit={() => { const v = viewInv; setViewInv(null); openEdit(v); }}
+            onCopy={() => copyRecord(viewInv)}
             onPrint={() => printInv(viewInv)}
           />
         )}

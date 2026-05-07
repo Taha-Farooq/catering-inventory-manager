@@ -312,15 +312,16 @@ Large items that need their own kick-off before breaking into slices.
 
 ## Slice 16 — Epic C: App.jsx full tab extraction + shared utility modules (BL-07)
 
-**Status:** Done — all major tab components extracted from App.jsx to `src/tabs/`; shared utility modules created in `src/utils/` and `src/ui/`.
+**Status:** Done — all major tab components extracted from App.jsx to `src/tabs/`; shared utility modules created in `src/utils/` and `src/ui/`; large UI components (`SettingsModal`, `LoginScreen`, `FirstRunSetup`, `AdminResetPortal`) extracted to `src/ui/`.
 
 **What was implemented:**
 
 - **Shared utility modules:** `src/utils/storage.js` (`load`, `save`, `uid`, `today`), `src/utils/activity.js` (`logActivity`), `src/utils/print.js` (`printHtmlDocument`, `printInvoiceById`, `documentBaseHref`, `rewriteImgSrcsForPrint`), `src/utils/invoiceIds.js` (`nextId`, `nextTransferId`, `normalizeTransferInvoice`), `src/ui/BrandMark.jsx` (`BrandMark` component).
 - **Tab extractions (16 total):** ActivityLog, ScanDatabaseBeta, CustomerManagement, DailyIncomeExpense, PayrollInvoices, CheckInOutPage, MenuMarginsLab, ItemDatabase, ShoppingList, PurchaseInvoices, CateringInvoices, TransferInvoices, InvoiceArchive, Analytics, PriceHistory, PriceUpdater — all in `src/tabs/`.
-- **App.jsx reduced:** from ~5900 lines to ~2356 lines (shell only: auth, routing, settings modal, login screen, first-run wizard, branding utilities).
-- **`getInvoiceBranding` stays in App.jsx** and is passed as a prop to invoice tabs (depends on `BRANDING` constant + `mergeBrandingWithOverrides`).
-- **52 Vitest tests passing** after extraction (79 after Slice 17).
+- **UI component extractions:** `SettingsModal`, `LoginScreen`, `FirstRunSetup`, `AdminResetPortal` extracted to `src/ui/`; shared module-level auth/backend helpers extracted to `src/authHelpers.js`.
+- **App.jsx reduced:** from ~5900 lines to ~700 lines (shell only: routing, `getInvoiceBranding`, `SetupQuickActions`, `ProfileModal`, and `App` component).
+- **`getInvoiceBranding` stays in App.jsx** and is passed as a prop to invoice tabs (depends on imported `BRANDING` + `mergeBrandingWithOverrides` from `authHelpers.js`).
+- **85 Vitest tests passing** after extraction.
 
 ---
 

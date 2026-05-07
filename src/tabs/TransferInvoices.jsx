@@ -93,6 +93,21 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
     setShowForm(true);
   }
 
+  function copyTransferInvoice(inv) {
+    const raw = transferInvoices.find((x) => x.id === inv.id) || inv;
+    const linesSrc = Array.isArray(raw.lineItems) && raw.lineItems.length ? raw.lineItems : [{ quantity:'', item:'', price:'' }];
+    const lines = linesSrc.map((li) => ({
+      quantity: String(li.quantity ?? li.qty ?? ''),
+      item: String(li.item ?? li.description ?? ''),
+      price: li.price != null && li.price !== '' ? String(li.price) : '',
+    }));
+    setForm({ date: today(), from: raw.from || blankForm().from, fromContact: raw.fromContact || '', to: raw.to || blankForm().to, toContact: raw.toContact || '', notes: raw.notes || '', lineItems: lines.length ? lines : [{ quantity:'', item:'', price:'' }] });
+    setEditingTransferId(null);
+    setViewId(null);
+    setShowForm(true);
+    showToast('Invoice copied — review and save as new.');
+  }
+
   function closeTransferForm() {
     setShowForm(false);
     setEditingTransferId(null);
@@ -297,6 +312,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
                       <div className="flex gap-2">
                         <Btn className="btn-outline btn-sm" onClick={()=>setViewId(inv.id)}>View</Btn>
                         <Btn className="btn-secondary btn-sm" onClick={()=>openTransferEdit(inv)}>Edit</Btn>
+                        <Btn className="btn-outline btn-sm" onClick={()=>copyTransferInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" onClick={()=>{
                           const updated=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);
                           setTransferInvoices(updated); save('transferInvoices',updated); showToast('Transfer invoice marked paid.');
@@ -367,6 +383,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
             {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>copyTransferInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewId(null); openTransferEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
             </div>
