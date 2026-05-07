@@ -553,7 +553,7 @@ Large items that need their own kick-off before breaking into slices.
 | BL-38 | Custom categories management in Settings | **Done** — Slice 21 |
 | BL-39 | Inventory adjustment log (received/waste/correction) | **Done** — Slice 22 |
 | BL-42 | Quick inline stock +/− adjustment per location in ItemDatabase | **Done** — Slice 21 |
-| BL-43 | Shopping list: location context filter (which location am I buying for?) | Backlog |
+| BL-43 | Shopping list: location context filter (which location am I buying for?) | **Done** — Slice 22 |
 | BL-44 | Item search by seller name in ItemDatabase | Backlog |
 | BL-45 | Reorder point auto-suggest from purchase history | Backlog |
 | BL-40 | Location-aware inventory: Englewood + Hackensack per-location qty | **Done** — Slice 19 |

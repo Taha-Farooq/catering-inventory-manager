@@ -255,6 +255,10 @@ Low-stock detection in `ItemDatabase.jsx` and `ShoppingList.jsx` checks **both**
 
 In `PurchaseInvoices.jsx`, the `setLine` function auto-fills `unitPrice` and `unit` when the description field exactly matches (case-insensitive) an item name in the DB. It prefers the seller that matches `form.supplier`; falls back to `sellers[0]`. Only fills blank fields — does not overwrite existing values.
 
+## Shopping list location context (Slice 22 / BL-43)
+
+`ShoppingList.jsx` has a "Shopping for:" location selector (dropdown, persisted as `_shoppingLoc`). The "⚠ Low Stock" button uses the selected location to check `item.locQty[lc] <= item.locMinQty[lc]` first, then falls back to legacy `currentQty/minQty`. The selected location is shown in the button label: "⚠ Low Stock (Hackensack)".
+
 ## Inventory adjustment log (Slice 22 / BL-39)
 
 New admin tab "📝 Inv. Log" (`src/tabs/InventoryAdjustments.jsx`) added to the Stock nav group. Props: `{ items, setItems }`. Storage key: `INVENTORY_ADJUSTMENTS_KEY = '_inventoryAdjustments'` (array of `{ id, itemId, itemName, location, delta, reason, notes, date, createdAt }`). On save, immediately increments/decrements `item.locQty[location.toLowerCase()]`. Deleting a log entry does NOT reverse the stock change. Tab is admin-only; non-admin users don't see it.

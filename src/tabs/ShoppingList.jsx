@@ -17,6 +17,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
   const [dragFromIdx, setDragFromIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [showClearListConfirm, setShowClearListConfirm] = useState(false);
+  const [shoppingLoc, setShoppingLoc] = useState(() => load('_shoppingLoc', LOCATIONS[1]));
 
   function reorderRows(from, to) {
     if (from === to) return;
@@ -70,16 +71,14 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
   function removeItem(id) { const u=shoppingList.filter(s=>s.id!==id); setShoppingList(u); save('shoppingList',u); }
 
   function addLowStockItems() {
+    const lc = shoppingLoc.toLowerCase();
     const lowStock = items.filter(i => {
+      const locQ = parseFloat(i.locQty?.[lc]);
+      const locM = parseFloat(i.locMinQty?.[lc]);
+      if (!isNaN(locQ) && !isNaN(locM) && locQ <= locM) return true;
       const cur = parseFloat(i.currentQty);
       const min = parseFloat(i.minQty);
-      if (!isNaN(cur) && !isNaN(min) && cur <= min) return true;
-      return LOCATIONS.some(loc => {
-        const lc = loc.toLowerCase();
-        const q = parseFloat(i.locQty?.[lc]);
-        const m = parseFloat(i.locMinQty?.[lc]);
-        return !isNaN(q) && !isNaN(m) && q <= m;
-      });
+      return !isNaN(cur) && !isNaN(min) && cur <= min;
     });
     if (!lowStock.length) { showToast('No items are currently at or below their reorder point.'); return; }
     let added = 0;
@@ -166,10 +165,17 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
 
   return (
     <div>
-      <div className="flex-between mb-4 flex-wrap gap-2">
+      <div className="flex-between mb-2 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Shopping List ({shoppingList.length})</div>
-        <div className="flex gap-2 flex-wrap">
-          <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title="Add all items at or below their reorder point">⚠ Low Stock</Btn>
+        <div className="flex gap-2 flex-wrap" style={{alignItems:'center'}}>
+          <label style={{fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:5}}>
+            Shopping for:
+            <select className="input" style={{width:'auto',padding:'3px 8px',fontSize:13}} value={shoppingLoc}
+              onChange={e=>{ setShoppingLoc(e.target.value); save('_shoppingLoc', e.target.value); }}>
+              {LOCATIONS.map(l=><option key={l}>{l}</option>)}
+            </select>
+          </label>
+          <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title={`Add items low at ${shoppingLoc}`}>⚠ Low Stock ({shoppingLoc})</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
