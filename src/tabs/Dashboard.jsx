@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
-import { load } from '../utils/storage.js';
+import { load, save, uid } from '../utils/storage.js';
+import { showToast } from '../toastContext.jsx';
 
 const ACTION_LABELS = {
   login: 'Logged In', logout: 'Logged Out', view_tab: 'Viewed Page',
@@ -25,7 +26,7 @@ function isItemLowStock(item) {
   });
 }
 
-export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], setTab }) {
+export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], setTab, shoppingList = [], setShoppingList }) {
   const stats = useMemo(() => {
     const totalItems = items.length;
 
@@ -94,6 +95,38 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     return { count: matching.length, total };
   }, [purchaseInvoices]);
 
+  function addLowStockToShoppingList() {
+    const lowItems = items.filter(item => {
+      return LOCATIONS.some(loc => {
+        const lc = loc.toLowerCase();
+        const q = parseFloat(item.locQty?.[lc]);
+        const m = parseFloat(item.locMinQty?.[lc]);
+        return !isNaN(q) && !isNaN(m) && q <= m;
+      }) || (() => {
+        const cur = parseFloat(item.currentQty);
+        const min = parseFloat(item.minQty);
+        return !isNaN(cur) && !isNaN(min) && cur <= min;
+      })();
+    });
+    if (!lowItems.length) { showToast('No low-stock items found.'); return; }
+    let added = 0, skipped = 0;
+    let nextList = [...shoppingList];
+    lowItems.forEach(item => {
+      const sellerList = Array.isArray(item.sellers) ? item.sellers : [];
+      const sel = sellerList[0] || { name: '', price: null };
+      const dup = nextList.find(s => s.itemId === item.id && s.selectedSeller === sel.name);
+      if (dup) { skipped++; return; }
+      nextList = [...nextList, {
+        id: uid(), itemId: item.id, itemName: item.name, unit: item.unit, upc: item.upc || '',
+        selectedSeller: sel.name, price: sel.price, quantity: 1, sellers: sellerList
+      }];
+      added++;
+    });
+    setShoppingList(nextList);
+    save('shoppingList', nextList);
+    showToast(`Added ${added} item${added !== 1 ? 's' : ''} to shopping list${skipped ? ` (${skipped} already there)` : ''}.`);
+  }
+
   return (
     <div>
       <div className="section-title">Dashboard</div>
@@ -127,7 +160,14 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
 
       {/* Low Stock Items */}
       <div className="card mb-4">
-        <div className="section-title" style={{ marginBottom: 12 }}>&#9888; Low Stock Items</div>
+        <div className="flex-between mb-2">
+          <div className="section-title" style={{ margin: 0 }}>&#9888; Low Stock Items</div>
+          {lowStockRows.length > 0 && (
+            <button className="btn btn-outline btn-sm" onClick={addLowStockToShoppingList}>
+              ➕ Add all to Shopping List
+            </button>
+          )}
+        </div>
         {lowStockRows.length === 0 ? (
           <div className="empty-state">All items are above reorder points.</div>
         ) : (

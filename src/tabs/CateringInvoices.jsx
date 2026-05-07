@@ -67,7 +67,22 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   const [viewInv, setViewInv] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
 
-  function setLine(i,f2,v){setForm(f=>{const l=[...f.lineItems];l[i]={...l[i],[f2]:v};return{...f,lineItems:l};});}
+  function setLine(i, f2, v) {
+    setForm(f => {
+      const l = [...f.lineItems];
+      const upd = { ...l[i], [f2]: v };
+      if (f2 === 'description' && v) {
+        const match = items.find(it => it.name.toLowerCase() === v.toLowerCase());
+        if (match) {
+          const sellers = Array.isArray(match.sellers) ? match.sellers : [];
+          const sel = sellers[0];
+          if (sel?.price != null && upd.unitPrice === '') upd.unitPrice = String(sel.price);
+        }
+      }
+      l[i] = upd;
+      return { ...f, lineItems: l };
+    });
+  }
   function selCust(id){const c=customers.find(x=>x.id===id);if(c)setForm(f=>({...f,customerId:c.id,customerName:c.name,customerPhone:c.phone||'',customerEmail:c.email||'',customerAddress:c.address||''}));else setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:''}));}
 
   function calcT(){

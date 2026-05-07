@@ -45,6 +45,24 @@ export default function ActivityLog({ save }) {
     showToast('Activity log cleared');
   }
 
+  function exportCsv() {
+    if (!filtered.length) { showToast('No entries to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = filtered.map(e => [
+      e.timestamp ? new Date(e.timestamp).toLocaleString() : '',
+      e.username || '',
+      fmtAction(e.action),
+      e.details || '',
+    ]);
+    const csv = [['Timestamp','User','Action','Details'].map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'activity-log-' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Activity log exported.');
+  }
+
   const users = useMemo(() => [...new Set(log.map(e => e.username))], [log]);
 
   const filtered = useMemo(() => {
@@ -64,6 +82,7 @@ export default function ActivityLog({ save }) {
         </div>
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={refresh}>↻ Refresh</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-danger btn-sm" onClick={() => setShowClearLogConfirm(true)}>🗑 Clear Log</Btn>
         </div>
       </div>

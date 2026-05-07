@@ -4,7 +4,7 @@ import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
 import { CATEGORIES, LOCATIONS, CUSTOM_CATEGORIES_KEY, INTERNAL_SELLER_NAME_KEYS } from '../constants.js';
-import { fmt$, sellerKey, uniqSuggestions, safePrice } from '../formatters.js';
+import { fmt$, fmtDate, sellerKey, uniqSuggestions, safePrice } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 
@@ -65,6 +65,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const [showImport, setShowImport] = useState(false);
   const importFileRef = useRef(null);
   const [purchaseSuggest, setPurchaseSuggest] = useState(null); // { count, avgQty, suggested }
+  const [historyItem, setHistoryItem] = useState(null); // item or null
 
   const allCategories = useMemo(() => {
     const custom = load(CUSTOM_CATEGORIES_KEY, []);
@@ -386,6 +387,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                       </td>
                       {isAdmin&&(
                         <td style={{whiteSpace:'nowrap'}}>
+                          <Btn className="btn-outline btn-sm" style={{marginRight:5}} onClick={() => setHistoryItem(item)}>History</Btn>
                           <Btn className="btn-secondary btn-sm" style={{marginRight:5}} onClick={()=>openEdit(item)}>Edit</Btn>
                           <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(item.id)}>Delete</Btn>
                         </td>
@@ -480,6 +482,78 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
         onConfirm={() => deleteItem(confirmId)}
         onCancel={() => setConfirmId(null)}
       />
+
+      <Modal open={!!historyItem} onClose={() => setHistoryItem(null)} title={`History: ${historyItem?.name}`} wide>
+        {historyItem && (() => {
+          const purchaseLines = purchaseInvoices.flatMap(inv =>
+            (inv.lineItems || [])
+              .filter(l => (l.description || '').toLowerCase() === historyItem.name.toLowerCase())
+              .map(l => ({ invId: inv.id, supplier: inv.supplier, date: inv.date, qty: l.qty ?? l.quantity, unit: l.unit, price: l.unitPrice ?? l.price }))
+          ).sort((a, b) => b.date?.localeCompare(a.date) || 0);
+
+          const adjustments = load('_inventoryAdjustments', [])
+            .filter(a => a.itemId === historyItem.id || a.itemName?.toLowerCase() === historyItem.name.toLowerCase())
+            .sort((a, b) => b.date?.localeCompare(a.date) || 0);
+
+          return (
+            <>
+              <div style={{marginBottom:20}}>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:10,color:'var(--brown)'}}>Purchase History</div>
+                {purchaseLines.length === 0
+                  ? <div style={{color:'#888',fontSize:13}}>No purchase invoice lines found for this item.</div>
+                  : (
+                    <div className="tbl-wrap">
+                      <table>
+                        <thead><tr><th>Date</th><th>Supplier</th><th>Invoice#</th><th>Qty</th><th>Unit</th><th>Unit Price</th></tr></thead>
+                        <tbody>
+                          {purchaseLines.map((l, i) => (
+                            <tr key={i}>
+                              <td style={{fontSize:13}}>{fmtDate(l.date)}</td>
+                              <td style={{fontSize:13}}>{l.supplier || '—'}</td>
+                              <td style={{fontSize:12,fontFamily:'monospace',color:'#888'}}>{l.invId || '—'}</td>
+                              <td style={{fontSize:13}}>{l.qty ?? '—'}</td>
+                              <td style={{fontSize:13}}>{l.unit || '—'}</td>
+                              <td style={{fontSize:13}}>{l.price != null ? fmt$(l.price) : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                }
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:10,color:'var(--brown)'}}>Stock Adjustments</div>
+                {adjustments.length === 0
+                  ? <div style={{color:'#888',fontSize:13}}>No adjustment log entries for this item.</div>
+                  : (
+                    <div className="tbl-wrap">
+                      <table>
+                        <thead><tr><th>Date</th><th>Location</th><th>Change</th><th>Reason</th><th>Notes</th></tr></thead>
+                        <tbody>
+                          {adjustments.map((a, i) => {
+                            const delta = parseFloat(a.delta ?? a.change ?? 0);
+                            const isPos = delta > 0;
+                            return (
+                              <tr key={i}>
+                                <td style={{fontSize:13}}>{fmtDate(a.date)}</td>
+                                <td style={{fontSize:13}}>{a.location || a.loc || '—'}</td>
+                                <td style={{fontSize:13,fontWeight:700,color:isPos ? '#16A34A' : '#DC2626'}}>{isPos ? '+' : ''}{delta}</td>
+                                <td style={{fontSize:13}}>{a.reason || '—'}</td>
+                                <td style={{fontSize:13,color:'#888'}}>{a.notes || '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                }
+              </div>
+            </>
+          );
+        })()}
+      </Modal>
 
       <Modal open={showImport} onClose={() => { setShowImport(false); setImportRows([]); if (importFileRef.current) importFileRef.current.value = ''; }} title="Import Items Preview" wide>
         {importRows.length > 0 && (() => {
