@@ -1,0 +1,309 @@
+import React, { useState, useMemo, useId } from 'react';
+import { showToast } from '../toastContext.jsx';
+import { BrandMark } from '../ui/BrandMark.jsx';
+import Modal from '../ui/Modal.jsx';
+import { BUSINESSES } from '../constants.js';
+import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
+import { save, today } from '../utils/storage.js';
+import { logActivity } from '../utils/activity.js';
+import { printInvoiceById } from '../utils/print.js';
+import { nextId } from '../utils/invoiceIds.js';
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',userSelect:'none',margin:0}}>
+      <span className="toggle">
+        <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} />
+        <span className="toggle-slider" />
+      </span>
+      <span style={{fontSize:13.5,color:'#5a3010'}}>{label}</span>
+    </label>
+  );
+}
+function FI({ label, suggestions, fieldStyle, ...props }) {
+  const listId = useId();
+  const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
+  const baseFieldStyle = label ? {} : { marginBottom: 0 };
+  return (
+    <div className="field" style={{ ...baseFieldStyle, ...fieldStyle }}>
+      {label&&<label>{label}</label>}
+      <input className="input" {...props} list={hasSuggestions ? listId : undefined} />
+      {hasSuggestions && (
+        <datalist id={listId}>
+          {suggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
+      )}
+    </div>
+  );
+}
+function Btn({ className='', children, ...p }) {
+  return <button className={`btn ${className}`} {...p}>{children}</button>;
+}
+
+export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], brandingMap }) {
+  const biz = BUSINESSES[selectedBusiness];
+  const blankF = () => ({supplier:'',date:today(),taxEnabled:false,notes:'',
+    payment:{account:'',date:'',transactionId:''},
+    lineItems:[{description:'',quantity:'',unit:'each',unitPrice:''}]});
+
+  const descListId = useId();
+  const unitLineListId = useId();
+
+  const supplierSuggestions = useMemo(()=>uniqSuggestions(...purchaseInvoices.map(i=>i.supplier)),[purchaseInvoices]);
+  const lineDescSuggestions = useMemo(()=>{
+    const fromInv = purchaseInvoices.flatMap(i=>(i.lineItems||[]).map(l=>(l.description||'').trim()).filter(Boolean));
+    const names = items.map(i=>i.name);
+    return uniqSuggestions(...fromInv, ...names);
+  },[purchaseInvoices, items]);
+  const lineUnitSuggestions = useMemo(()=>uniqSuggestions(
+    ...purchaseInvoices.flatMap(i=>(i.lineItems||[]).map(l=>l.unit).filter(Boolean)),
+    ...items.map(i=>i.unit)
+  ),[purchaseInvoices, items]);
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingPurchaseId, setEditingPurchaseId] = useState(null);
+  const [form, setForm] = useState(blankF());
+  const [viewInv, setViewInv] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  function setLine(i,f2,v){setForm(f=>{const l=[...f.lineItems];l[i]={...l[i],[f2]:v};return{...f,lineItems:l};});}
+
+  function calcT(f,taxRate){
+    const lines=f.lineItems.map(l=>{const q=safeQty(l.quantity),p=parseFloat(l.unitPrice)||0;return{...l,qty:q,price:p,total:q*p};});
+    const sub=lines.reduce((s,l)=>s+l.total,0);
+    const tax=f.taxEnabled?sub*taxRate:0;
+    return{lines,sub,tax,total:sub+tax};
+  }
+
+  const T=calcT(form,biz.taxRate);
+
+  const pendingDeletePurchase = useMemo(
+    () => (confirmId ? purchaseInvoices.find((i) => i.id === confirmId) : null),
+    [confirmId, purchaseInvoices]
+  );
+
+  function openPurchaseEdit(inv) {
+    const lines = (inv.lineItems && inv.lineItems.length ? inv.lineItems : [{ description:'', quantity:'', unit:'each', unitPrice:'' }]).map((l) => ({
+      description: l.description || '',
+      quantity: String(l.qty ?? l.quantity ?? ''),
+      unit: l.unit || 'each',
+      unitPrice: String(l.price ?? l.unitPrice ?? ''),
+    }));
+    setForm({
+      supplier: inv.supplier || '',
+      date: inv.date || today(),
+      taxEnabled: !!inv.taxEnabled,
+      notes: inv.notes || '',
+      payment: {
+        account: inv.payment?.account || '',
+        date: inv.payment?.date || '',
+        transactionId: inv.payment?.transactionId || '',
+      },
+      lineItems: lines,
+    });
+    setEditingPurchaseId(inv.id);
+    setShowForm(true);
+  }
+
+  function saveInvoice(){
+    if (!form.supplier.trim()){showToast('Supplier name is required.','error');return;}
+    const valid=T.lines.filter(l=>l.description.trim());
+    if (!valid.length){showToast('Add at least one line item with a description.','error');return;}
+    if (editingPurchaseId) {
+      const prev = purchaseInvoices.find((i) => i.id === editingPurchaseId);
+      if (!prev) { showToast('Invoice not found.', 'error'); return; }
+      const inv = {
+        ...prev,
+        supplier: form.supplier,
+        date: form.date,
+        notes: form.notes,
+        lineItems: valid,
+        subtotal: T.sub,
+        taxEnabled: form.taxEnabled,
+        taxRate: biz.taxRate,
+        taxAmount: T.tax,
+        total: T.total,
+        payment: { ...form.payment },
+      };
+      const u = purchaseInvoices.map((x) => (x.id === editingPurchaseId ? inv : x));
+      setPurchaseInvoices(u);
+      save('purchaseInvoices', u);
+      setShowForm(false);
+      setForm(blankF());
+      setEditingPurchaseId(null);
+      showToast('Purchase invoice updated.');
+      logActivity('edit_item', 'Updated purchase invoice ' + inv.id);
+      return;
+    }
+    const inv={id:nextId('purchase'),type:'purchase',business:selectedBusiness,
+      supplier:form.supplier,date:form.date,notes:form.notes,
+      lineItems:valid,subtotal:T.sub,taxEnabled:form.taxEnabled,taxRate:biz.taxRate,taxAmount:T.tax,
+      total:T.total,status:'unpaid',payment:{...form.payment},createdAt:today()};
+    const u=[...purchaseInvoices,inv]; setPurchaseInvoices(u); save('purchaseInvoices',u);
+    setShowForm(false); setForm(blankF());
+    showToast('Purchase invoice created.');
+    logActivity('create_invoice', 'Created purchase invoice ' + inv.id);
+  }
+
+  function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
+  function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);showToast('Purchase invoice marked paid.');logActivity('mark_paid','Marked purchase invoice paid '+id);}
+
+  const [showAllBiz, setShowAllBiz] = useState(false);
+  const visiblePurchase = showAllBiz ? [...purchaseInvoices].reverse() : [...purchaseInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
+
+  return (
+    <div>
+      <div className="flex-between mb-4 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Purchase Invoices — {BUSINESSES[selectedBusiness]?.name||selectedBusiness}</div>
+        <div className="flex gap-2 flex-wrap" style={{alignItems:'center'}}>
+          <label style={{fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}>
+            <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
+            All businesses
+          </label>
+          <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+        </div>
+      </div>
+
+      {visiblePurchase.length===0
+        ? <div className="card empty-state">{purchaseInvoices.length===0 ? 'No purchase invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>
+        : (
+          <div className="card" style={{padding:0}}>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Invoice #</th><th>Supplier</th><th>Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {visiblePurchase.map(inv=>(
+                    <tr key={inv.id}>
+                      <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
+                      <td style={{fontWeight:600}}>{inv.supplier}</td>
+                      <td>{fmtDate(inv.date)}</td>
+                      <td style={{fontSize:12,color:'#777'}}>{inv._type==='transfer'?'P&P Internal Transfer':BUSINESSES[inv.business]?.name}</td>
+                      <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
+                      <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
+                        <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openPurchaseEdit(inv)}>Edit</Btn>
+                        {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Mark Paid</Btn>}
+                        <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      }
+
+      <Modal open={showForm} onClose={()=>{setShowForm(false);setEditingPurchaseId(null);}} title={editingPurchaseId ? `Edit Purchase Invoice ${editingPurchaseId}` : 'New Purchase Invoice'} wide>
+        <div className="grid-2">
+          <FI label="Supplier Name *" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))} placeholder="Sysco, US Foods…" suggestions={supplierSuggestions} />
+          <FI label="Invoice Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
+        </div>
+        <datalist id={descListId}>
+          {lineDescSuggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
+        <datalist id={unitLineListId}>
+          {lineUnitSuggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
+        <div style={{marginBottom:14}}>
+          <div className="flex-between mb-2">
+            <label style={{margin:0}}>Line Items</label>
+            <Btn className="btn-outline btn-sm" onClick={()=>setForm(f=>({...f,lineItems:[...f.lineItems,{description:'',quantity:'',unit:'each',unitPrice:''}]}))}>+ Add Line</Btn>
+          </div>
+          {form.lineItems.map((l,i)=>(
+            <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center',flexWrap:'wrap'}}>
+              <input className="input" placeholder="Description *" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'3 1 160px'}} list={descListId} />
+              <input className="input" placeholder="Qty" type="number" min="0" step="0.01" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:'1 1 60px'}} />
+              <input className="input" placeholder="Unit" value={l.unit} onChange={e=>setLine(i,'unit',e.target.value)} style={{flex:'1 1 60px'}} list={unitLineListId} />
+              <input className="input" placeholder="Unit $" type="number" min="0" step="0.01" value={l.unitPrice} onChange={e=>setLine(i,'unitPrice',e.target.value)} style={{flex:'1 1 70px'}} />
+              <span style={{minWidth:64,textAlign:'right',fontSize:13,color:'var(--brown)',fontWeight:600}}>{fmt$(T.lines[i]?.total||0)}</span>
+              <Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,lineItems:f.lineItems.filter((_,x)=>x!==i)}))}>✕</Btn>
+            </div>
+          ))}
+        </div>
+        <div style={{background:'var(--cream)',padding:14,borderRadius:8,marginBottom:14}}>
+          <div className="flex-between mb-2"><span>Subtotal</span><strong>{fmt$(T.sub)}</strong></div>
+          <div className="flex-between mb-2">
+            <Toggle checked={form.taxEnabled} onChange={v=>setForm(f=>({...f,taxEnabled:v}))} label={`Tax (${(biz.taxRate*100).toFixed(3)}%)`} />
+            <span style={{color:form.taxEnabled?'var(--brown)':'#bbb'}}>{fmt$(T.tax)}</span>
+          </div>
+          <hr className="divider" />
+          <div className="flex-between"><strong style={{fontSize:16}}>Total</strong><strong style={{fontSize:19,color:'var(--brown)'}}>{fmt$(T.total)}</strong></div>
+        </div>
+        <div style={{padding:14,border:'1px solid #EED9B0',borderRadius:8,marginBottom:14}}>
+          <div style={{fontWeight:700,color:'var(--brown)',marginBottom:10,fontSize:14}}>Payment Information</div>
+          <div className="grid-3">
+            <FI label="Account #" value={form.payment.account} onChange={e=>setForm(f=>({...f,payment:{...f.payment,account:e.target.value}}))} placeholder="Optional" />
+            <FI label="Payment Date" type="date" value={form.payment.date} onChange={e=>setForm(f=>({...f,payment:{...f.payment,date:e.target.value}}))} />
+            <FI label="Transaction ID" value={form.payment.transactionId} onChange={e=>setForm(f=>({...f,payment:{...f.payment,transactionId:e.target.value}}))} placeholder="Optional" />
+          </div>
+        </div>
+        <div className="field"><label>Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} /></div>
+        <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
+          <Btn className="btn-outline" onClick={()=>{setShowForm(false);setEditingPurchaseId(null);}}>Cancel</Btn>
+          <Btn className="btn-primary" onClick={saveInvoice}>{editingPurchaseId ? 'Save Changes' : 'Create Invoice'}</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide closeOnBackdrop>
+        {viewInv&&(
+          <div id={`purchase-view-${viewInv.id}`}>
+            <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <div>
+                  <div style={{fontWeight:700,fontSize:17,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
+                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#888'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
+                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                </div>
+              </div>
+              <div style={{textAlign:'right',fontSize:13}}>
+                <div><strong>Invoice #:</strong> {viewInv.id}</div>
+                <div><strong>Date:</strong> {fmtDate(viewInv.date)}</div>
+                <div><strong>Supplier:</strong> {viewInv.supplier}</div>
+              </div>
+            </div>
+            <div className="tbl-wrap" style={{marginBottom:14}}>
+              <table><thead><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th></tr></thead>
+                <tbody>{viewInv.lineItems.map((l,i)=><tr key={i}><td>{l.description}</td><td>{l.qty??l.quantity}</td><td>{l.unit}</td><td>{fmt$(l.price??l.unitPrice)}</td><td style={{fontWeight:600}}>{fmt$(l.total)}</td></tr>)}</tbody>
+              </table>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div>Subtotal: {fmt$(viewInv.subtotal)}</div>
+              {viewInv.taxEnabled&&<div>Tax ({(viewInv.taxRate*100).toFixed(3)}%): {fmt$(viewInv.taxAmount)}</div>}
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginTop:6}}>Total: {fmt$(viewInv.total)}</div>
+            </div>
+            {(viewInv.payment?.account||viewInv.payment?.transactionId||viewInv.payment?.date)&&(
+              <div style={{marginTop:14,padding:12,background:'var(--cream)',borderRadius:6,fontSize:13}}>
+                <strong>Payment: </strong>{viewInv.payment.account&&`Account: ${viewInv.payment.account}  `}{viewInv.payment.date&&`Date: ${fmtDate(viewInv.payment.date)}  `}{viewInv.payment.transactionId&&`Txn: ${viewInv.payment.transactionId}`}
+              </div>
+            )}
+            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
+              <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openPurchaseEdit(v);}}>Edit</Btn>
+              <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Confirm
+        open={!!confirmId}
+        title="Delete purchase invoice?"
+        message={
+          pendingDeletePurchase
+            ? `Permanently remove invoice ${pendingDeletePurchase.id} (${pendingDeletePurchase.supplier || 'supplier'}) on this device?`
+            : 'Permanently remove this purchase invoice on this device?'
+        }
+        detail="This cannot be undone here. Export a backup from Settings if you might need to recover this record."
+        dangerCode="DMG-E012 (local data change)"
+        confirmLabel="Delete invoice"
+        onConfirm={() => deleteInv(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
+    </div>
+  );
+}
+
