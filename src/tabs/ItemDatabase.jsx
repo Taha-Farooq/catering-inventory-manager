@@ -50,7 +50,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole }) {
+export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole, purchaseInvoices = [] }) {
   const isAdmin = userRole === 'admin';
   const locQtyBlank = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
   const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:'',locQty:{...locQtyBlank},locMinQty:{...locQtyBlank}};
@@ -64,6 +64,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const [importRows, setImportRows] = useState([]);
   const [showImport, setShowImport] = useState(false);
   const importFileRef = useRef(null);
+  const [purchaseSuggest, setPurchaseSuggest] = useState(null); // { count, avgQty, suggested }
 
   const allCategories = useMemo(() => {
     const custom = load(CUSTOM_CATEGORIES_KEY, []);
@@ -113,6 +114,18 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     });
     setEditId(item.id);
     setShowForm(true);
+    // BL-45: compute reorder suggestion from purchase history
+    const matches = purchaseInvoices.flatMap(inv =>
+      (inv.lineItems || []).filter(l => (l.description || '').toLowerCase() === item.name.toLowerCase())
+    );
+    if (matches.length >= 2) {
+      const totalQty = matches.reduce((s, l) => s + (parseFloat(l.quantity) || 0), 0);
+      const avgQty = totalQty / matches.length;
+      const suggested = Math.max(1, Math.round(avgQty * 0.5));
+      setPurchaseSuggest({ count: matches.length, avgQty: +avgQty.toFixed(1), suggested });
+    } else {
+      setPurchaseSuggest(null);
+    }
   }
   function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
 
@@ -297,7 +310,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
               <Btn className="btn-outline" onClick={() => importFileRef.current?.click()}>⬆ Import CSV</Btn>
             </>
           )}
-          <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setShowForm(true);}}>＋ Add New Item</Btn>
+          <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>
         </div>
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -397,6 +410,15 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <FI label="Unit of Measure" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="lb, kg, each, case…" suggestions={unitSuggestions} />
           <FI label="UPC Code (optional)" value={form.upc} onChange={e=>setForm(f=>({...f,upc:e.target.value}))} placeholder="Barcode" />
         </div>
+        {purchaseSuggest && (
+          <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:6,padding:'9px 14px',marginBottom:12,fontSize:13,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <span>📊 Based on <strong>{purchaseSuggest.count} purchases</strong> (avg <strong>{purchaseSuggest.avgQty} {form.unit}</strong>/order) — suggested reorder point: <strong>{purchaseSuggest.suggested} {form.unit}</strong></span>
+            <Btn className="btn-outline btn-sm" onClick={() => {
+              const suggested = String(purchaseSuggest.suggested);
+              setForm(f => ({ ...f, locMinQty: Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), suggested])) }));
+            }}>Use suggestion</Btn>
+          </div>
+        )}
         <div style={{border:'1px solid #EED9B0',borderRadius:8,padding:12,marginBottom:14}}>
           <div style={{fontWeight:700,color:'var(--brown)',marginBottom:10,fontSize:13}}>Stock by Location</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>

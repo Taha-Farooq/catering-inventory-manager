@@ -4,6 +4,7 @@ import Confirm from '../ui/Confirm.jsx';
 import { LOCATIONS, INVENTORY_ADJUSTMENTS_KEY } from '../constants.js';
 import { fmtDate } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
+import { logActivity } from '../utils/activity.js';
 
 const REASONS = ['Received', 'Used/Consumed', 'Waste/Spoilage', 'Count Correction', 'Transfer', 'Other'];
 
@@ -108,6 +109,73 @@ export default function InventoryAdjustments({ items, setItems }) {
     showToast('Adjustment logged.', 'success');
   }
 
+  const [transferForm, setTransferForm] = useState(() => ({
+    itemName: '', itemId: '', fromLoc: LOCATIONS[0], toLoc: LOCATIONS[1],
+    qty: '', notes: '', date: today(),
+  }));
+
+  function setTransferField(key, val) {
+    setTransferForm(f => ({ ...f, [key]: val }));
+  }
+
+  function handleTransferItemName(name) {
+    const match = items.find(i => i.name.toLowerCase() === name.toLowerCase());
+    setTransferForm(f => ({ ...f, itemName: name, itemId: match ? match.id : '' }));
+  }
+
+  function handleTransfer() {
+    const qty = parseFloat(transferForm.qty);
+    if (!transferForm.itemName.trim()) { showToast('Please select an item.', 'error'); return; }
+    if (!transferForm.itemId) { showToast('Item not found in database. Please select a valid item.', 'error'); return; }
+    if (transferForm.fromLoc === transferForm.toLoc) { showToast('From and To locations must differ.', 'error'); return; }
+    if (isNaN(qty) || qty <= 0) { showToast('Please enter a positive quantity.', 'error'); return; }
+    if (!transferForm.date) { showToast('Please enter a date.', 'error'); return; }
+
+    const { itemId, itemName, fromLoc, toLoc, notes, date } = transferForm;
+    const createdAt = new Date().toISOString();
+    const trimmedNotes = notes.trim();
+
+    const outRecord = {
+      id: uid(), itemId, itemName: itemName.trim(),
+      location: fromLoc, delta: -qty, reason: 'Transfer',
+      notes: `Transfer to ${toLoc}${trimmedNotes ? ': ' + trimmedNotes : ''}`,
+      date, createdAt,
+    };
+    const inRecord = {
+      id: uid(), itemId, itemName: itemName.trim(),
+      location: toLoc, delta: qty, reason: 'Transfer',
+      notes: `Transfer from ${fromLoc}${trimmedNotes ? ': ' + trimmedNotes : ''}`,
+      date, createdAt,
+    };
+
+    const fromKey = fromLoc.toLowerCase();
+    const toKey = toLoc.toLowerCase();
+    const updatedItems = items.map(item => {
+      if (item.id !== itemId) return item;
+      const fromCurrent = parseFloat(item.locQty?.[fromKey]) || 0;
+      const toCurrent = parseFloat(item.locQty?.[toKey]) || 0;
+      return {
+        ...item,
+        locQty: {
+          ...(item.locQty || {}),
+          [fromKey]: String(fromCurrent - qty),
+          [toKey]: String(toCurrent + qty),
+        },
+      };
+    });
+
+    const updatedAdj = [outRecord, inRecord, ...adjustments];
+    save(INVENTORY_ADJUSTMENTS_KEY, updatedAdj);
+    save('items', updatedItems);
+    setAdjustments(updatedAdj);
+    setItems(updatedItems);
+
+    const matchedItem = items.find(i => i.id === itemId);
+    logActivity('transfer_stock', `Transfer ${qty} ${matchedItem?.unit || ''} ${itemName.trim()}: ${fromLoc} → ${toLoc}`);
+    showToast(`Transferred ${qty}${matchedItem?.unit ? ' ' + matchedItem.unit : ''} from ${fromLoc} to ${toLoc}.`, 'success');
+    setTransferForm({ itemName: '', itemId: '', fromLoc: LOCATIONS[0], toLoc: LOCATIONS[1], qty: '', notes: '', date: today() });
+  }
+
   function handleDelete(id) {
     const updated = adjustments.filter(a => a.id !== id);
     save(INVENTORY_ADJUSTMENTS_KEY, updated);
@@ -174,6 +242,53 @@ export default function InventoryAdjustments({ items, setItems }) {
         <div style={{ marginTop: 8 }}>
           <Btn className="btn-primary" onClick={handleSave}>Save Adjustment</Btn>
         </div>
+      </div>
+
+      {/* Transfer Between Locations */}
+      <div className="card mb-4">
+        <div className="section-title" style={{ marginBottom: 12 }}>Transfer Stock Between Locations</div>
+        <div className="grid-2">
+          <FI
+            label="Item"
+            value={transferForm.itemName}
+            onChange={e => handleTransferItemName(e.target.value)}
+            suggestions={itemNameSuggestions}
+            placeholder="Search item…"
+          />
+          <FS label="From Location" value={transferForm.fromLoc} onChange={e => setTransferField('fromLoc', e.target.value)}>
+            {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+          </FS>
+          <FS label="To Location" value={transferForm.toLoc} onChange={e => setTransferField('toLoc', e.target.value)}>
+            {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+          </FS>
+          <FI
+            label="Quantity to Transfer"
+            type="number"
+            value={transferForm.qty}
+            onChange={e => setTransferField('qty', e.target.value)}
+            placeholder="e.g. 5"
+            min="0"
+            step="any"
+          />
+          <FI
+            label="Notes (optional)"
+            value={transferForm.notes}
+            onChange={e => setTransferField('notes', e.target.value)}
+            placeholder="Optional notes…"
+          />
+          <FI
+            label="Date"
+            type="date"
+            value={transferForm.date}
+            onChange={e => setTransferField('date', e.target.value)}
+          />
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <Btn className="btn-primary" onClick={handleTransfer}>Transfer Stock</Btn>
+        </div>
+        <p style={{ marginTop: 8, fontSize: 13, color: '#666' }}>
+          Both a deduction from [{transferForm.fromLoc}] and an addition to [{transferForm.toLoc}] are recorded in the log.
+        </p>
       </div>
 
       {/* Filters + Table */}

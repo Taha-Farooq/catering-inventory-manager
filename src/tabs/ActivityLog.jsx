@@ -18,6 +18,14 @@ const ACTION_LABELS = {
   profile_update: 'Updated Profile', restore_backup: 'Restored Backup',
   export_backup: 'Exported Backup', export_csv: 'Exported CSV',
   export_xlsx: 'Exported Excel', admin_password_reset: 'Admin Password Reset',
+  import_items: 'Bulk Item Import',
+  quick_stock_adjust: 'Quick Stock Adjust',
+  transfer_stock: 'Stock Transfer',
+  adjustment_saved: 'Stock Adjustment Saved',
+  adjustment_deleted: 'Adjustment Deleted',
+  update_stock_from_invoice: 'Updated Stock from Invoice',
+  add_custom_category: 'Added Custom Category',
+  remove_custom_category: 'Removed Custom Category',
 };
 const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase() + a.slice(1) : '');
 

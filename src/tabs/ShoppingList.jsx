@@ -70,6 +70,11 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
 
   function removeItem(id) { const u=shoppingList.filter(s=>s.id!==id); setShoppingList(u); save('shoppingList',u); }
 
+  function updateNotes(id, val) {
+    const u = shoppingList.map(s => s.id === id ? { ...s, notes: val } : s);
+    setShoppingList(u); save('shoppingList', u);
+  }
+
   function addLowStockItems() {
     const lc = shoppingLoc.toLowerCase();
     const lowStock = items.filter(i => {
@@ -218,7 +223,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
             <div className="card" style={{padding:0}}>
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th></th></tr></thead>
+                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
                   <tbody>
                     {shoppingList.map((e, idx)=>{
                       const lt=safeQty(e.quantity)*(e.price??0);
@@ -275,6 +280,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
                           <td>{e.unit}</td>
                           <td>{e.price!=null?fmt$(e.price):<span style={{color:'#bbb'}}>—</span>}</td>
                           <td style={{fontWeight:600,color:'var(--brown)'}}>{e.price!=null?fmt$(lt):'—'}</td>
+                          <td><input type="text" className="input" style={{width:120, padding:'4px 8px', fontSize:12}} placeholder="notes…" value={e.notes||''} onChange={ev=>updateNotes(e.id, ev.target.value)} /></td>
                           <td><Btn className="btn-danger btn-sm" onClick={()=>removeItem(e.id)}>✕</Btn></td>
                         </tr>
                       );

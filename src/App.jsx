@@ -638,7 +638,7 @@ function App() {
             />
           </div>
         )}
-        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
+        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} />}
