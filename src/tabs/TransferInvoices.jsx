@@ -57,6 +57,8 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
     () => (confirmId ? transferInvoices.find((i) => i.id === confirmId) : null),
     [confirmId, transferInvoices]
   );
+  const sorted = useMemo(() => [...transferInvoices].map(normalizeTransferInvoice).sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
+  const viewInv = sorted.find(x => x.id === viewId);
 
   function setLine(i, field, value) {
     setForm(f => {
@@ -238,9 +240,6 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
     logActivity('export_xlsx', 'Exported transfer invoices Excel');
     showToast('Transfer invoices exported to Excel.');
   }
-
-  const sorted = useMemo(() => [...transferInvoices].map(normalizeTransferInvoice).sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
-  const viewInv = sorted.find(x => x.id === viewId);
 
   return (
     <div>

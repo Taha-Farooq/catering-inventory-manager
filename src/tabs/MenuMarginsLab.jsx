@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useId } from 'react';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
 import { BUSINESSES, MENU_UNITS } from '../constants.js';
