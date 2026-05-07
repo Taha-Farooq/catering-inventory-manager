@@ -74,4 +74,13 @@ describe('logActivity', () => {
     const log = JSON.parse(globalThis.localStorage.getItem('_activityLog'));
     expect(log[0].id).not.toBe(log[1].id);
   });
+
+  it('writes to log for unknown action types', () => {
+    globalThis.localStorage.setItem('_session', JSON.stringify({ username: 'alice' }));
+    logActivity('totally_unknown_action_xyz', 'some detail');
+    const log = JSON.parse(globalThis.localStorage.getItem('_activityLog'));
+    expect(log).toHaveLength(1);
+    expect(log[0].action).toBe('totally_unknown_action_xyz');
+    expect(log[0].details).toBe('some detail');
+  });
 });

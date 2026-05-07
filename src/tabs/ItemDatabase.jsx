@@ -15,7 +15,9 @@ const IMPORT_COL = {
   upc: ['upc','barcode'],
   seller: ['seller','supplier','vendor'],
   price: ['price','unit price','cost','$/unit'],
+  notes: ['notes','note'],
 };
+// Per-location qty/min columns are handled separately (dynamic per LOCATIONS)
 function normalizeImportHeaders(headers) {
   const map = {};
   headers.forEach((h, i) => {
@@ -23,6 +25,12 @@ function normalizeImportHeaders(headers) {
     for (const [key, aliases] of Object.entries(IMPORT_COL)) {
       if (aliases.includes(lc) && !(key in map)) { map[key] = i; break; }
     }
+    // Per-location: e.g. "englewood_qty", "hackensack_min"
+    LOCATIONS.forEach(loc => {
+      const lcLoc = loc.toLowerCase();
+      if (lc === lcLoc + '_qty' && !(`locQty_${lcLoc}` in map)) map[`locQty_${lcLoc}`] = i;
+      if (lc === lcLoc + '_min' && !(`locMinQty_${lcLoc}` in map)) map[`locMinQty_${lcLoc}`] = i;
+    });
   });
   return map;
 }
@@ -251,8 +259,16 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           const rawPrice = colMap.price !== undefined ? row[colMap.price] : '';
           const price = rawPrice !== '' && rawPrice !== null ? safePrice(rawPrice) : null;
           const priceError = rawPrice !== '' && rawPrice !== null && price === null ? `Invalid price "${rawPrice}"` : null;
+          const notes = colMap.notes !== undefined ? String(row[colMap.notes] ?? '').trim() : '';
+          const locQty = {}, locMinQty = {};
+          LOCATIONS.forEach(loc => {
+            const lc = loc.toLowerCase();
+            const qKey = `locQty_${lc}`, mKey = `locMinQty_${lc}`;
+            if (colMap[qKey] !== undefined) { const v = String(row[colMap[qKey]] ?? '').trim(); if (v !== '') locQty[lc] = v; }
+            if (colMap[mKey] !== undefined) { const v = String(row[colMap[mKey]] ?? '').trim(); if (v !== '') locMinQty[lc] = v; }
+          });
           const existing = items.find(it => it.name.toLowerCase() === name.toLowerCase());
-          return { rowNum: i + 2, name, category, unit, upc, sellerName, price, status: existing ? 'update' : 'add', existingId: existing?.id ?? null, error: priceError };
+          return { rowNum: i + 2, name, category, unit, upc, sellerName, price, notes, locQty, locMinQty, status: existing ? 'update' : 'add', existingId: existing?.id ?? null, error: priceError };
         }).filter(r => r.name || r.error);
         setImportRows(parsed);
         setShowImport(true);
@@ -279,12 +295,14 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
             if (idx >= 0) mergedSellers[idx] = { ...mergedSellers[idx], ...s };
             else mergedSellers.push(s);
           });
-          return { ...it, sellers: mergedSellers };
+          const mergedLocQty = { ...(it.locQty || {}), ...r.locQty };
+          const mergedLocMinQty = { ...(it.locMinQty || {}), ...r.locMinQty };
+          return { ...it, sellers: mergedSellers, locQty: mergedLocQty, locMinQty: mergedLocMinQty, ...(r.notes ? { notes: r.notes } : {}) };
         });
         updated++;
       } else if (r.status === 'add') {
         const locQtyBlank3 = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
-        nextItems = [...nextItems, { id: uid(), name: r.name, category: r.category, unit: r.unit, upc: r.upc, sellers: seller, currentQty: '', minQty: '', locQty: locQtyBlank3, locMinQty: locQtyBlank3, notes: '', createdAt: today() }];
+        nextItems = [...nextItems, { id: uid(), name: r.name, category: r.category, unit: r.unit, upc: r.upc, sellers: seller, currentQty: '', minQty: '', locQty: { ...locQtyBlank3, ...r.locQty }, locMinQty: { ...locQtyBlank3, ...r.locMinQty }, notes: r.notes || '', createdAt: today() }];
         added++;
       }
     });

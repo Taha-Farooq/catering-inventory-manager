@@ -567,18 +567,11 @@ Notes text input added as a column in the shopping list table. Notes are persist
 
 ---
 
-### BL-48 — Dashboard / inventory overview tab (Backlog)
+### BL-48 — Dashboard / inventory overview tab ← DONE Slice 24
 
-**Problem:** No at-a-glance view of inventory health; admin must navigate to each tab individually.
+New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: total items (clickable → Items tab), low stock count (red when > 0), inventory value estimate (sum locQty × first seller price), outstanding catering balance. Low-stock items table with item/location/qty/min columns. Recent activity feed (last 10 log entries). Purchases-this-month summary. "➕ Add all to Shopping List" button in low-stock section (Slice 26).
 
-**Scope:**
-- New "🏠 Dashboard" tab (admin-only) as the first tab in Stock group.
-- Summary cards: total items, low-stock count, items with no stock data, pending purchase invoices count.
-- Low-stock items list with quick +/- adjustment buttons.
-- Recent activity feed (last 10 activity log entries).
-- Optional: total inventory value estimate (sum of locQty × first seller price).
-
-**Files:** `src/tabs/Dashboard.jsx` (new), `src/App.jsx`, `src/constants.js` (TABS_ADMIN, NAV_GROUPS_ADMIN)
+**Files:** `src/tabs/Dashboard.jsx` (new), `src/App.jsx`, `src/constants.js`
 
 ---
 
@@ -599,9 +592,16 @@ Notes text input added as a column in the shopping list table. Notes are persist
 | BL-40 | Location-aware inventory: Englewood + Hackensack per-location qty | **Done** — Slice 19 |
 | BL-41 | Price memory: auto-fill last purchase price in invoices + shopping | **Done** — Slice 19 |
 | BL-47 | Shopping list notes column | **Done** — Slice 23 |
-| BL-48 | Dashboard / inventory overview tab | Backlog |
+| BL-48 | Dashboard / inventory overview tab | **Done** — Slice 24 |
 | BL-49 | Mark invoice lines as received (partial receipt tracking) | Backlog |
-| BL-50 | Item low-stock email/notification reminder | Backlog |
+| BL-50 | Item purchase + adjustment history modal in ItemDatabase | **Done** — Slice 26 |
+| BL-51 | Purchase invoices Excel export | **Done** — Slice 27 |
+| BL-52 | Catering invoice price memory (same as purchase invoices) | **Done** — Slice 26 |
+| BL-53 | Activity log CSV export | **Done** — Slice 26 |
+| BL-54 | Price back-propagation: mark-paid updates item seller prices | **Done** — Slice 25 |
+| BL-55 | Pricer tab accessible to admins (was missing from TABS_ADMIN) | **Done** — Slice 25 |
+| BL-56 | Reorder auto-suggest "Use suggestion" button fills all locations | **Done** — Slice 23 |
+| BL-57 | Vitest coverage for safePrice, safeQty, sellerKey, isLowStock, uid | **Done** — Slice 27 |
 
 ---
 

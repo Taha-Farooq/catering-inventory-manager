@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useId } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -248,6 +249,27 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [showAllBiz, setShowAllBiz] = useState(false);
   const visiblePurchase = showAllBiz ? [...purchaseInvoices].reverse() : [...purchaseInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
 
+  function exportExcel() {
+    if (!visiblePurchase.length) { showToast('No invoices to export.', 'error'); return; }
+    try {
+      const header = ['Invoice#', 'Supplier', 'Date', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Notes'];
+      const rows = visiblePurchase.map(inv => [
+        inv.id, inv.supplier, inv.date, inv.business || '', inv.status,
+        +(inv.subtotal || 0).toFixed(2), +(inv.taxAmount || 0).toFixed(2), +(inv.total || 0).toFixed(2),
+        inv.notes || ''
+      ]);
+      const aoa = [header, ...rows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Purchase Invoices');
+      XLSX.writeFile(wb, 'purchase-invoices-' + new Date().toISOString().slice(0,10) + '.xlsx');
+      showToast('Purchase invoices exported as Excel.');
+      logActivity('export_xlsx', `Exported ${visiblePurchase.length} purchase invoices`);
+    } catch(e) {
+      showToast('Export failed. Try again.', 'error');
+    }
+  }
+
   return (
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
@@ -257,6 +279,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
+          <Btn className="btn-outline" onClick={exportExcel}>⬇ Export Excel</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
       </div>

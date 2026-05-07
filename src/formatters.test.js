@@ -60,11 +60,29 @@ describe('formatters', () => {
       expect(safeQty(-1)).toBe(0);
       expect(safeQty('x')).toBe(0);
     });
+    it('parses numeric float directly', () => {
+      expect(safeQty(3.5)).toBe(3.5);
+    });
+    it('parses numeric string', () => {
+      expect(safeQty('2')).toBe(2);
+    });
+    it('returns 0 for empty string', () => {
+      expect(safeQty('')).toBe(0);
+    });
+    it('returns 0 for null', () => {
+      expect(safeQty(null)).toBe(0);
+    });
   });
 
   describe('sellerKey', () => {
     it('lowercases and trims', () => {
       expect(sellerKey('  Acme Foods  ')).toBe('acme foods');
+    });
+    it('lowercases multi-word seller names', () => {
+      expect(sellerKey('Sysco Foods')).toBe('sysco foods');
+    });
+    it('returns empty string for empty input', () => {
+      expect(sellerKey('')).toBe('');
     });
   });
 
@@ -134,6 +152,15 @@ describe('formatters', () => {
       expect(safePrice('')).toBeNull();
       expect(safePrice(null)).toBeNull();
       expect(safePrice(-1)).toBeNull();
+    });
+    it('parses string with decimal', () => {
+      expect(safePrice('10.50')).toBe(10.5);
+    });
+    it('parses numeric integer', () => {
+      expect(safePrice(5)).toBe(5);
+    });
+    it('returns null for non-numeric string', () => {
+      expect(safePrice('abc')).toBeNull();
     });
   });
 
