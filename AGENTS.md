@@ -22,6 +22,8 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | `src/utils/activity.js` | `logActivity(action, details)` — writes to `_activityLog`; imports from `storage.js` |
 | `src/utils/print.js` | `documentBaseHref`, `rewriteImgSrcsForPrint`, `printHtmlDocument`, `printInvoiceById` |
 | `src/utils/invoiceIds.js` | `nextId(type)`, `nextTransferId(dateStr)`, `normalizeTransferInvoice(inv)` — ID generators + transfer normaliser |
+| `src/utils/errors.js` | `logFailure({ area, action, error, extra })` — structured error logger to `_failureLog` (max 500 entries) |
+| `src/tabUtils.js` | Compatibility shim — re-exports `load`, `today`, `logActivity`, `logFailure`, `getProfile` for tabs extracted before canonical utils existed. **Use direct utils imports in new code.** |
 | `src/ui/BrandMark.jsx` | `BrandMark` React component — renders business logo/mark badge on invoice headers |
 | `src/errors.js` | `reportError`, diagnostics ring buffer, `copyDiagnostics`; wired from Help tab |
 | `src/apiErrors.js` | DMG-E020–E031 mapping for auth/scan/attendance `fetch` + HTTP |

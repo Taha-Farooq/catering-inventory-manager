@@ -300,7 +300,7 @@ Large items that need their own kick-off before breaking into slices.
 | BL-30 | Vitest coverage for `src/utils/` modules | **Done** — Slice 17 |
 | BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
 | BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
-| BL-33 | Customer invoice history panel | Queued — Slice 18 |
+| BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
 | BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
 | BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
 
@@ -445,7 +445,7 @@ Large items that need their own kick-off before breaking into slices.
 
 | BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
 | BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
-| BL-33 | Customer invoice history panel | Queued — Slice 18 |
+| BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
 | BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
 | BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
 
