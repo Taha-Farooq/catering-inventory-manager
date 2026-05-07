@@ -157,6 +157,11 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
   }
 
   const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
+  const sellerTotals = useMemo(()=>{
+    const m={};
+    shoppingList.forEach(e=>{const s=e.selectedSeller||'Unspecified';if(!m[s])m[s]=0;m[s]+=safeQty(e.quantity)*(e.price??0);});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,total])=>({name,total:+total.toFixed(2)}));
+  },[shoppingList]);
 
   function exportXlsx() {
     if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
@@ -386,9 +391,22 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
                 </table>
               </div>
             </div>
-            <div className="card" style={{textAlign:'right'}}>
-              <span style={{fontSize:13,color:'#888',marginRight:16}}>{shoppingList.length} item{shoppingList.length!==1?'s':''}</span>
-              <span style={{fontSize:20,fontWeight:700,color:'var(--brown)'}}>Total: {fmt$(grandTotal)}</span>
+            <div className="card">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
+                {sellerTotals.length > 1 && (
+                  <div style={{fontSize:12.5,color:'#666'}}>
+                    {sellerTotals.map(s=>(
+                      <div key={s.name} style={{marginBottom:2}}>
+                        <span style={{fontWeight:600}}>{s.name}:</span> {fmt$(s.total)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{marginLeft:'auto',textAlign:'right'}}>
+                  <span style={{fontSize:13,color:'#888',marginRight:16}}>{shoppingList.length} item{shoppingList.length!==1?'s':''}</span>
+                  <span style={{fontSize:20,fontWeight:700,color:'var(--brown)'}}>Total: {fmt$(grandTotal)}</span>
+                </div>
+              </div>
             </div>
           </>
         )

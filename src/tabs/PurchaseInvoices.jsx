@@ -260,13 +260,18 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
 
   const [showAllBiz, setShowAllBiz] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSupplier, setFilterSupplier] = useState('');
   const [receivedQtys, setReceivedQtys] = useState({});
 
   const visiblePurchase = useMemo(() => {
     let list = showAllBiz ? [...purchaseInvoices] : purchaseInvoices.filter(i => !i.business || i.business === selectedBusiness);
     if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    if (filterSupplier.trim()) {
+      const q = filterSupplier.toLowerCase();
+      list = list.filter(i => (i.supplier || '').toLowerCase().includes(q));
+    }
     return [...list].reverse();
-  }, [purchaseInvoices, showAllBiz, selectedBusiness, filterStatus]);
+  }, [purchaseInvoices, showAllBiz, selectedBusiness, filterStatus, filterSupplier]);
 
   const outstandingTotal = useMemo(() =>
     purchaseInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0),
@@ -322,6 +327,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
+          <input className="input" style={{width:140}} placeholder="Filter supplier…" value={filterSupplier} onChange={e=>setFilterSupplier(e.target.value)} />
           <select className="input" style={{width:'auto'}} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
             <option value="all">All statuses</option>
             <option value="unpaid">Unpaid only</option>
