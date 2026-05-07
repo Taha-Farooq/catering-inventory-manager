@@ -133,6 +133,26 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     }));
   }
 
+  function exportCsv() {
+    if (!filtered.length) { showToast('No entries to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Date', 'Business', 'Income', 'Expense', 'Net', 'Sales Tax Collected', 'Tax Paid', 'Notes'];
+    const rows = filtered.map(r => [
+      r.date || '', BUSINESSES[r.business]?.name || r.business || '',
+      +(r.income || 0).toFixed(2), +(r.expense || 0).toFixed(2),
+      +((r.income || 0) - (r.expense || 0)).toFixed(2),
+      +(r.salesTaxCollected || 0).toFixed(2), +(r.taxPaid || 0).toFixed(2), r.notes || '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(row => row.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'daily-finance-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Daily finance exported as CSV.');
+    logActivity('export_csv', 'Exported daily income/expense CSV');
+  }
+
   function exportExcel() {
     const wb = XLSX.utils.book_new();
     const dataRows = toExcelRows(filtered);
@@ -225,7 +245,8 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={() => importRef.current?.click()}>⬆ Upload Excel (2025/2026)</Btn>
           <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => { importExcel(e.target.files?.[0]); e.target.value = ''; }} />
-          <Btn className="btn-success btn-sm" onClick={exportExcel}>⬇ Export Excel</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-success btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
         </div>
       </div>
       <div className="hint-card">Use this for daily accounting, backfill old records via Excel, and auto-generate tax-ready summaries.</div>
