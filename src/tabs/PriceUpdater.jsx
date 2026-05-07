@@ -31,7 +31,7 @@ export default function PriceUpdater({ items, setItems, priceHistory, setPriceHi
       const key = sellerEditKey(item.id, s.name, sellerIdx);
       if (edits[key] !== undefined) {
         const val = edits[key];
-        if (val !== '' && safePrice(val) === null) { showToast('Invalid price for ' + s.name, 'error'); valid = false; return s; }
+        if (val !== '' && safePrice(val) === null) { showToast('Invalid price for ' + s.name + ' [DMG-E006]', 'error'); valid = false; return s; }
         return { ...s, price: val==='' ? null : safePrice(val) };
       }
       return s;

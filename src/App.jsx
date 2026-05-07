@@ -649,9 +649,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-// ═══════════════════════════════════════════════════════════
 // LOGIN SCREEN
-// ═══════════════════════════════════════════════════════════
 function FirstRunSetup({ onDone, apiBase }) {
   const [err, setErr] = useState('');
   const [importMsg, setImportMsg] = useState('');
@@ -1095,9 +1093,7 @@ function AdminResetPortal() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
 // PROFILE MODAL
-// ═══════════════════════════════════════════════════════════
 function ProfileModal({ open, onClose, username, profile, onSave }) {
   const [icon, setIcon] = useState(profile ? profile.icon : '👤');
   const [displayName, setDisplayName] = useState(profile ? profile.displayName : '');
@@ -1160,9 +1156,7 @@ function LogoField({ label, fieldKey, logoFields, setLogoFields, fileRef, onFile
   );
 }
 
-// ═══════════════════════════════════════════════════════════
 // SETTINGS MODAL (admin only)
-// ═══════════════════════════════════════════════════════════
 function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap }) {
   const { items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
           dailyFinanceEntries, customers, priceHist,
@@ -1868,45 +1862,7 @@ function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, lo
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-// TAB 1 — ITEM DATABASE
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-// TAB 2 — SHOPPING LIST
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-// TAB 3 — PURCHASE INVOICES
-// ═══════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════
-
-
-
-// ═══════════════════════════════════════════════════════════
-// TAB 7 — ANALYTICS
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-// TAB 7 — INVOICE ARCHIVE
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-// INTERNAL TRANSFER INVOICES (P&P Hackensack -> Englewood)
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-// TAB 8 — PRICE HISTORY
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
 // PRICE UPDATER
-// ═══════════════════════════════════════════════════════════
-
-
-
-
-// ═══════════════════════════════════════════════════════════
 function App() {
   useEffect(() => { initGlobalFailureCapture(); }, []);
   const attendanceParams = useMemo(() => parseAttendanceParams(), []);

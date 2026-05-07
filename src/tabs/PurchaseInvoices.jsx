@@ -108,7 +108,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   function saveInvoice(){
     if (!form.supplier.trim()){showToast('Supplier name is required. [DMG-E006]','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
-    if (!valid.length){showToast('Add at least one line item with a description.','error');return;}
+    if (!valid.length){showToast('Add at least one line item with a description. [DMG-E006]','error');return;}
     if (editingPurchaseId) {
       const prev = purchaseInvoices.find((i) => i.id === editingPurchaseId);
       if (!prev) { showToast('Invoice not found.', 'error'); return; }

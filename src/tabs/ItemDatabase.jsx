@@ -73,7 +73,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
         showToast(`"${sellerName}" looks like one of your own companies, not an external supplier. Please use the actual vendor name.`, 'warning');
         return;
       }
-      if (seenSellerKeys.has(sk)) { showToast(`Duplicate seller "${sellerName}" for this item. Use unique seller names.`, 'error'); return; }
+      if (seenSellerKeys.has(sk)) { showToast(`Duplicate seller "${sellerName}" for this item. Use unique seller names. [DMG-E006]`, 'error'); return; }
       seenSellerKeys.add(sk);
       const p = safePrice(s.price);
       if (s.price!==''&&p===null) { showToast(`Invalid price for "${sellerName}". Must be a positive number or left blank. [DMG-E006]`, 'error'); return; }
