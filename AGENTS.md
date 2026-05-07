@@ -255,6 +255,14 @@ Low-stock detection in `ItemDatabase.jsx` and `ShoppingList.jsx` checks **both**
 
 In `PurchaseInvoices.jsx`, the `setLine` function auto-fills `unitPrice` and `unit` when the description field exactly matches (case-insensitive) an item name in the DB. It prefers the seller that matches `form.supplier`; falls back to `sellers[0]`. Only fills blank fields — does not overwrite existing values.
 
+## Item export CSV (Slice 20 / BL-36)
+
+`ItemDatabase.jsx` admin header has an "⬇ Export CSV" button. Exports all items as a CSV with columns: `name, category, unit, upc, seller, price, englewood_qty, englewood_min, hackensack_qty, hackensack_min, notes`. Round-trip compatible with the BL-35 import (same column aliases accepted on re-import).
+
+## Purchase invoice → stock update (Slice 20 / BL-37)
+
+Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` prop). Opens a modal to select Englewood or Hackensack location, shows which line items matched items in the DB (by name), and increments `locQty[location]` for matched items on confirm. `setItems` is now passed from App.jsx to PurchaseInvoices.
+
 ## Bulk CSV import (Slice 19 / BL-35)
 
 `ItemDatabase.jsx` exposes an "Import CSV" button (admin only). Supports `.csv`, `.xlsx`, `.xls`. Requires a `name` column; optional `category`, `unit`, `upc`, `seller`, `price`. Column matching is case-insensitive and alias-aware (e.g. "supplier" → seller, "barcode" → upc). Shows a preview modal with per-row Add/Update/Skip status before committing.

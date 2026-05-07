@@ -3,7 +3,7 @@ import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
 import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
-import { BUSINESSES } from '../constants.js';
+import { BUSINESSES, LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
@@ -41,7 +41,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], brandingMap }) {
+export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
@@ -66,6 +66,8 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [stockUpdateInv, setStockUpdateInv] = useState(null);
+  const [stockUpdateLoc, setStockUpdateLoc] = useState(LOCATIONS[1]);
 
   function setLine(i, f2, v) {
     setForm(f => {
@@ -180,6 +182,37 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
   function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);showToast('Purchase invoice marked paid.');logActivity('mark_paid','Marked purchase invoice paid '+id);}
 
+  function buildStockMatches(inv) {
+    return (inv.lineItems || []).map(l => {
+      const desc = (l.description || '').trim();
+      const match = items.find(it => it.name.toLowerCase() === desc.toLowerCase());
+      return { desc, qty: safeQty(l.qty ?? l.quantity), match };
+    }).filter(r => r.qty > 0);
+  }
+
+  function commitStockUpdate() {
+    if (!stockUpdateInv || !setItems) return;
+    const lc = stockUpdateLoc.toLowerCase();
+    const matches = buildStockMatches(stockUpdateInv).filter(r => r.match);
+    let nextItems = [...items];
+    let count = 0;
+    matches.forEach(({ match, qty }) => {
+      nextItems = nextItems.map(it => {
+        if (it.id !== match.id) return it;
+        const locQty = { ...it.locQty };
+        const prev = parseFloat(locQty[lc]) || 0;
+        locQty[lc] = String(+(prev + qty).toFixed(4));
+        count++;
+        return { ...it, locQty };
+      });
+    });
+    setItems(nextItems);
+    save('items', nextItems);
+    logActivity('stock_update', `Stock update from ${stockUpdateInv.id}: +${count} items at ${stockUpdateLoc}`);
+    showToast(`Updated stock for ${count} item${count !== 1 ? 's' : ''} at ${stockUpdateLoc}.`);
+    setStockUpdateInv(null);
+  }
+
   const [showAllBiz, setShowAllBiz] = useState(false);
   const visiblePurchase = showAllBiz ? [...purchaseInvoices].reverse() : [...purchaseInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
 
@@ -217,6 +250,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
                         <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openPurchaseEdit(inv)}>Edit</Btn>
                         <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>copyInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Mark Paid</Btn>}
+                        {setItems&&<Btn className="btn-outline btn-sm" style={{marginRight:4}} title="Update item stock levels from this invoice" onClick={()=>setStockUpdateInv(inv)}>📦 Stock</Btn>}
                         <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
                       </td>
                     </tr>
@@ -337,6 +371,55 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
         onConfirm={() => deleteInv(confirmId)}
         onCancel={() => setConfirmId(null)}
       />
+
+      <Modal open={!!stockUpdateInv} onClose={() => setStockUpdateInv(null)} title={`Update Stock from Invoice ${stockUpdateInv?.id || ''}`}>
+        {stockUpdateInv && (() => {
+          const rows = buildStockMatches(stockUpdateInv);
+          const matched = rows.filter(r => r.match);
+          const unmatched = rows.filter(r => !r.match);
+          return (
+            <>
+              <div style={{marginBottom:12}}>
+                <label style={{fontWeight:600,marginRight:8}}>Apply to location:</label>
+                <select className="input" style={{width:'auto',display:'inline-block'}} value={stockUpdateLoc} onChange={e=>setStockUpdateLoc(e.target.value)}>
+                  {LOCATIONS.map(l=><option key={l}>{l}</option>)}
+                </select>
+              </div>
+              {matched.length > 0 && (
+                <>
+                  <div style={{fontWeight:600,color:'#15803D',marginBottom:6,fontSize:13}}>Will update ({matched.length} item{matched.length!==1?'s':''}):</div>
+                  <div className="tbl-wrap" style={{maxHeight:220,overflowY:'auto',marginBottom:12}}>
+                    <table>
+                      <thead><tr><th>Item</th><th>+Qty</th><th>Current ({stockUpdateLoc})</th></tr></thead>
+                      <tbody>
+                        {matched.map((r,i)=>(
+                          <tr key={i}>
+                            <td style={{fontWeight:600}}>{r.match.name}</td>
+                            <td style={{color:'#15803D',fontWeight:700}}>+{r.qty}</td>
+                            <td style={{color:'#888',fontSize:12}}>{r.match.locQty?.[stockUpdateLoc.toLowerCase()] || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              {unmatched.length > 0 && (
+                <div style={{background:'#FEF9E7',border:'1px solid #FDE68A',borderRadius:6,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#92400E'}}>
+                  <strong>No match in Item DB ({unmatched.length}):</strong> {unmatched.map(r=>r.desc).join(', ')}
+                </div>
+              )}
+              {matched.length === 0 && (
+                <div style={{color:'#888',padding:'12px 0',textAlign:'center'}}>No line items matched items in the database by name.</div>
+              )}
+              <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
+                <Btn className="btn-outline" onClick={()=>setStockUpdateInv(null)}>Cancel</Btn>
+                <Btn className="btn-primary" disabled={matched.length===0} onClick={commitStockUpdate}>Update {matched.length} Item{matched.length!==1?'s':''}</Btn>
+              </div>
+            </>
+          );
+        })()}
+      </Modal>
     </div>
   );
 }

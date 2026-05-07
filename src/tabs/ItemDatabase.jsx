@@ -161,6 +161,35 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     showToast(`Removed ${removed} internal-name sellers from items.`);
   }
 
+  function exportItemsCsv() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['name','category','unit','upc','seller','price',
+      ...LOCATIONS.flatMap(l => [l.toLowerCase()+'_qty', l.toLowerCase()+'_min']),
+      'notes'];
+    const rows = items.map(item => {
+      const first = Array.isArray(item.sellers) && item.sellers[0] ? item.sellers[0] : {};
+      return [
+        item.name, item.category, item.unit, item.upc || '',
+        first.name || '', first.price != null ? first.price : '',
+        ...LOCATIONS.flatMap(l => [
+          item.locQty?.[l.toLowerCase()] ?? '',
+          item.locMinQty?.[l.toLowerCase()] ?? '',
+        ]),
+        item.notes || '',
+      ];
+    });
+    const csv = [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'items-' + today() + '.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast(`Exported ${items.length} items as CSV.`);
+    logActivity('export_items_csv', `Exported ${items.length} items`);
+  }
+
   function handleImportFile(file) {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -236,6 +265,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           {isAdmin && <Btn className="btn-outline" onClick={cleanupInternalSellers}>🧹 Clean Seller List</Btn>}
           {isAdmin && (
             <>
+              <Btn className="btn-outline" onClick={exportItemsCsv}>⬇ Export CSV</Btn>
               <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }} />
               <Btn className="btn-outline" onClick={() => importFileRef.current?.click()}>⬆ Import CSV</Btn>

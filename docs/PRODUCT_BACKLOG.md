@@ -444,27 +444,31 @@ Large items that need their own kick-off before breaking into slices.
 
 ---
 
-### BL-36 — Export item database as CSV/Excel
+### BL-36 — Export item database as CSV/Excel ← DONE Slice 20
 
 **Problem:** No way to back up or share the item catalog outside the app.
 
 **Scope:**
-- Button in ItemDatabase header exports all items as CSV (name, category, unit, upc, seller, price columns).
+- "⬇ Export CSV" button in ItemDatabase header (admin-only).
+- Exports all items: name, category, unit, upc, seller (first), price (first), per-location qty/min columns, notes.
 - Round-trip compatible with BL-35 import format.
 
 **Files touched:** `src/tabs/ItemDatabase.jsx`
 
 ---
 
-### BL-37 — Purchase invoice → update stock levels
+### BL-37 — Purchase invoice → update stock levels ← DONE Slice 20
 
 **Problem:** Receiving a purchase order doesn't automatically increment stock.
 
 **Scope:**
-- "Update stock" action on a paid purchase invoice — matches line item descriptions to DB items, increments per-location qty.
-- Confirmation step before applying.
+- "📦 Stock" button on each purchase invoice row (admin-only).
+- Opens a modal: select location (Englewood/Hackensack), shows matched items with qty increment preview.
+- Matched by line item description = item name (case-insensitive).
+- Unmatched items shown as warning; partial match allowed.
+- On confirm, increments `locQty[location]` for each matched item.
 
-**Files touched:** `src/tabs/PurchaseInvoices.jsx`, `src/tabs/ItemDatabase.jsx`
+**Files touched:** `src/tabs/PurchaseInvoices.jsx`, `src/App.jsx` (`setItems` prop added)
 
 ---
 
@@ -525,8 +529,8 @@ Large items that need their own kick-off before breaking into slices.
 | BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
 | BL-34 | Date range shortcuts in Archive + Daily Finance | **Done** — Slice 18 |
 | BL-35 | Items bulk import from CSV/Excel | **Done** — Slice 19 |
-| BL-36 | Export item database as CSV/Excel | Backlog |
-| BL-37 | Purchase invoice → update stock levels on receipt | Backlog |
+| BL-36 | Export item database as CSV/Excel | **Done** — Slice 20 |
+| BL-37 | Purchase invoice → update stock levels on receipt | **Done** — Slice 20 |
 | BL-38 | Custom categories management in Settings | Backlog |
 | BL-39 | Inventory adjustment log (received/waste/correction) | Backlog |
 | BL-40 | Location-aware inventory: Englewood + Hackensack per-location qty | **Done** — Slice 19 |
