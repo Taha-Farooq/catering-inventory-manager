@@ -209,12 +209,21 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
 
   const [showAllBiz, setShowAllBiz] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterCustomer, setFilterCustomer] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
 
   const visibleCatering = useMemo(() => {
     let list = showAllBiz ? [...cateringInvoices] : cateringInvoices.filter(i => !i.business || i.business === selectedBusiness);
     if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    if (filterCustomer.trim()) {
+      const q = filterCustomer.toLowerCase();
+      list = list.filter(i => (i.customerName || '').toLowerCase().includes(q));
+    }
+    if (filterDateFrom) list = list.filter(i => (i.date || i.dateStart || '') >= filterDateFrom);
+    if (filterDateTo) list = list.filter(i => (i.date || i.dateStart || '') <= filterDateTo);
     return [...list].reverse();
-  }, [cateringInvoices, showAllBiz, selectedBusiness, filterStatus]);
+  }, [cateringInvoices, showAllBiz, selectedBusiness, filterStatus, filterCustomer, filterDateFrom, filterDateTo]);
 
   const outstandingTotal = useMemo(() =>
     cateringInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.balanceDue || 0), 0),
@@ -258,6 +267,16 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
+      </div>
+
+      <div className="flex gap-2 mb-4 flex-wrap" style={{alignItems:'center'}}>
+        <input className="input" style={{flex:'1 1 160px'}} placeholder="Filter by customer…" value={filterCustomer} onChange={e=>setFilterCustomer(e.target.value)} />
+        <input className="input" type="date" style={{width:'auto'}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
+        <input className="input" type="date" style={{width:'auto'}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
+        {(filterCustomer||filterDateFrom||filterDateTo) && (
+          <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterCustomer('');setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear filters</button>
+        )}
+        <div style={{marginLeft:'auto',fontSize:13,color:'#888'}}>{visibleCatering.length} of {cateringInvoices.length}</div>
       </div>
 
       {outstandingTotal > 0 && (

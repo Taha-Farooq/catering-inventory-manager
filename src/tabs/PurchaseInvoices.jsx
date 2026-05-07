@@ -261,6 +261,8 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [showAllBiz, setShowAllBiz] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterSupplier, setFilterSupplier] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
   const [receivedQtys, setReceivedQtys] = useState({});
 
   const visiblePurchase = useMemo(() => {
@@ -270,8 +272,10 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
       const q = filterSupplier.toLowerCase();
       list = list.filter(i => (i.supplier || '').toLowerCase().includes(q));
     }
+    if (filterDateFrom) list = list.filter(i => (i.date || '') >= filterDateFrom);
+    if (filterDateTo) list = list.filter(i => (i.date || '') <= filterDateTo);
     return [...list].reverse();
-  }, [purchaseInvoices, showAllBiz, selectedBusiness, filterStatus, filterSupplier]);
+  }, [purchaseInvoices, showAllBiz, selectedBusiness, filterStatus, filterSupplier, filterDateFrom, filterDateTo]);
 
   const outstandingTotal = useMemo(() =>
     purchaseInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0),
@@ -337,6 +341,15 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
+      </div>
+
+      <div className="flex gap-2 mb-4 flex-wrap" style={{alignItems:'center'}}>
+        <input className="input" type="date" style={{width:'auto'}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
+        <input className="input" type="date" style={{width:'auto'}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
+        {(filterDateFrom||filterDateTo) && (
+          <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear dates</button>
+        )}
+        <div style={{marginLeft:'auto',fontSize:13,color:'#888'}}>{visiblePurchase.length} of {purchaseInvoices.length}</div>
       </div>
 
       {outstandingTotal > 0 && (
