@@ -84,6 +84,32 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     return [...log].reverse().slice(0, 10);
   }, []);
 
+  const topSuppliers = useMemo(() => {
+    const m = {};
+    purchaseInvoices.forEach(inv => {
+      const s = inv.supplier || 'Unknown';
+      if (!m[s]) m[s] = { name: s, count: 0, total: 0 };
+      m[s].count++;
+      m[s].total += inv.total || 0;
+    });
+    return Object.values(m).sort((a, b) => b.total - a.total).slice(0, 5).map(s => ({ ...s, total: +s.total.toFixed(2) }));
+  }, [purchaseInvoices]);
+
+  const catalogWarnings = useMemo(() => {
+    return items.flatMap(item => {
+      const issues = [];
+      const hasPrice = (item.sellers || []).some(s => s.price != null && s.price > 0);
+      if (!hasPrice) issues.push('No price set');
+      if (!item.category || item.category === 'Other') issues.push('Category is Other/unset');
+      const hasStock = LOCATIONS.some(loc => {
+        const lc = loc.toLowerCase();
+        return item.locQty?.[lc] !== '' && item.locQty?.[lc] != null;
+      }) || (item.currentQty !== '' && item.currentQty != null);
+      if (!hasStock) issues.push('No stock data');
+      return issues.length ? [{ id: item.id, name: item.name, issue: issues.join('; ') }] : [];
+    }).slice(0, 20);
+  }, [items]);
+
   const purchasesThisMonth = useMemo(() => {
     const now = new Date();
     const ym = now.toISOString().slice(0, 7);
@@ -245,6 +271,50 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
           <strong>{fmt$(purchasesThisMonth.total)}</strong>
         </div>
       </div>
+
+      {/* Top Suppliers */}
+      {topSuppliers.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#128232; Top Suppliers (All Time)</div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Supplier</th><th>Invoices</th><th>Total Spend</th></tr></thead>
+              <tbody>
+                {topSuppliers.map(s => (
+                  <tr key={s.name}>
+                    <td style={{ fontWeight: 600 }}>{s.name || '—'}</td>
+                    <td style={{ color: '#888', fontSize: 13 }}>{s.count}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--brown)' }}>{fmt$(s.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Catalog health */}
+      {catalogWarnings.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#9888; Catalog Completeness</div>
+          <div style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>
+            {catalogWarnings.length} item{catalogWarnings.length !== 1 ? 's' : ''} missing price or category data:
+          </div>
+          <div className="tbl-wrap" style={{ maxHeight: 200, overflowY: 'auto' }}>
+            <table>
+              <thead><tr><th>Item</th><th>Issue</th></tr></thead>
+              <tbody>
+                {catalogWarnings.map(w => (
+                  <tr key={w.id}>
+                    <td style={{ fontWeight: 600 }}>{w.name}</td>
+                    <td style={{ color: '#DC2626', fontSize: 13 }}>{w.issue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
