@@ -472,15 +472,31 @@ Large items that need their own kick-off before breaking into slices.
 
 ---
 
-### BL-38 — Custom categories
+### BL-38 — Custom categories ← DONE Slice 21
 
 **Problem:** `CATEGORIES` is hardcoded; users can't add industry-specific categories without a code change.
 
 **Scope:**
-- Admin can add/remove categories in Settings.
-- Persisted as `_customCategories` in localStorage; merged with built-in list at runtime.
+- Admin can add/remove custom categories in Settings → "🏷️ Item Categories" section.
+- Built-in categories shown as read-only chips; custom categories shown with × remove button.
+- Persisted as `_customCategories` in localStorage; merged with CATEGORIES at runtime via `useMemo`.
+- ItemDatabase category dropdown, filter, and import validation all use the merged list.
 
-**Files touched:** `src/constants.js`, `src/ui/SettingsModal.jsx`, `src/tabs/ItemDatabase.jsx`
+**Files touched:** `src/constants.js` (CUSTOM_CATEGORIES_KEY), `src/ui/SettingsModal.jsx`, `src/tabs/ItemDatabase.jsx`
+
+---
+
+### BL-42 — Quick inline stock adjustment (+/−) per location ← DONE Slice 21
+
+**Problem:** Updating stock required opening the full item edit form, even for simple +1/−1 adjustments.
+
+**Scope:**
+- ItemDatabase table Stock column shows + and − buttons beside each location's qty (admin-only).
+- Clicking instantly increments/decrements locQty, saves to localStorage, and logs activity.
+- Non-admin users see qty read-only as before.
+- Also added category filter dropdown beside the search bar (all users).
+
+**Files touched:** `src/tabs/ItemDatabase.jsx`
 
 ---
 
@@ -531,8 +547,12 @@ Large items that need their own kick-off before breaking into slices.
 | BL-35 | Items bulk import from CSV/Excel | **Done** — Slice 19 |
 | BL-36 | Export item database as CSV/Excel | **Done** — Slice 20 |
 | BL-37 | Purchase invoice → update stock levels on receipt | **Done** — Slice 20 |
-| BL-38 | Custom categories management in Settings | Backlog |
+| BL-38 | Custom categories management in Settings | **Done** — Slice 21 |
 | BL-39 | Inventory adjustment log (received/waste/correction) | Backlog |
+| BL-42 | Quick inline stock +/− adjustment per location in ItemDatabase | **Done** — Slice 21 |
+| BL-43 | Shopping list: location context filter (which location am I buying for?) | Backlog |
+| BL-44 | Item search by seller name in ItemDatabase | Backlog |
+| BL-45 | Reorder point auto-suggest from purchase history | Backlog |
 | BL-40 | Location-aware inventory: Englewood + Hackensack per-location qty | **Done** — Slice 19 |
 | BL-41 | Price memory: auto-fill last purchase price in invoices + shopping | **Done** — Slice 19 |
 

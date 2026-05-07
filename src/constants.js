@@ -50,6 +50,8 @@ export const CATEGORIES = [
 
 export const LOCATIONS = ['Englewood', 'Hackensack'];
 
+export const CUSTOM_CATEGORIES_KEY = '_customCategories';
+
 export const CHART_COLORS = [
   '#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642',
 ];

@@ -28,6 +28,8 @@ import {
   ADMIN_RESET_CODE_KEY,
   LOGO_OVERRIDES_KEY,
   BIZ_CONTACT_KEY,
+  CATEGORIES,
+  CUSTOM_CATEGORIES_KEY,
 } from '../constants.js';
 import Modal from './Modal.jsx';
 import Confirm from './Confirm.jsx';
@@ -113,6 +115,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const [resetApiState, setResetApiState] = useState({ kind:'idle', msg:'' });
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
   const [pendingBackupFile, setPendingBackupFile] = useState(null);
+  const [customCategories, setCustomCategories] = useState(() => load(CUSTOM_CATEGORIES_KEY, []));
+  const [newCatInput, setNewCatInput] = useState('');
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
   const logoFileRefs = { degrill: useRef(), parathas: useRef(), dera: useRef(), transfer: useRef() };
   const BIZ_KEYS = ['degrill', 'parathas', 'dera', 'transfer'];
@@ -353,6 +357,27 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setResetCodeC('');
     setResetCodeMsg('Reset Code saved.');
     showToast('Quick reset code updated.');
+  }
+
+  function addCustomCategory() {
+    const cat = newCatInput.trim();
+    if (!cat) return;
+    if (CATEGORIES.includes(cat) || customCategories.includes(cat)) {
+      showToast(`"${cat}" already exists.`, 'warning'); return;
+    }
+    const next = [...customCategories, cat];
+    setCustomCategories(next);
+    save(CUSTOM_CATEGORIES_KEY, next);
+    setNewCatInput('');
+    logActivity('edit_item', `Added custom category: ${cat}`);
+    showToast(`Category "${cat}" added.`);
+  }
+  function removeCustomCategory(cat) {
+    const next = customCategories.filter(c => c !== cat);
+    setCustomCategories(next);
+    save(CUSTOM_CATEGORIES_KEY, next);
+    logActivity('edit_item', `Removed custom category: ${cat}`);
+    showToast(`Category "${cat}" removed.`);
   }
 
   async function doExport() {
@@ -608,6 +633,30 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         <p style={{fontSize:11.5,color:'#aaa',marginTop:10}}>
           💡 Tip: Save backups to Google Drive, OneDrive, or email them to yourself for safekeeping.
         </p>
+      </div>
+
+      {/* Custom Categories */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>🏷️ Item Categories</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:12,lineHeight:1.5}}>
+          Built-in categories cannot be removed. Add custom categories below — they appear in the Item Database.
+        </p>
+        <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:12}}>
+          {CATEGORIES.map(c => (
+            <span key={c} style={{background:'#F5F0E8',color:'#7B5E3A',padding:'3px 10px',borderRadius:12,fontSize:12}}>{c}</span>
+          ))}
+          {customCategories.map(c => (
+            <span key={c} style={{background:'#DCFCE7',color:'#15803D',padding:'3px 10px',borderRadius:12,fontSize:12,display:'inline-flex',alignItems:'center',gap:4}}>
+              {c}
+              <button onClick={() => removeCustomCategory(c)} title="Remove" style={{background:'none',border:'none',cursor:'pointer',color:'#DC2626',fontWeight:700,padding:'0 2px',lineHeight:1}}>×</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input className="input" placeholder="New category name…" value={newCatInput} onChange={e=>setNewCatInput(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter') addCustomCategory(); }} style={{flex:1}} />
+          <Btn className="btn-outline" onClick={addCustomCategory}>＋ Add</Btn>
+        </div>
       </div>
 
       {/* Staff Users */}

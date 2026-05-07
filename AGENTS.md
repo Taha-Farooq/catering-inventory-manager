@@ -255,6 +255,14 @@ Low-stock detection in `ItemDatabase.jsx` and `ShoppingList.jsx` checks **both**
 
 In `PurchaseInvoices.jsx`, the `setLine` function auto-fills `unitPrice` and `unit` when the description field exactly matches (case-insensitive) an item name in the DB. It prefers the seller that matches `form.supplier`; falls back to `sellers[0]`. Only fills blank fields — does not overwrite existing values.
 
+## Custom categories (Slice 21 / BL-38)
+
+`CUSTOM_CATEGORIES_KEY = '_customCategories'` in `constants.js` stores an array of admin-defined category strings. `SettingsModal.jsx` renders a "🏷️ Item Categories" section where admin can add/remove these. `ItemDatabase.jsx` computes `allCategories` via `useMemo` by merging `CATEGORIES` with the custom list on each render. The category dropdown in the item form, the category filter, and the bulk import validation all use `allCategories`. When adding custom categories, duplicates of built-in names are blocked at the UI level.
+
+## Quick stock adjustment (Slice 21 / BL-42)
+
+In `ItemDatabase.jsx`, each location row in the Stock column shows inline + and − buttons (admin-only) that call `adjustLocQty(itemId, loc, delta)`. This directly updates `locQty[loc]`, saves to storage, and logs activity. The Stock column also shows a category filter dropdown (`catFilter` state) beside the search bar, filtering the item list by selected category.
+
 ## Item export CSV (Slice 20 / BL-36)
 
 `ItemDatabase.jsx` admin header has an "⬇ Export CSV" button. Exports all items as a CSV with columns: `name, category, unit, upc, seller, price, englewood_qty, englewood_min, hackensack_qty, hackensack_min, notes`. Round-trip compatible with the BL-35 import (same column aliases accepted on re-import).

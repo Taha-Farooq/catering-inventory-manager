@@ -3,9 +3,9 @@ import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
-import { CATEGORIES, LOCATIONS, INTERNAL_SELLER_NAME_KEYS } from '../constants.js';
+import { CATEGORIES, LOCATIONS, CUSTOM_CATEGORIES_KEY, INTERNAL_SELLER_NAME_KEYS } from '../constants.js';
 import { fmt$, sellerKey, uniqSuggestions, safePrice } from '../formatters.js';
-import { save, uid, today } from '../utils/storage.js';
+import { load, save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 
 const IMPORT_COL = {
@@ -56,6 +56,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:'',locQty:{...locQtyBlank},locMinQty:{...locQtyBlank}};
   const blank = () => ({...BLANK, sellers:[{name:'',price:''}]});
   const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(blank());
@@ -63,6 +64,13 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const [importRows, setImportRows] = useState([]);
   const [showImport, setShowImport] = useState(false);
   const importFileRef = useRef(null);
+
+  const allCategories = useMemo(() => {
+    const custom = load(CUSTOM_CATEGORIES_KEY, []);
+    const merged = [...CATEGORIES];
+    custom.forEach(c => { if (c && !merged.includes(c)) merged.push(c); });
+    return merged;
+  }, []);
 
   const sellerSuggestions = useMemo(()=>uniqSuggestions(...items.flatMap(i=>(i.sellers||[]).map(s=>s.name))),[items]);
   const unitSuggestions = useMemo(()=>uniqSuggestions(...items.map(i=>i.unit)),[items]);
@@ -83,8 +91,11 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
 
   const filtered = useMemo(()=>{
     const q=search.toLowerCase();
-    return items.filter(i=>i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q));
-  },[items,search]);
+    return items.filter(i=>{
+      if (catFilter && i.category !== catFilter) return false;
+      return i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q);
+    });
+  },[items,search,catFilter]);
 
   const pendingDeleteItem = useMemo(
     () => (confirmId ? items.find((i) => i.id === confirmId) : null),
@@ -161,6 +172,20 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     showToast(`Removed ${removed} internal-name sellers from items.`);
   }
 
+  function adjustLocQty(itemId, loc, delta) {
+    const lc = loc.toLowerCase();
+    const next = items.map(it => {
+      if (it.id !== itemId) return it;
+      const prev = parseFloat(it.locQty?.[lc]) || 0;
+      const newQty = String(Math.max(0, +(prev + delta).toFixed(4)));
+      return { ...it, locQty: { ...(it.locQty || {}), [lc]: newQty } };
+    });
+    setItems(next);
+    save('items', next);
+    const item = next.find(it => it.id === itemId);
+    logActivity('edit_item', `Stock ${delta > 0 ? '+' : ''}${delta} ${loc}: ${item?.name}`);
+  }
+
   function exportItemsCsv() {
     if (!items.length) { showToast('No items to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -204,7 +229,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           const name = String(row[colMap.name] ?? '').trim();
           if (!name) return { rowNum: i + 2, name: '', status: 'skip', error: 'Missing item name' };
           const rawCat = colMap.category !== undefined ? String(row[colMap.category] ?? '').trim() : '';
-          const category = CATEGORIES.includes(rawCat) ? rawCat : (rawCat ? 'Other' : 'Produce');
+          const category = allCategories.includes(rawCat) ? rawCat : (rawCat ? 'Other' : 'Produce');
           const unit = String(row[colMap.unit] ?? 'each').trim() || 'each';
           const upc = String(row[colMap.upc] ?? '').trim();
           const sellerName = colMap.seller !== undefined ? String(row[colMap.seller] ?? '').trim() : '';
@@ -274,7 +299,14 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setShowForm(true);}}>＋ Add New Item</Btn>
         </div>
       </div>
-      <input className="input mb-4" placeholder="Search by name, category, or UPC…" value={search} onChange={e=>setSearch(e.target.value)} />
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <input className="input" style={{flex:'3 1 200px'}} placeholder="Search by name, category, or UPC…" value={search} onChange={e=>setSearch(e.target.value)} />
+        <select className="input" style={{flex:'1 1 130px'}} value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {allCategories.map(c=><option key={c}>{c}</option>)}
+        </select>
+        {(search||catFilter) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');}}>✕ Clear</Btn>}
+      </div>
       {!isAdmin && <div style={{background:'#dbeafe',color:'#1d4ed8',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13}}>💡 Tip: You can add new items using the button above. To edit or delete items, contact your admin.</div>}
       {lowStockCount > 0 && (
         <div style={{background:'#FEF2F2',color:'#991B1B',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
@@ -299,7 +331,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                       <td><span style={{fontSize:11.5,background:'#FFF0D4',color:'var(--brown)',padding:'2px 7px',borderRadius:10}}>{item.category}</span></td>
                       <td>{item.unit}</td>
                       <td style={{fontFamily:'monospace',fontSize:12,color:'#888'}}>{item.upc||'—'}</td>
-                      <td style={{fontSize:12,whiteSpace:'nowrap'}}>
+                      <td style={{fontSize:12}}>
                         {LOCATIONS.map(loc => {
                           const lc = loc.toLowerCase();
                           const qty = item.locQty?.[lc];
@@ -307,17 +339,21 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                           if (qty === '' || qty == null) return null;
                           const isLocLow = minQ !== '' && minQ != null && parseFloat(qty) <= parseFloat(minQ);
                           return (
-                            <div key={loc}>
-                              <span style={{color:'#888',fontSize:11}}>{loc}: </span>
+                            <div key={loc} style={{display:'flex',alignItems:'center',gap:3,marginBottom:1}}>
+                              <span style={{color:'#888',fontSize:11,minWidth:64}}>{loc}:</span>
                               <span style={{color:isLocLow?'#DC2626':'#16A34A',fontWeight:600}}>{qty}</span>
-                              {minQ !== '' && minQ != null && <span style={{color:'#999',fontSize:11}}>/min {minQ}</span>}
-                              {isLocLow && <span title="Low stock" style={{marginLeft:2,color:'#DC2626',fontSize:11}}>⚠</span>}
+                              {minQ !== '' && minQ != null && <span style={{color:'#999',fontSize:10}}>/min {minQ}</span>}
+                              {isLocLow && <span title="Low stock" style={{color:'#DC2626',fontSize:10}}>⚠</span>}
+                              {isAdmin && <>
+                                <button title={`Remove 1 from ${loc}`} onClick={()=>adjustLocQty(item.id,loc,-1)} style={{marginLeft:4,padding:'0 5px',fontSize:13,lineHeight:'16px',border:'1px solid #ddd',borderRadius:3,cursor:'pointer',background:'#fff',color:'#555'}}>−</button>
+                                <button title={`Add 1 to ${loc}`} onClick={()=>adjustLocQty(item.id,loc,+1)} style={{padding:'0 5px',fontSize:13,lineHeight:'16px',border:'1px solid #ddd',borderRadius:3,cursor:'pointer',background:'#fff',color:'#555'}}>+</button>
+                              </>}
                             </div>
                           );
                         })}
                         {LOCATIONS.every(loc => (item.locQty?.[loc.toLowerCase()] === '' || item.locQty?.[loc.toLowerCase()] == null)) && (
                           item.currentQty !== '' && item.currentQty != null
-                            ? <span style={{color:isLowStock(item)?'#DC2626':'#16A34A',fontWeight:600}}>{item.currentQty} {item.unit}</span>
+                            ? <span style={{color:isLowStock(item)?'#DC2626':'#16A34A',fontWeight:600,whiteSpace:'nowrap'}}>{item.currentQty} {item.unit}</span>
                             : <span style={{color:'#bbb'}}>—</span>
                         )}
                         {LOCATIONS.every(loc => (item.locQty?.[loc.toLowerCase()] === '' || item.locQty?.[loc.toLowerCase()] == null)) && item.minQty !== '' && item.minQty != null && (
@@ -353,7 +389,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
         <div className="grid-2">
           <FI label="Item Name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Chicken Breast" suggestions={itemNameSuggestions} />
           <FS label="Category" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
-            {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+            {allCategories.map(c=><option key={c}>{c}</option>)}
           </FS>
         </div>
         <div className="grid-2">
