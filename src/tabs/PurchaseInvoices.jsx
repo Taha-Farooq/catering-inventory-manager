@@ -105,6 +105,20 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     setShowForm(true);
   }
 
+  function copyInvoice(inv) {
+    const lines = (inv.lineItems && inv.lineItems.length ? inv.lineItems : [{ description:'', quantity:'', unit:'each', unitPrice:'' }]).map((l) => ({
+      description: l.description || '',
+      quantity: String(l.qty ?? l.quantity ?? ''),
+      unit: l.unit || 'each',
+      unitPrice: String(l.price ?? l.unitPrice ?? ''),
+    }));
+    setForm({ supplier: inv.supplier || '', date: today(), taxEnabled: !!inv.taxEnabled, notes: inv.notes || '', payment: { account:'', date:'', transactionId:'' }, lineItems: lines });
+    setEditingPurchaseId(null);
+    setViewInv(null);
+    setShowForm(true);
+    showToast('Invoice copied — review and save as new.');
+  }
+
   function saveInvoice(){
     if (!form.supplier.trim()){showToast('Supplier name is required. [DMG-E006]','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
@@ -183,6 +197,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
                       <td style={{whiteSpace:'nowrap'}}>
                         <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
                         <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openPurchaseEdit(inv)}>Edit</Btn>
+                        <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>copyInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Mark Paid</Btn>}
                         <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
                       </td>
@@ -282,6 +297,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openPurchaseEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>

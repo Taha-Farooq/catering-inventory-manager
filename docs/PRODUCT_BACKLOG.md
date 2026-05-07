@@ -298,6 +298,11 @@ Large items that need their own kick-off before breaking into slices.
 | BL-28 | Customer address field on catering invoices | **Done** — Slice 14 |
 | BL-29 | DMG codes on form validation toasts | **Done** — Slice 17 |
 | BL-30 | Vitest coverage for `src/utils/` modules | **Done** — Slice 17 |
+| BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
+| BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
+| BL-33 | Customer invoice history panel | Queued — Slice 18 |
+| BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
+| BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
 
 ---
 
@@ -352,6 +357,97 @@ Large items that need their own kick-off before breaking into slices.
 2. **Admin reset:** When `DMG-E012` triggers, is backend reset always allowed or device-local only?
 3. **COGS (Epic D / BL-01):** Per-business recipes vs global catalog? Tax inclusive/exclusive for margin?
 4. **Multi-business (Epic A / BL-17):** Shared item/customer catalog is intentional. Invoice filtering is now UI-level (by `business` field on each record). Scoped localStorage keys remain deferred unless scale demands it.
+
+---
+
+## Slice 18 — Inventory & invoicing quality-of-life features
+
+**Status:** Queued — pending design decisions on item quantity model.
+
+### BL-31 — Item quantity tracking + low-stock alerts
+
+**Problem:** Items have no quantity fields. Admins have no way to see current stock levels or get notified when stock is low.
+
+**Scope:**
+- Add `currentQty` (number, default `null` = not tracked) and `minQty` (number, default `null`) fields to the item schema.
+- ItemDatabase form: two new optional numeric inputs ("Current Qty" and "Min Qty / Reorder Point").
+- When `currentQty != null && minQty != null && currentQty <= minQty`, show a red ⚠ badge on the item row.
+- ShoppingList: "Add low-stock items" button pre-fills the list with all items where `currentQty <= minQty`.
+- PurchaseInvoices: "Receive stock" action updates item `currentQty` when invoice is marked received.
+- Items table in AGENTS.md: add `currentQty`, `minQty` field descriptions.
+
+**Files touched:** `src/tabs/ItemDatabase.jsx`, `src/tabs/ShoppingList.jsx`, `src/tabs/PurchaseInvoices.jsx`, `AGENTS.md`
+
+**Acceptance:** After setting minQty=5 on an item with currentQty=2, a red badge appears; "Add low-stock items" populates ShoppingList with that item.
+
+---
+
+### BL-32 — Invoice duplicate/copy
+
+**Problem:** Recurring catering events require re-entering the same invoice details every time.
+
+**Scope:**
+- Add a "Copy" button to all invoice view modals (Purchase, Catering, Transfer, Payroll).
+- Opens the create form pre-filled with the invoice data; date resets to today; status resets to `unpaid`.
+- A new ID is assigned on save (copy does not re-use the original ID).
+
+**Files touched:** `src/tabs/CateringInvoices.jsx`, `src/tabs/PurchaseInvoices.jsx`, `src/tabs/TransferInvoices.jsx`, `src/tabs/PayrollInvoices.jsx`
+
+**Acceptance:** "Copy" on a catering invoice opens the create form with all fields pre-filled except date and status; saving creates a new invoice with a new C-xxxx ID.
+
+---
+
+### BL-33 — Customer invoice history in CustomerManagement
+
+**Problem:** Viewing all invoices for a specific customer requires filtering manually in the Archive tab.
+
+**Scope:**
+- In CustomerManagement, add a "View Invoices" link per customer.
+- Clicking opens a read-only modal listing all catering invoices for that customer (by matching `customerName` or a future `customerId`), sorted by date descending.
+- Show totals: count, sum paid, sum unpaid.
+
+**Files touched:** `src/tabs/CustomerManagement.jsx`
+
+**Acceptance:** Clicking "View Invoices" for a customer shows a list of their catering invoices with subtotals; "No invoices found" shown if none.
+
+---
+
+### BL-34 — Date range shortcuts in Archive and Daily Finance
+
+**Problem:** Filtering by "last 30 days" or "this month" requires manually entering two dates each time.
+
+**Scope:**
+- Add preset buttons: "Last 7 days", "Last 30 days", "This month", "Last month", "Clear" next to date-from/date-to filters in InvoiceArchive and DailyIncomeExpense.
+- Active preset highlighted; clearing either date field deactivates the preset.
+
+**Files touched:** `src/tabs/InvoiceArchive.jsx`, `src/tabs/DailyIncomeExpense.jsx`
+
+**Acceptance:** Clicking "Last 30 days" sets the date filters to today minus 30 days / today; the filter result updates immediately.
+
+---
+
+### BL-35 — Items bulk import from CSV
+
+**Problem:** Initial setup of dozens of items is slow via the one-by-one form.
+
+**Scope:**
+- Import button in ItemDatabase opens a file picker for `.csv` or `.xlsx`.
+- Expected columns: `name`, `category`, `unit`, `upc` (optional), `seller`, `price` (optional).
+- Rows with a matching name update the existing item's sellers list; new names create new items.
+- Preview step shows parsed rows with "Add X items, update Y" before committing.
+- Errors (missing name, bad price) shown per-row; partial import allowed.
+
+**Files touched:** `src/tabs/ItemDatabase.jsx`
+
+**Acceptance:** Uploading a CSV with 5 new items and 2 updates: preview shows "Add 5, update 2"; confirming creates/updates them; activity log records the import.
+
+---
+
+| BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
+| BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
+| BL-33 | Customer invoice history panel | Queued — Slice 18 |
+| BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
+| BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
 
 ---
 

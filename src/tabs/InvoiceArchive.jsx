@@ -21,6 +21,19 @@ export default function InvoiceArchive({ getInvoiceBranding, purchaseInvoices, s
   const [search,setSearch]=useState('');
   const [dateFrom,setDateFrom]=useState('');
   const [dateTo,setDateTo]=useState('');
+  const [datePreset,setDatePreset]=useState('');
+
+  function applyPreset(preset) {
+    const now = new Date();
+    const fmt = d => d.toISOString().split('T')[0];
+    if (preset === '7d') { const f=new Date(now); f.setDate(f.getDate()-6); setDateFrom(fmt(f)); setDateTo(fmt(now)); }
+    else if (preset === '30d') { const f=new Date(now); f.setDate(f.getDate()-29); setDateFrom(fmt(f)); setDateTo(fmt(now)); }
+    else if (preset === 'month') { const f=new Date(now.getFullYear(),now.getMonth(),1); const t=new Date(now.getFullYear(),now.getMonth()+1,0); setDateFrom(fmt(f)); setDateTo(fmt(t)); }
+    else if (preset === 'lastmonth') { const f=new Date(now.getFullYear(),now.getMonth()-1,1); const t=new Date(now.getFullYear(),now.getMonth(),0); setDateFrom(fmt(f)); setDateTo(fmt(t)); }
+    else { setDateFrom(''); setDateTo(''); }
+    setDatePreset(preset === '' ? '' : preset);
+    setPage(1);
+  }
   const [confirmObj,setConfirmObj]=useState(null);
   const [viewInv,setViewInv]=useState(null);
   const [page, setPage] = useState(1);
@@ -149,8 +162,14 @@ export default function InvoiceArchive({ getInvoiceBranding, purchaseInvoices, s
             </select>
           </div>
           <div className="field" style={{margin:0}}><label>Search</label><input className="input" placeholder="Customer, supplier, #…" value={search} onChange={e=>setSearch(e.target.value)} /></div>
-          <div className="field" style={{margin:0}}><label>From</label><input className="input" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></div>
-          <div className="field" style={{margin:0}}><label>To</label><input className="input" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></div>
+          <div className="field" style={{margin:0}}><label>From</label><input className="input" type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setDatePreset('');}} /></div>
+          <div className="field" style={{margin:0}}><label>To</label><input className="input" type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setDatePreset('');}} /></div>
+        </div>
+        <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>
+          {[['7d','Last 7d'],['30d','Last 30d'],['month','This Month'],['lastmonth','Last Month']].map(([k,label])=>(
+            <Btn key={k} className="btn-sm" style={{background:datePreset===k?'var(--brown)':'#eee',color:datePreset===k?'#fff':'#555',borderRadius:12,padding:'2px 10px'}} onClick={()=>applyPreset(datePreset===k?'':k)}>{label}</Btn>
+          ))}
+          {(dateFrom||dateTo)&&<Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>applyPreset('')}>✕ Clear Dates</Btn>}
         </div>
         <div style={{marginTop:10,fontSize:13,color:'#666',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <span>Showing <strong>{filtered.length}</strong> of {all.length} · Total: <strong style={{color:'var(--brown)'}}>{fmt$(filtTotal)}</strong></span>
@@ -165,7 +184,7 @@ export default function InvoiceArchive({ getInvoiceBranding, purchaseInvoices, s
             </select>
           </span>
           {(typeF!=='all'||statusF!=='all'||search||dateFrom||dateTo)&&
-            <Btn className="btn-sm" style={{background:'#eee',color:'#666'}} onClick={()=>{setTypeF('all');setStatusF('all');setSearch('');setDateFrom('');setDateTo('');}}>✕ Clear Filters</Btn>}
+            <Btn className="btn-sm" style={{background:'#eee',color:'#666'}} onClick={()=>{setTypeF('all');setStatusF('all');setSearch('');setDateFrom('');setDateTo('');setDatePreset('');}}>✕ Clear Filters</Btn>}
         </div>
       </div>
 

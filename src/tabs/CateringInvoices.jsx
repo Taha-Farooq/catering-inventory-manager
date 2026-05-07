@@ -116,6 +116,36 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     setShowForm(true);
   }
 
+  function copyInvoice(inv) {
+    const lines = (inv.lineItems && inv.lineItems.length ? inv.lineItems : [{ description:'', quantity:'1', unitPrice:'' }]).map((l) => ({
+      description: l.description || '',
+      quantity: String(l.qty ?? l.quantity ?? '1'),
+      unitPrice: String(l.price ?? l.unitPrice ?? ''),
+    }));
+    setForm({
+      customerId: inv.customerId || '',
+      customerName: inv.customerName || '',
+      customerPhone: inv.customerPhone || '',
+      customerEmail: inv.customerEmail || '',
+      customerAddress: inv.customerAddress || '',
+      useRange: !!inv.useRange,
+      date: today(),
+      dateStart: today(),
+      dateEnd: today(),
+      eventType: inv.eventType || 'Catering',
+      business: inv.business || selectedBusiness,
+      lineItems: lines,
+      ccFeeEnabled: !!inv.ccFeeEnabled,
+      taxEnabled: inv.taxEnabled !== false,
+      deposit: '',
+      notes: inv.notes || '',
+    });
+    setEditingCateringId(null);
+    setViewInv(null);
+    setShowForm(true);
+    showToast('Invoice copied — review and save as new.');
+  }
+
   function saveInvoice(){
     if (!form.customerName.trim()){showToast('Customer name is required. [DMG-E006]','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
@@ -198,6 +228,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
                       <td style={{whiteSpace:'nowrap'}}>
                         <Btn className="btn-secondary btn-sm" style={{marginRight:4}} onClick={()=>setViewInv(inv)}>View</Btn>
                         <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openCateringEdit(inv)}>Edit</Btn>
+                        <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>copyInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Paid</Btn>}
                         {isAdmin&&<Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>}
                       </td>
@@ -340,6 +371,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
             {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openCateringEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>

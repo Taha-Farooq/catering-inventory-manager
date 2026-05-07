@@ -250,17 +250,28 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
         </div>
       </div>
 
-      <div className="card mb-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10 }}>
-        <div className="field" style={{ margin: 0 }}>
-          <label>Year</label>
-          <input className="input" placeholder="e.g. 2026" value={yearF} onChange={e => setYearF(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
+      <div className="card mb-3">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10, marginBottom: 8 }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Year</label>
+            <input className="input" placeholder="e.g. 2026" value={yearF} onChange={e => setYearF(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Month</label>
+            <select className="input" value={monthF} onChange={e => setMonthF(e.target.value)}>
+              <option value="">All</option>
+              {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
         </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label>Month</label>
-          <select className="input" value={monthF} onChange={e => setMonthF(e.target.value)}>
-            <option value="">All</option>
-            {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {[
+            ['this', 'This Month', () => { const n=new Date(); setYearF(String(n.getFullYear())); setMonthF(String(n.getMonth()+1).padStart(2,'0')); }],
+            ['last', 'Last Month', () => { const n=new Date(new Date().getFullYear(),new Date().getMonth()-1,1); setYearF(String(n.getFullYear())); setMonthF(String(n.getMonth()+1).padStart(2,'0')); }],
+          ].map(([k, label, fn]) => (
+            <Btn key={k} className="btn-sm" style={{background:'#eee',color:'#555',borderRadius:12,padding:'2px 10px'}} onClick={fn}>{label}</Btn>
+          ))}
+          {(yearF || monthF) && <Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={() => { setYearF(''); setMonthF(''); }}>✕ Clear</Btn>}
         </div>
       </div>
 
