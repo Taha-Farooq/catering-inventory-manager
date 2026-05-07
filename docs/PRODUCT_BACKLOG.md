@@ -617,6 +617,8 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-70 | CustomerManagement: CSV export + sort by revenue/invoice count | **Done** — Slice 33 |
 | BL-71 | Dashboard: Inventory value by category (inline bar chart) | **Done** — Slice 33 |
 | BL-72 | InventoryAdjustments: log activity on save and delete | **Done** — Slice 33 |
+| BL-73 | Analytics: gross profit + margin % stat cards + revenue by event type | **Done** — Slice 34 |
+| BL-74 | Catering invoice view: estimated ingredient cost + margin % banner | **Done** — Slice 34 |
 
 ---
 

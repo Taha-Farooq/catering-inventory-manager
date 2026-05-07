@@ -428,6 +428,28 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
               <strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}
             </div>
             {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
+            {items.length > 0 && (() => {
+              let estCost = 0; let matched = 0;
+              (viewInv.lineItems || []).forEach(l => {
+                const desc = (l.description || '').trim();
+                const it = items.find(i => i.name.toLowerCase() === desc.toLowerCase());
+                if (it) {
+                  const price = it.sellers?.[0]?.price || 0;
+                  estCost += price * safeQty(l.qty ?? l.quantity);
+                  matched++;
+                }
+              });
+              if (matched === 0) return null;
+              const rev = viewInv.grandTotal || 0;
+              const margin = rev > 0 ? ((rev - estCost) / rev * 100).toFixed(1) : null;
+              const color = margin >= 50 ? '#15803D' : margin >= 25 ? '#92400E' : '#DC2626';
+              return (
+                <div style={{marginTop:10,padding:'8px 12px',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:6,fontSize:12.5}}>
+                  <strong>Est. Ingredient Cost:</strong> {fmt$(+estCost.toFixed(2))} ({matched} item{matched!==1?'s':''} matched)
+                  {margin!=null&&<span style={{marginLeft:10,color,fontWeight:700}}>→ {margin}% margin</span>}
+                </div>
+              );
+            })()}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
