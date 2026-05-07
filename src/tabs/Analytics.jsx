@@ -1,53 +1,87 @@
-import React, { useMemo, lazy, Suspense } from 'react';
+import React, { useState, useMemo, lazy, Suspense } from 'react';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$ } from '../formatters.js';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
 export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) {
-  const totalRevenue=useMemo(()=>cateringInvoices.reduce((s,i)=>s+(i.grandTotal||0),0),[cateringInvoices]);
-  const totalSpending=useMemo(()=>purchaseInvoices.reduce((s,i)=>s+(i.total||0),0),[purchaseInvoices]);
-  const outstanding=useMemo(()=>cateringInvoices.reduce((s,i)=>s+(i.balanceDue||0),0),[cateringInvoices]);
-  const manualIncome=useMemo(()=>dailyFinanceEntries.reduce((s,i)=>s+(i.income||0),0),[dailyFinanceEntries]);
-  const manualExpense=useMemo(()=>dailyFinanceEntries.reduce((s,i)=>s+(i.expense||0),0),[dailyFinanceEntries]);
-  const taxDue=useMemo(()=>dailyFinanceEntries.reduce((s,i)=>s+((i.salesTaxCollected||0)-(i.taxPaid||0)),0),[dailyFinanceEntries]);
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+
+  const filteredCatering=useMemo(()=>cateringInvoices.filter(i=>{
+    const d=i.date||i.dateStart||i.createdAt||'';
+    if(filterFrom&&d<filterFrom)return false;
+    if(filterTo&&d>filterTo)return false;
+    return true;
+  }),[cateringInvoices,filterFrom,filterTo]);
+
+  const filteredPurchase=useMemo(()=>purchaseInvoices.filter(i=>{
+    const d=i.date||i.createdAt||'';
+    if(filterFrom&&d<filterFrom)return false;
+    if(filterTo&&d>filterTo)return false;
+    return true;
+  }),[purchaseInvoices,filterFrom,filterTo]);
+
+  const filteredDaily=useMemo(()=>dailyFinanceEntries.filter(i=>{
+    const d=i.date||'';
+    if(filterFrom&&d<filterFrom)return false;
+    if(filterTo&&d>filterTo)return false;
+    return true;
+  }),[dailyFinanceEntries,filterFrom,filterTo]);
+
+  const totalRevenue=useMemo(()=>filteredCatering.reduce((s,i)=>s+(i.grandTotal||0),0),[filteredCatering]);
+  const totalSpending=useMemo(()=>filteredPurchase.reduce((s,i)=>s+(i.total||0),0),[filteredPurchase]);
+  const outstanding=useMemo(()=>filteredCatering.reduce((s,i)=>s+(i.balanceDue||0),0),[filteredCatering]);
+  const manualIncome=useMemo(()=>filteredDaily.reduce((s,i)=>s+(i.income||0),0),[filteredDaily]);
+  const manualExpense=useMemo(()=>filteredDaily.reduce((s,i)=>s+(i.expense||0),0),[filteredDaily]);
+  const taxDue=useMemo(()=>filteredDaily.reduce((s,i)=>s+((i.salesTaxCollected||0)-(i.taxPaid||0)),0),[filteredDaily]);
   const grossProfit=useMemo(()=>+(totalRevenue+manualIncome-totalSpending-manualExpense).toFixed(2),[totalRevenue,manualIncome,totalSpending,manualExpense]);
   const grossMarginPct=useMemo(()=>{const r=totalRevenue+manualIncome;return r>0?+((grossProfit/r)*100).toFixed(1):null;},[grossProfit,totalRevenue,manualIncome]);
 
   const eventTypeData=useMemo(()=>{
     const m={};
-    cateringInvoices.forEach(i=>{const t=i.eventType||'Other';m[t]=(m[t]||0)+(i.grandTotal||0);});
+    filteredCatering.forEach(i=>{const t=i.eventType||'Other';m[t]=(m[t]||0)+(i.grandTotal||0);});
     return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
-  },[cateringInvoices]);
+  },[filteredCatering]);
 
   const topCustomers=useMemo(()=>{
     const m={};
-    cateringInvoices.forEach(i=>{const c=i.customerName||'Unknown';m[c]=(m[c]||0)+(i.grandTotal||0);});
+    filteredCatering.forEach(i=>{const c=i.customerName||'Unknown';m[c]=(m[c]||0)+(i.grandTotal||0);});
     return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
-  },[cateringInvoices]);
+  },[filteredCatering]);
 
   const monthRevenue=useMemo(()=>{
     const m={};
-    cateringInvoices.forEach(inv=>{const d=inv.date||inv.dateStart||inv.createdAt;if(!d)return;const k=d.substring(0,7);m[k]=(m[k]||0)+(inv.grandTotal||0);});
+    filteredCatering.forEach(inv=>{const d=inv.date||inv.dateStart||inv.createdAt;if(!d)return;const k=d.substring(0,7);m[k]=(m[k]||0)+(inv.grandTotal||0);});
     return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([k,v])=>({month:k.slice(5)+'/'+k.slice(2,4),total:+v.toFixed(2)}));
-  },[cateringInvoices]);
+  },[filteredCatering]);
 
   const statusData=useMemo(()=>[
-    {name:'Paid',value:cateringInvoices.filter(i=>i.status==='paid').length},
-    {name:'Unpaid',value:cateringInvoices.filter(i=>i.status==='unpaid').length},
-    {name:'Partial',value:cateringInvoices.filter(i=>i.status==='partial').length},
-  ].filter(d=>d.value>0),[cateringInvoices]);
+    {name:'Paid',value:filteredCatering.filter(i=>i.status==='paid').length},
+    {name:'Unpaid',value:filteredCatering.filter(i=>i.status==='unpaid').length},
+    {name:'Partial',value:filteredCatering.filter(i=>i.status==='partial').length},
+  ].filter(d=>d.value>0),[filteredCatering]);
 
   const supplierData=useMemo(()=>{
     const m={};
-    purchaseInvoices.forEach(i=>{m[i.supplier]=(m[i.supplier]||0)+(i.total||0);});
+    filteredPurchase.forEach(i=>{m[i.supplier]=(m[i.supplier]||0)+(i.total||0);});
     return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
-  },[purchaseInvoices]);
+  },[filteredPurchase]);
 
-  const hasData=cateringInvoices.length>0||purchaseInvoices.length>0;
+  const hasData=filteredCatering.length>0||filteredPurchase.length>0;
+  const isFiltered=filterFrom||filterTo;
 
   return (
     <div>
-      <div className="section-title">Analytics Dashboard</div>
+      <div className="flex-between mb-3 flex-wrap gap-2">
+        <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
+        <div className="flex gap-2 flex-wrap" style={{alignItems:'center'}}>
+          <input className="input" type="date" style={{width:'auto'}} value={filterFrom} onChange={e=>setFilterFrom(e.target.value)} title="From date" />
+          <span style={{fontSize:12,color:'#888'}}>to</span>
+          <input className="input" type="date" style={{width:'auto'}} value={filterTo} onChange={e=>setFilterTo(e.target.value)} title="To date" />
+          {isFiltered&&<button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterFrom('');setFilterTo('');}}>✕ All time</button>}
+          {isFiltered&&<span style={{fontSize:12,color:'#888'}}>Showing {filteredCatering.length}+{filteredPurchase.length}+{filteredDaily.length} records</span>}
+        </div>
+      </div>
       <div className="stat-grid">
         {[
           {v:fmt$(totalRevenue + manualIncome),l:'Total Revenue (Invoices + Daily)'},
@@ -56,9 +90,9 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
           {v:fmt$(grossProfit),l:'Gross Profit',color:grossProfit>=0?'#15803D':'#DC2626'},
           {v:grossMarginPct!=null?grossMarginPct+'%':'—',l:'Gross Margin %',color:grossMarginPct!=null&&grossMarginPct>=0?'#15803D':'#DC2626'},
           {v:fmt$(taxDue),l:'Sales Tax Due (Daily Ledger)'},
-          {v:cateringInvoices.length,l:'Catering Invoices'},
-          {v:purchaseInvoices.length,l:'Purchase Orders'},
-          {v:cateringInvoices.length>0?fmt$(totalRevenue/cateringInvoices.length):'—',l:'Avg Invoice Value'},
+          {v:filteredCatering.length,l:'Catering Invoices'},
+          {v:filteredPurchase.length,l:'Purchase Orders'},
+          {v:filteredCatering.length>0?fmt$(totalRevenue/filteredCatering.length):'—',l:'Avg Invoice Value'},
         ].map((s,i)=>(
           <div key={i} className="stat-card">
             <div className="stat-val" style={s.color?{color:s.color}:{}}>{s.v}</div>

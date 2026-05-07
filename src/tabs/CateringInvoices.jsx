@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId } from 'react';
+import React, { useState, useMemo, useId, useEffect } from 'react';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -212,6 +212,8 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  useEffect(() => { setSelectedIds(new Set()); }, [filterStatus, filterCustomer, filterDateFrom, filterDateTo]);
 
   const visibleCatering = useMemo(() => {
     let list = showAllBiz ? [...cateringInvoices] : cateringInvoices.filter(i => !i.business || i.business === selectedBusiness);
@@ -250,6 +252,20 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     logActivity('export_csv', `Exported ${visibleCatering.length} catering invoices`);
   }
 
+  function bulkMarkPaid() {
+    if (!selectedIds.size) return;
+    const u = cateringInvoices.map(i =>
+      selectedIds.has(i.id) && i.status !== 'paid'
+        ? { ...i, status: 'paid', deposit: i.grandTotal, balanceDue: 0 }
+        : i
+    );
+    setCateringInvoices(u);
+    save('cateringInvoices', u);
+    logActivity('bulk_mark_paid', `Bulk marked ${selectedIds.size} catering invoices as paid`);
+    showToast(`${selectedIds.size} invoice${selectedIds.size !== 1 ? 's' : ''} marked paid.`);
+    setSelectedIds(new Set());
+  }
+
   return (
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
@@ -286,16 +302,25 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8,marginBottom:12}}>
+          <span style={{fontWeight:600,color:'#1D4ED8'}}>{selectedIds.size} invoice{selectedIds.size!==1?'s':''} selected</span>
+          <button className="btn btn-success btn-sm" onClick={bulkMarkPaid}>✓ Mark All Paid</button>
+          <button className="btn btn-outline btn-sm" onClick={()=>setSelectedIds(new Set())}>Clear</button>
+        </div>
+      )}
+
       {visibleCatering.length===0
         ? <div className="card empty-state">{cateringInvoices.length===0 ? 'No catering invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>
         : (
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Invoice #</th><th>Customer</th><th>Event Date</th><th>Event</th><th>Total</th><th>Balance Due</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th style={{width:36}}><input type="checkbox" checked={selectedIds.size>0&&visibleCatering.every(i=>selectedIds.has(i.id))} onChange={e=>{setSelectedIds(e.target.checked?new Set(visibleCatering.map(i=>i.id)):new Set());}} /></th><th>Invoice #</th><th>Customer</th><th>Event Date</th><th>Event</th><th>Total</th><th>Balance Due</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {visibleCatering.map(inv=>(
                     <tr key={inv.id}>
+                      <td><input type="checkbox" checked={selectedIds.has(inv.id)} onChange={()=>setSelectedIds(prev=>{const n=new Set(prev);n.has(inv.id)?n.delete(inv.id):n.add(inv.id);return n;})} /></td>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td style={{fontWeight:600}}>{inv.customerName}</td>
                       <td style={{fontSize:12}}>{inv.useRange?`${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`:fmtDate(inv.date)}</td>
