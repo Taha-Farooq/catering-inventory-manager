@@ -30,6 +30,7 @@ import {
   BIZ_CONTACT_KEY,
   CATEGORIES,
   CUSTOM_CATEGORIES_KEY,
+  INVENTORY_ADJUSTMENTS_KEY,
 } from '../constants.js';
 import Modal from './Modal.jsx';
 import Confirm from './Confirm.jsx';
@@ -389,8 +390,12 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         payrollInvoices:(payrollInvoices||[]),
         dailyFinanceEntries:(dailyFinanceEntries||[]),
         customers, priceHistory:priceHist,
-        settings:{ selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact },
-        exportDate: new Date().toISOString(), version:'2.2'
+        inventoryAdjustments: load(INVENTORY_ADJUSTMENTS_KEY, []),
+        settings:{
+          selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact,
+          customCategories,
+        },
+        exportDate: new Date().toISOString(), version:'2.3'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
@@ -428,7 +433,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
 
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
                     'transferInvoices','payrollInvoices','dailyFinanceEntries',
-                    'customers','priceHistory','settings'];
+                    'customers','priceHistory','inventoryAdjustments','settings'];
       const entries = await Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
@@ -456,14 +461,22 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           setBizContact(v.bizContact);
           save(BIZ_CONTACT_KEY, v.bizContact);
         }
+        if (k==='settings'&&Array.isArray(v.customCategories)) {
+          setCustomCategories(v.customCategories);
+          save(CUSTOM_CATEGORIES_KEY, v.customCategories);
+        }
+        if (k==='inventoryAdjustments') {
+          save(INVENTORY_ADJUSTMENTS_KEY, v);
+        }
       });
       logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
       showToast('Backup restored! All data has been loaded.');
-      if (isLegacy) {
+      if (isLegacy || !backupVersion.startsWith('2.3')) {
         const missing = [];
-        if (!zip.file('transferInvoices.json'))    missing.push('Transfer Invoices');
-        if (!zip.file('payrollInvoices.json'))     missing.push('Payroll Invoices');
-        if (!zip.file('dailyFinanceEntries.json')) missing.push('Daily Finance Entries');
+        if (!zip.file('transferInvoices.json'))       missing.push('Transfer Invoices');
+        if (!zip.file('payrollInvoices.json'))        missing.push('Payroll Invoices');
+        if (!zip.file('dailyFinanceEntries.json'))    missing.push('Daily Finance Entries');
+        if (!zip.file('inventoryAdjustments.json'))   missing.push('Inventory Adjustments');
         if (missing.length) {
           showToast(
             `Older backup (v${backupVersion}): ${missing.join(', ')} were not in this ZIP and remain unchanged on your device.`,

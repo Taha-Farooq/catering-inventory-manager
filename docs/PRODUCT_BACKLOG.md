@@ -543,6 +543,45 @@ Large items that need their own kick-off before breaking into slices.
 
 ---
 
+### BL-45 — Reorder point auto-suggest ← DONE Slice 23
+
+When editing an item that has ≥2 purchase invoice line matches, the edit form shows a green banner: "Based on N purchases (avg X unit/order) — suggested reorder point: Y unit" with a "Use suggestion" button. Clicking fills all per-location min-qty fields with the suggested value (50% of average purchase qty).
+
+**Files:** `src/tabs/ItemDatabase.jsx`, `src/App.jsx` (passes `purchaseInvoices` prop)
+
+---
+
+### BL-46 — Inter-location stock transfer ← DONE Slice 23
+
+"Transfer Stock Between Locations" card in the Inventory Adjustment Log tab. Creates two atomic adjustment records (debit from source, credit to destination). Notes on each record show direction ("Transfer to Hackensack" / "Transfer from Englewood"). Logs `transfer_stock` activity.
+
+**Files:** `src/tabs/InventoryAdjustments.jsx`
+
+---
+
+### BL-47 — Shopping list notes column ← DONE Slice 23
+
+Notes text input added as a column in the shopping list table. Notes are persisted to localStorage and exported in CSV output.
+
+**Files:** `src/tabs/ShoppingList.jsx`
+
+---
+
+### BL-48 — Dashboard / inventory overview tab (Backlog)
+
+**Problem:** No at-a-glance view of inventory health; admin must navigate to each tab individually.
+
+**Scope:**
+- New "🏠 Dashboard" tab (admin-only) as the first tab in Stock group.
+- Summary cards: total items, low-stock count, items with no stock data, pending purchase invoices count.
+- Low-stock items list with quick +/- adjustment buttons.
+- Recent activity feed (last 10 activity log entries).
+- Optional: total inventory value estimate (sum of locQty × first seller price).
+
+**Files:** `src/tabs/Dashboard.jsx` (new), `src/App.jsx`, `src/constants.js` (TABS_ADMIN, NAV_GROUPS_ADMIN)
+
+---
+
 | BL-31 | Item quantity tracking + low-stock alerts | **Done** — Slice 18 |
 | BL-32 | Invoice duplicate/copy | **Done** — Slice 18 |
 | BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
@@ -554,10 +593,15 @@ Large items that need their own kick-off before breaking into slices.
 | BL-39 | Inventory adjustment log (received/waste/correction) | **Done** — Slice 22 |
 | BL-42 | Quick inline stock +/− adjustment per location in ItemDatabase | **Done** — Slice 21 |
 | BL-43 | Shopping list: location context filter (which location am I buying for?) | **Done** — Slice 22 |
-| BL-44 | Item search by seller name in ItemDatabase | Backlog |
-| BL-45 | Reorder point auto-suggest from purchase history | Backlog |
+| BL-44 | Item search by seller name in ItemDatabase | **Done** — hotfix |
+| BL-45 | Reorder point auto-suggest from purchase history | **Done** — Slice 23 |
+| BL-46 | Inter-location stock transfer (atomic debit/credit) in Inv. Log | **Done** — Slice 23 |
 | BL-40 | Location-aware inventory: Englewood + Hackensack per-location qty | **Done** — Slice 19 |
 | BL-41 | Price memory: auto-fill last purchase price in invoices + shopping | **Done** — Slice 19 |
+| BL-47 | Shopping list notes column | **Done** — Slice 23 |
+| BL-48 | Dashboard / inventory overview tab | Backlog |
+| BL-49 | Mark invoice lines as received (partial receipt tracking) | Backlog |
+| BL-50 | Item low-stock email/notification reminder | Backlog |
 
 ---
 

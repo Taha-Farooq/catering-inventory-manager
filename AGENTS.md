@@ -283,6 +283,26 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 
 `ItemDatabase.jsx` exposes an "Import CSV" button (admin only). Supports `.csv`, `.xlsx`, `.xls`. Requires a `name` column; optional `category`, `unit`, `upc`, `seller`, `price`. Column matching is case-insensitive and alias-aware (e.g. "supplier" → seller, "barcode" → upc). Shows a preview modal with per-row Add/Update/Skip status before committing.
 
+## Inter-location stock transfer (Slice 23 / BL-46)
+
+`InventoryAdjustments.jsx` now has a second card "Transfer Stock Between Locations" above the log table. It creates **two atomic adjustment records** — a negative delta at the source location and a positive delta at the destination. Both `locQty` keys on the item are updated in the same state mutation. The notes on each record describe the direction (e.g. "Transfer to Hackensack: [user notes]" / "Transfer from Englewood: [user notes]"). Logs `transfer_stock` activity. Required import: `logActivity` from `'../utils/activity.js'` (added in BL-46).
+
+## Reorder point auto-suggest (Slice 23 / BL-45)
+
+`ItemDatabase.jsx` accepts a `purchaseInvoices` prop (passed from `App.jsx`). When `openEdit(item)` is called, if ≥2 purchase invoice lines match the item name (case-insensitive), a green banner is shown in the edit modal: "Based on N purchases (avg X unit/order) — suggested reorder point: Y unit" with a "Use suggestion" button. Clicking fills all per-location `locMinQty` fields with `Math.ceil(avg * 0.5)` (50% of average purchase quantity). Requires: `purchaseInv` state in `App.jsx` passed as `purchaseInvoices={purchaseInv}`.
+
+## Shopping list notes (Slice 23 / BL-47)
+
+`ShoppingList.jsx` has a Notes column with an inline text `<input>` per row. Notes are persisted in `shoppingList` localStorage entries as `notes` field. CSV export already included `s.notes` — it now has a value from the UI.
+
+## Storage keys (Slice 22–23 additions)
+
+| Key | Purpose |
+|-----|---------|
+| `_inventoryAdjustments` | Inventory adjustment log records (`INVENTORY_ADJUSTMENTS_KEY`) |
+| `_customCategories` | Admin-defined extra item categories (`CUSTOM_CATEGORIES_KEY`) |
+| `_shoppingLoc` | Last-selected "Shopping for" location in ShoppingList (UI preference) |
+
 ## Known technical debt
 
 - `src/App.jsx` shell (~700 lines after Epic C full extraction); all tabs in `src/tabs/`, UI components in `src/ui/`, utility functions in `src/utils/`, shared auth/backend helpers in `src/authHelpers.js`. Epic C (BL-07) is complete.

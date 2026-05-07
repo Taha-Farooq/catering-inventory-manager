@@ -63,6 +63,7 @@ import CustomerManagement from './tabs/CustomerManagement.jsx';
 import DailyIncomeExpense from './tabs/DailyIncomeExpense.jsx';
 import CheckInOutPage from './tabs/CheckInOutPage.jsx';
 import MenuMarginsLab from './tabs/MenuMarginsLab.jsx';
+import Dashboard from './tabs/Dashboard.jsx';
 import ItemDatabase from './tabs/ItemDatabase.jsx';
 import InventoryAdjustments from './tabs/InventoryAdjustments.jsx';
 import ShoppingList from './tabs/ShoppingList.jsx';
@@ -638,6 +639,7 @@ function App() {
             />
           </div>
         )}
+        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} setTab={setTab} />}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
