@@ -184,6 +184,19 @@ export default function InventoryAdjustments({ items, setItems }) {
     showToast('Adjustment deleted.', 'success');
   }
 
+  function exportCsv() {
+    if (!filtered.length) { showToast('No adjustments to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = filtered.map(a => [fmtDate(a.date), a.itemName, a.location, a.delta > 0 ? `+${a.delta}` : String(a.delta), a.reason, a.notes || '']);
+    const csv = [['Date','Item','Location','Qty Change','Reason','Notes'].map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'inventory-adjustments-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Adjustments exported.');
+  }
+
   const filtered = useMemo(() => {
     const q = filterName.toLowerCase();
     return adjustments.filter(a => {
@@ -298,6 +311,7 @@ export default function InventoryAdjustments({ items, setItems }) {
             Adjustment Log <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>({adjustments.length})</span>
           </div>
           <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+            <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
             <input
               className="input"
               style={{ width: 160 }}
