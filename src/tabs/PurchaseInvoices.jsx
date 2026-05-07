@@ -294,6 +294,25 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     }
   }
 
+  function exportCsv() {
+    if (!visiblePurchase.length) { showToast('No invoices to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Invoice#', 'Supplier', 'Date', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Notes'];
+    const rows = visiblePurchase.map(inv => [
+      inv.id, inv.supplier, inv.date, inv.business || '', inv.status,
+      +(inv.subtotal || 0).toFixed(2), +(inv.taxAmount || 0).toFixed(2), +(inv.total || 0).toFixed(2),
+      inv.notes || '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'purchase-invoices-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Purchase invoices exported as CSV.');
+    logActivity('export_csv', `Exported ${visiblePurchase.length} purchase invoices as CSV`);
+  }
+
   return (
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
@@ -308,7 +327,8 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             <option value="unpaid">Unpaid only</option>
             <option value="paid">Paid only</option>
           </select>
-          <Btn className="btn-outline" onClick={exportExcel}>⬇ Export Excel</Btn>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
       </div>

@@ -607,9 +607,13 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-60 | Purchase invoices outstanding balance banner | **Done** — Slice 30 |
 | BL-61 | ItemDatabase sortable columns (Name, Category, Unit, Stock, Price) | **Done** — Slice 31 |
 | BL-62 | Shopping list: mark-as-bought checkbox (session-only, struck-through style) | **Done** — Slice 31 |
-| BL-63 | Catering invoice CSV export | Backlog |
-| BL-64 | Monthly spending chart in Dashboard (purchase totals by month) | Backlog |
-| BL-65 | Supplier spending report (filterable by date range, breakdown by category) | Backlog |
+| BL-63 | Catering invoice CSV export | **Done** — Slice 32 |
+| BL-64 | Monthly spending chart in Dashboard (purchase totals by month) | **Done** — Slice 32 |
+| BL-65 | Catering revenue monthly chart in Dashboard | **Done** — Slice 32 |
+| BL-66 | Purchase invoice CSV export (complement to existing Excel) | **Done** — Slice 32 |
+| BL-67 | Payroll invoices: CSV export + status filter + outstanding banner | **Done** — Slice 32 |
+| BL-68 | Vitest tests for Dashboard utility functions (10 new tests) | **Done** — Slice 32 |
+| BL-69 | Catering invoices: status filter + outstanding balance banner | **Done** — Slice 32 |
 
 ---
 

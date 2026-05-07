@@ -127,13 +127,39 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [viewInv, setViewInv] = useState(null);
   const [confirmObj, setConfirmObj] = useState(null);
   const [showAllBiz, setShowAllBiz] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('all');
 
   const inv = payrollInvoices || [];
 
   const visible = useMemo(() => {
-    const sorted = [...inv].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
-    return showAllBiz ? sorted : sorted.filter(i => !i.business || i.business === selectedBusiness);
-  }, [inv, showAllBiz, selectedBusiness]);
+    let sorted = [...inv].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
+    if (!showAllBiz) sorted = sorted.filter(i => !i.business || i.business === selectedBusiness);
+    if (filterStatus !== 'all') sorted = sorted.filter(i => (i.status || 'unpaid') === filterStatus);
+    return sorted;
+  }, [inv, showAllBiz, selectedBusiness, filterStatus]);
+
+  const outstandingTotal = useMemo(() =>
+    inv.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0),
+    [inv]
+  );
+
+  function exportCsv() {
+    if (!visible.length) { showToast('No payroll records to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Invoice#', 'Employee', 'Period Start', 'Period End', 'Business', 'Status', 'Reg Hours', 'OT Hours', 'Hourly Rate', 'Total', 'Notes'];
+    const rows = visible.map(r => [
+      r.id, r.employeeName, r.periodStart || r.date, r.periodEnd || '', r.business || '',
+      r.status || 'unpaid', r.regularHours || '', r.overtimeHours || '',
+      r.hourlyRate || '', +(r.total || 0).toFixed(2), r.notes || '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(row => row.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'payroll-invoices-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Payroll exported as CSV.');
+  }
 
   function save(data) {
     setPayrollInvoices(data);
@@ -281,9 +307,22 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
             <input type="checkbox" checked={showAllBiz} onChange={e => setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
+          <select className="input" style={{ width: 'auto' }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-primary" onClick={openNew}>+ New Payroll Invoice</Btn>
         </div>
       </div>
+
+      {outstandingTotal > 0 && (
+        <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13.5, color: '#92400E', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 700 }}>⚠ Outstanding:</span>
+          {fmt$(outstandingTotal)} unpaid across {inv.filter(i => i.status !== 'paid').length} payroll record{inv.filter(i => i.status !== 'paid').length !== 1 ? 's' : ''}
+        </div>
+      )}
 
       {visible.length === 0 ? (
         <div className="card empty-state">

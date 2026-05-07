@@ -110,15 +110,38 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     }).slice(0, 20);
   }, [items]);
 
-  const purchasesThisMonth = useMemo(() => {
+  const monthlyRevenue = useMemo(() => {
+    const months = [];
     const now = new Date();
-    const ym = now.toISOString().slice(0, 7);
-    const matching = purchaseInvoices.filter(inv => {
-      const d = inv.date || inv.createdAt || '';
-      return d.slice(0, 7) === ym;
-    });
-    const total = matching.reduce((s, inv) => s + (inv.total || 0), 0);
-    return { count: matching.length, total };
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = d.toISOString().slice(0, 7);
+      const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+      const matching = cateringInvoices.filter(inv => {
+        const ds = inv.date || inv.createdAt || '';
+        return ds.slice(0, 7) === ym;
+      });
+      const total = matching.reduce((s, inv) => s + (inv.grandTotal || inv.total || 0), 0);
+      months.push({ ym, label, total, count: matching.length });
+    }
+    return months;
+  }, [cateringInvoices]);
+
+  const monthlySpending = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = d.toISOString().slice(0, 7);
+      const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+      const matching = purchaseInvoices.filter(inv => {
+        const ds = inv.date || inv.createdAt || '';
+        return ds.slice(0, 7) === ym;
+      });
+      const total = matching.reduce((s, inv) => s + (inv.total || 0), 0);
+      months.push({ ym, label, total, count: matching.length });
+    }
+    return months;
   }, [purchaseInvoices]);
 
   function exportLowStockCsv() {
@@ -278,14 +301,81 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
         )}
       </div>
 
-      {/* Purchases This Month */}
-      <div className="card mb-4">
-        <div className="section-title" style={{ marginBottom: 12 }}>&#128203; Purchases This Month</div>
-        <div style={{ fontSize: 14, color: '#555' }}>
-          {purchasesThisMonth.count} invoice{purchasesThisMonth.count !== 1 ? 's' : ''}, total{' '}
-          <strong>{fmt$(purchasesThisMonth.total)}</strong>
+      {/* Monthly Spending (last 6 months) */}
+      {purchaseInvoices.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#128203; Purchase Spending — Last 6 Months</div>
+          {(() => {
+            const maxTotal = Math.max(...monthlySpending.map(m => m.total), 1);
+            const thisMonthTotal = monthlySpending[monthlySpending.length - 1]?.total || 0;
+            const prevMonthTotal = monthlySpending[monthlySpending.length - 2]?.total || 0;
+            const trend = thisMonthTotal > prevMonthTotal ? '▲' : thisMonthTotal < prevMonthTotal ? '▼' : '—';
+            const trendColor = thisMonthTotal > prevMonthTotal ? '#DC2626' : '#15803D';
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 13 }}>
+                  <div>This month: <strong style={{ color: 'var(--brown)' }}>{fmt$(thisMonthTotal)}</strong></div>
+                  <div style={{ color: trendColor }}>{trend} vs last month ({fmt$(prevMonthTotal)})</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {monthlySpending.map(m => (
+                    <div key={m.ym} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                      <div style={{ width: 52, color: '#888', textAlign: 'right', flexShrink: 0 }}>{m.label}</div>
+                      <div style={{ flex: 1, background: '#F5ECD7', borderRadius: 4, overflow: 'hidden', height: 18 }}>
+                        <div style={{
+                          width: `${maxTotal > 0 ? (m.total / maxTotal * 100) : 0}%`,
+                          background: 'var(--brown)', height: '100%', borderRadius: 4,
+                          transition: 'width 0.3s',
+                        }} />
+                      </div>
+                      <div style={{ width: 68, fontWeight: 600, color: 'var(--brown)', flexShrink: 0 }}>{fmt$(m.total)}</div>
+                      <div style={{ width: 40, color: '#888', textAlign: 'right', flexShrink: 0, fontSize: 11 }}>{m.count} inv</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
-      </div>
+      )}
+
+      {/* Catering Revenue (last 6 months) */}
+      {cateringInvoices.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#127860; Catering Revenue — Last 6 Months</div>
+          {(() => {
+            const maxTotal = Math.max(...monthlyRevenue.map(m => m.total), 1);
+            const thisMonthTotal = monthlyRevenue[monthlyRevenue.length - 1]?.total || 0;
+            const prevMonthTotal = monthlyRevenue[monthlyRevenue.length - 2]?.total || 0;
+            const trend = thisMonthTotal > prevMonthTotal ? '▲' : thisMonthTotal < prevMonthTotal ? '▼' : '—';
+            const trendColor = thisMonthTotal > prevMonthTotal ? '#15803D' : thisMonthTotal < prevMonthTotal ? '#DC2626' : '#888';
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 13 }}>
+                  <div>This month: <strong style={{ color: '#15803D' }}>{fmt$(thisMonthTotal)}</strong></div>
+                  <div style={{ color: trendColor }}>{trend} vs last month ({fmt$(prevMonthTotal)})</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {monthlyRevenue.map(m => (
+                    <div key={m.ym} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                      <div style={{ width: 52, color: '#888', textAlign: 'right', flexShrink: 0 }}>{m.label}</div>
+                      <div style={{ flex: 1, background: '#F0FDF4', borderRadius: 4, overflow: 'hidden', height: 18 }}>
+                        <div style={{
+                          width: `${maxTotal > 0 ? (m.total / maxTotal * 100) : 0}%`,
+                          background: '#15803D', height: '100%', borderRadius: 4,
+                          transition: 'width 0.3s',
+                        }} />
+                      </div>
+                      <div style={{ width: 68, fontWeight: 600, color: '#15803D', flexShrink: 0 }}>{fmt$(m.total)}</div>
+                      <div style={{ width: 40, color: '#888', textAlign: 'right', flexShrink: 0, fontSize: 11 }}>{m.count} inv</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Top Suppliers */}
       {topSuppliers.length > 0 && (
