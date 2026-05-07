@@ -2,6 +2,7 @@ import React, { useState, useMemo, useId } from 'react';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
 import Modal from '../ui/Modal.jsx';
+import Confirm from '../ui/Confirm.jsx';
 import { BUSINESSES } from '../constants.js';
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
@@ -66,7 +67,24 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [viewInv, setViewInv] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
 
-  function setLine(i,f2,v){setForm(f=>{const l=[...f.lineItems];l[i]={...l[i],[f2]:v};return{...f,lineItems:l};});}
+  function setLine(i, f2, v) {
+    setForm(f => {
+      const l = [...f.lineItems];
+      const upd = { ...l[i], [f2]: v };
+      if (f2 === 'description' && v) {
+        const match = items.find(it => it.name.toLowerCase() === v.toLowerCase());
+        if (match) {
+          const sellers = Array.isArray(match.sellers) ? match.sellers : [];
+          const supplierLc = (f.supplier || '').toLowerCase().trim();
+          const sel = sellers.find(s => s.name.toLowerCase() === supplierLc) || sellers[0];
+          if (sel?.price != null && upd.unitPrice === '') upd.unitPrice = String(sel.price);
+          if (match.unit && upd.unit === 'each') upd.unit = match.unit;
+        }
+      }
+      l[i] = upd;
+      return { ...f, lineItems: l };
+    });
+  }
 
   function calcT(f,taxRate){
     const lines=f.lineItems.map(l=>{const q=safeQty(l.quantity),p=parseFloat(l.unitPrice)||0;return{...l,qty:q,price:p,total:q*p};});

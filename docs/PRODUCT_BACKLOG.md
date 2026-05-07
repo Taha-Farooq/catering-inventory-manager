@@ -444,11 +444,93 @@ Large items that need their own kick-off before breaking into slices.
 
 ---
 
-| BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
-| BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
+### BL-36 — Export item database as CSV/Excel
+
+**Problem:** No way to back up or share the item catalog outside the app.
+
+**Scope:**
+- Button in ItemDatabase header exports all items as CSV (name, category, unit, upc, seller, price columns).
+- Round-trip compatible with BL-35 import format.
+
+**Files touched:** `src/tabs/ItemDatabase.jsx`
+
+---
+
+### BL-37 — Purchase invoice → update stock levels
+
+**Problem:** Receiving a purchase order doesn't automatically increment stock.
+
+**Scope:**
+- "Update stock" action on a paid purchase invoice — matches line item descriptions to DB items, increments per-location qty.
+- Confirmation step before applying.
+
+**Files touched:** `src/tabs/PurchaseInvoices.jsx`, `src/tabs/ItemDatabase.jsx`
+
+---
+
+### BL-38 — Custom categories
+
+**Problem:** `CATEGORIES` is hardcoded; users can't add industry-specific categories without a code change.
+
+**Scope:**
+- Admin can add/remove categories in Settings.
+- Persisted as `_customCategories` in localStorage; merged with built-in list at runtime.
+
+**Files touched:** `src/constants.js`, `src/ui/SettingsModal.jsx`, `src/tabs/ItemDatabase.jsx`
+
+---
+
+### BL-39 — Inventory adjustment log
+
+**Problem:** No audit trail for manual stock changes (receiving, waste, corrections).
+
+**Scope:**
+- Adjustment form: item, qty change (+/-), reason, date. Saved to `_inventoryAdjustments`.
+- History shown per item in Item Database (expandable row or modal).
+
+**Files touched:** new `src/tabs/InventoryAdjustments.jsx`, `src/App.jsx`, `src/constants.js`
+
+---
+
+### BL-40 — Location-aware inventory (Englewood + Hackensack) ← DONE Slice 19
+
+**Problem:** Items had a single global quantity; business operates across two locations.
+
+**Scope:**
+- `LOCATIONS = ['Englewood', 'Hackensack']` constant added.
+- Item form: per-location Qty + Min fields in "Stock by Location" section.
+- Low-stock detection checks both per-location and legacy scalar fields.
+- Shopping list "Low Stock" button includes location-based low items.
+- Legacy `currentQty`/`minQty` retained as fallback (shown under `<details>`).
+
+**Files touched:** `src/constants.js`, `src/tabs/ItemDatabase.jsx`, `src/tabs/ShoppingList.jsx`
+
+---
+
+### BL-41 — Price memory (auto-fill last purchase price) ← DONE Slice 19
+
+**Problem:** Creating a purchase invoice required re-entering prices for every line, even for frequently purchased items.
+
+**Scope:**
+- When description field matches an item name (case-insensitive), auto-fills unit price from item's sellers data.
+- Supplier name matched first; falls back to first seller.
+- Also fixes missing `Confirm` import in PurchaseInvoices (was a runtime bug).
+
+**Files touched:** `src/tabs/PurchaseInvoices.jsx`
+
+---
+
+| BL-31 | Item quantity tracking + low-stock alerts | **Done** — Slice 18 |
+| BL-32 | Invoice duplicate/copy | **Done** — Slice 18 |
 | BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
-| BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
-| BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
+| BL-34 | Date range shortcuts in Archive + Daily Finance | **Done** — Slice 18 |
+| BL-35 | Items bulk import from CSV/Excel | **Done** — Slice 19 |
+| BL-36 | Export item database as CSV/Excel | Backlog |
+| BL-37 | Purchase invoice → update stock levels on receipt | Backlog |
+| BL-38 | Custom categories management in Settings | Backlog |
+| BL-39 | Inventory adjustment log (received/waste/correction) | Backlog |
+| BL-40 | Location-aware inventory: Englewood + Hackensack per-location qty | **Done** — Slice 19 |
+| BL-41 | Price memory: auto-fill last purchase price in invoices + shopping | **Done** — Slice 19 |
 
 ---
 

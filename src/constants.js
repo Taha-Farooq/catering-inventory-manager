@@ -48,6 +48,8 @@ export const CATEGORIES = [
   'Meat','Poultry','Seafood','Produce','Dairy','Dry Goods','Spices','Beverages','Bakery','Supplies','Other',
 ];
 
+export const LOCATIONS = ['Englewood', 'Hackensack'];
+
 export const CHART_COLORS = [
   '#8B4513','#D2691E','#A0522D','#B8860B','#CD853F','#DEB887','#8B6914','#C68642',
 ];

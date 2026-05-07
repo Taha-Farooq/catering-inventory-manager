@@ -9,7 +9,7 @@ Browser-first catering inventory and invoicing app for multiple businesses. Prim
 | Path | Role |
 |------|------|
 | `index.html` | Vite entry shell (lightweight); boots `/src/main.jsx` |
-| `src/constants.js` | Businesses, tabs, nav groups, storage/auth key names (shared) |
+| `src/constants.js` | Businesses, tabs, nav groups, storage/auth key names, `LOCATIONS`, `CATEGORIES` (shared) |
 | `src/formatters.js` | Pure helpers: currency/date/bytes, `migrateShoppingList`, `resolveAssetUrl` (relative logos under GitHub Pages), API URL helpers |
 | `src/browserCaps.js` | Boot checks for Web Crypto + `structuredClone` → DMG-E050/E051 (tests in `browserCaps.test.js`) |
 | `src/useOnlineStatus.js` | Hook: `navigator.onLine` + online/offline events for Slice 5 banner |
@@ -84,7 +84,7 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`useOnlineStatus`** — offline banner when `navigator.onLine` is false (local app data still saves).
 - **`Confirm`** — `src/ui/Confirm.jsx` (imported by `App.jsx`) for destructive flows (settings restore, staff delete, shopping clear, activity log, menu delete, logout, kiosk, corrupt keys, tab deletes). Backdrop click = cancel.
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
-- **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** / **`src/browserCaps.test.js`** / **`src/utils/storage.test.js`** / **`src/utils/invoiceIds.test.js`** — Vitest (run `npm test`; 79 tests total).
+- **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** / **`src/browserCaps.test.js`** / **`src/utils/storage.test.js`** / **`src/utils/invoiceIds.test.js`** — Vitest (run `npm test`; 85 tests total).
 
 Boot-related:
 
@@ -233,6 +233,31 @@ import { nextId, nextTransferId, normalizeTransferInvoice } from '../utils/invoi
 import { BrandMark } from '../ui/BrandMark.jsx';
 ```
 Exception: `getInvoiceBranding` remains in `App.jsx` (depends on `BRANDING` constant + `mergeBrandingWithOverrides`) and is passed as a prop to invoice tabs.
+
+## Item schema (Slice 19 additions)
+
+`items` records now carry optional per-location fields in addition to the legacy scalar fields:
+
+```js
+{
+  id, name, category, unit, upc, sellers, notes, createdAt,
+  currentQty, minQty,           // legacy scalars — still used for backward compat
+  locQty:    { englewood: '', hackensack: '' },   // per-location quantity
+  locMinQty: { englewood: '', hackensack: '' },   // per-location reorder point
+}
+```
+
+Low-stock detection in `ItemDatabase.jsx` and `ShoppingList.jsx` checks **both** legacy scalars and per-location fields. Old items without `locQty` have empty-string defaults injected at edit time. The "Overall stock (legacy)" section in the item form is hidden under a `<details>` element — prefer per-location fields for new data.
+
+`LOCATIONS = ['Englewood', 'Hackensack']` is the canonical list in `src/constants.js`. If locations change, update this constant and regenerate any `locQty`/`locMinQty` default objects that are computed from it.
+
+## Price memory (Slice 19 / BL-41)
+
+In `PurchaseInvoices.jsx`, the `setLine` function auto-fills `unitPrice` and `unit` when the description field exactly matches (case-insensitive) an item name in the DB. It prefers the seller that matches `form.supplier`; falls back to `sellers[0]`. Only fills blank fields — does not overwrite existing values.
+
+## Bulk CSV import (Slice 19 / BL-35)
+
+`ItemDatabase.jsx` exposes an "Import CSV" button (admin only). Supports `.csv`, `.xlsx`, `.xls`. Requires a `name` column; optional `category`, `unit`, `upc`, `seller`, `price`. Column matching is case-insensitive and alias-aware (e.g. "supplier" → seller, "barcode" → upc). Shows a preview modal with per-row Add/Update/Skip status before committing.
 
 ## Known technical debt
 

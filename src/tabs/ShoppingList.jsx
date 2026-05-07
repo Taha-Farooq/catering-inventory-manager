@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import { LOCATIONS } from '../constants.js';
 import { showToast } from '../toastContext.jsx';
 import { reportError } from '../errors.js';
 import { fmt$, safeQty } from '../formatters.js';
@@ -72,7 +73,13 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
     const lowStock = items.filter(i => {
       const cur = parseFloat(i.currentQty);
       const min = parseFloat(i.minQty);
-      return !isNaN(cur) && !isNaN(min) && cur <= min;
+      if (!isNaN(cur) && !isNaN(min) && cur <= min) return true;
+      return LOCATIONS.some(loc => {
+        const lc = loc.toLowerCase();
+        const q = parseFloat(i.locQty?.[lc]);
+        const m = parseFloat(i.locMinQty?.[lc]);
+        return !isNaN(q) && !isNaN(m) && q <= m;
+      });
     });
     if (!lowStock.length) { showToast('No items are currently at or below their reorder point.'); return; }
     let added = 0;
