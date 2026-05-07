@@ -180,7 +180,39 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   }
 
   function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
-  function markPaid(id){const u=purchaseInvoices.map(x=>x.id===id?{...x,status:'paid'}:x);setPurchaseInvoices(u);save('purchaseInvoices',u);showToast('Purchase invoice marked paid.');logActivity('mark_paid','Marked purchase invoice paid '+id);}
+  function markPaid(id) {
+    const inv = purchaseInvoices.find(x => x.id === id);
+    const u = purchaseInvoices.map(x => x.id === id ? {...x, status:'paid'} : x);
+    setPurchaseInvoices(u); save('purchaseInvoices', u);
+    logActivity('mark_paid', 'Marked purchase invoice paid ' + id);
+    // Back-propagate invoice unit prices to matching item sellers
+    if (setItems && inv) {
+      const supplierLc = (inv.supplier || '').toLowerCase().trim();
+      let priceUpdates = 0;
+      let nextItems = [...items];
+      (inv.lineItems || []).forEach(l => {
+        const desc = (l.description || '').trim();
+        const price = parseFloat(l.unitPrice ?? l.price);
+        if (!desc || isNaN(price) || price <= 0) return;
+        const match = nextItems.find(it => it.name.toLowerCase() === desc.toLowerCase());
+        if (!match) return;
+        const sellers = Array.isArray(match.sellers) ? match.sellers.map(s => ({...s})) : [];
+        const selIdx = supplierLc ? sellers.findIndex(s => (s.name||'').toLowerCase() === supplierLc) : -1;
+        if (selIdx >= 0 && sellers[selIdx].price !== price) {
+          sellers[selIdx] = { ...sellers[selIdx], price };
+          priceUpdates++;
+          nextItems = nextItems.map(it => it.id === match.id ? { ...it, sellers } : it);
+        }
+      });
+      if (priceUpdates > 0) {
+        setItems(nextItems);
+        save('items', nextItems);
+        showToast(`Marked paid. Updated prices for ${priceUpdates} item${priceUpdates!==1?'s':''}.`);
+        return;
+      }
+    }
+    showToast('Purchase invoice marked paid.');
+  }
 
   function buildStockMatches(inv) {
     return (inv.lineItems || []).map(l => {

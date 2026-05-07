@@ -17,6 +17,7 @@ export const TABS_ADMIN = [
   { id: 'items', label: '📦 Items' },
   { id: 'invadj', label: '📝 Inv. Log' },
   { id: 'shopping', label: '🛒 Shopping' },
+  { id: 'pricer', label: '💰 Price Updater' },
   { id: 'purchase', label: '📋 Purchase Inv.' },
   { id: 'transfer', label: '🚚 Transfer Inv.' },
   { id: 'catering', label: '🍽️ Catering Inv.' },
