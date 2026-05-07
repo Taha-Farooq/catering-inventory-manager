@@ -68,6 +68,29 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
 
   function removeItem(id) { const u=shoppingList.filter(s=>s.id!==id); setShoppingList(u); save('shoppingList',u); }
 
+  function addLowStockItems() {
+    const lowStock = items.filter(i => {
+      const cur = parseFloat(i.currentQty);
+      const min = parseFloat(i.minQty);
+      return !isNaN(cur) && !isNaN(min) && cur <= min;
+    });
+    if (!lowStock.length) { showToast('No items are currently at or below their reorder point.'); return; }
+    let added = 0;
+    let updated = 0;
+    let nextList = [...shoppingList];
+    lowStock.forEach(item => {
+      const sellerList = Array.isArray(item.sellers) ? item.sellers : [];
+      const sel = sellerList[0] || { name:'', price: null };
+      const dup = nextList.find(s => s.itemId === item.id && s.selectedSeller === sel.name);
+      if (dup) { updated++; return; }
+      nextList = [...nextList, { id: uid(), itemId: item.id, itemName: item.name, unit: item.unit, upc: item.upc||'', selectedSeller: sel.name, price: sel.price, quantity: 1, sellers: sellerList }];
+      added++;
+    });
+    setShoppingList(nextList);
+    save('shoppingList', nextList);
+    showToast(`Added ${added} low-stock item${added!==1?'s':''}${updated?` (${updated} already on list)`:''}.`);
+  }
+
   function clearAll() {
     setShowClearListConfirm(true);
   }
@@ -139,6 +162,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Shopping List ({shoppingList.length})</div>
         <div className="flex gap-2 flex-wrap">
+          <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title="Add all items at or below their reorder point">⚠ Low Stock</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>

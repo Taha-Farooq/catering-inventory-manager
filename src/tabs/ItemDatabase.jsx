@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
+import Confirm from '../ui/Confirm.jsx';
 import { CATEGORIES, INTERNAL_SELLER_NAME_KEYS } from '../constants.js';
 import { fmt$, sellerKey, uniqSuggestions, safePrice } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
@@ -31,7 +32,7 @@ function Btn({ className='', children, ...p }) {
 
 export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole }) {
   const isAdmin = userRole === 'admin';
-  const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',notes:'',sellers:[{name:'',price:''}]};
+  const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:''};
   const blank = () => ({...BLANK, sellers:[{name:'',price:''}]});
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -42,6 +43,13 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const sellerSuggestions = useMemo(()=>uniqSuggestions(...items.flatMap(i=>(i.sellers||[]).map(s=>s.name))),[items]);
   const unitSuggestions = useMemo(()=>uniqSuggestions(...items.map(i=>i.unit)),[items]);
   const itemNameSuggestions = useMemo(()=>uniqSuggestions(...items.map(i=>i.name)),[items]);
+
+  const isLowStock = (item) => {
+    const cur = parseFloat(item.currentQty);
+    const min = parseFloat(item.minQty);
+    return !isNaN(cur) && !isNaN(min) && cur <= min;
+  };
+  const lowStockCount = useMemo(() => items.filter(isLowStock).length, [items]);
 
   const filtered = useMemo(()=>{
     const q=search.toLowerCase();
@@ -129,6 +137,11 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       </div>
       <input className="input mb-4" placeholder="Search by name, category, or UPC…" value={search} onChange={e=>setSearch(e.target.value)} />
       {!isAdmin && <div style={{background:'#dbeafe',color:'#1d4ed8',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13}}>💡 Tip: You can add new items using the button above. To edit or delete items, contact your admin.</div>}
+      {lowStockCount > 0 && (
+        <div style={{background:'#FEF2F2',color:'#991B1B',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
+          ⚠ <strong>{lowStockCount} item{lowStockCount!==1?'s':''} at or below reorder point.</strong> Stock levels shown in the table below.
+        </div>
+      )}
 
       {filtered.length===0
         ? <div className="card empty-state">{items.length===0?'No items yet. Click "Add Item" to get started.':'No items match your search.'}</div>
@@ -136,14 +149,23 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>UPC</th><th>Sellers / Prices</th>{isAdmin&&<th>Actions</th>}</tr></thead>
+                <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>UPC</th><th>Stock</th><th>Sellers / Prices</th>{isAdmin&&<th>Actions</th>}</tr></thead>
                 <tbody>
                   {filtered.map(item=>(
-                    <tr key={item.id}>
-                      <td style={{fontWeight:600}}>{item.name}</td>
+                    <tr key={item.id} style={isLowStock(item)?{background:'#FFF5F5'}:{}}>
+                      <td style={{fontWeight:600}}>
+                        {item.name}
+                        {isLowStock(item)&&<span title="At or below reorder point" style={{marginLeft:6,color:'#DC2626',fontSize:12}}>⚠ Low</span>}
+                      </td>
                       <td><span style={{fontSize:11.5,background:'#FFF0D4',color:'var(--brown)',padding:'2px 7px',borderRadius:10}}>{item.category}</span></td>
                       <td>{item.unit}</td>
                       <td style={{fontFamily:'monospace',fontSize:12,color:'#888'}}>{item.upc||'—'}</td>
+                      <td style={{fontSize:12,whiteSpace:'nowrap'}}>
+                        {item.currentQty!==''&&item.currentQty!=null
+                          ? <span style={{color:isLowStock(item)?'#DC2626':'#16A34A',fontWeight:600}}>{item.currentQty} {item.unit}</span>
+                          : <span style={{color:'#bbb'}}>—</span>}
+                        {item.minQty!==''&&item.minQty!=null&&<span style={{color:'#888',fontSize:11}}> / min {item.minQty}</span>}
+                      </td>
                       <td>
                         {(item.sellers||[]).map((s,i)=>(
                           <div key={i} style={{fontSize:13,lineHeight:1.8}}>
@@ -179,6 +201,10 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
         <div className="grid-2">
           <FI label="Unit of Measure" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="lb, kg, each, case…" suggestions={unitSuggestions} />
           <FI label="UPC Code (optional)" value={form.upc} onChange={e=>setForm(f=>({...f,upc:e.target.value}))} placeholder="Barcode" />
+        </div>
+        <div className="grid-2">
+          <FI label="Current Qty (optional)" type="number" min="0" step="any" value={form.currentQty??''} onChange={e=>setForm(f=>({...f,currentQty:e.target.value}))} placeholder="Leave blank if not tracking" />
+          <FI label="Reorder Point / Min Qty" type="number" min="0" step="any" value={form.minQty??''} onChange={e=>setForm(f=>({...f,minQty:e.target.value}))} placeholder="Alert threshold" />
         </div>
         <div style={{marginBottom:14}}>
           <div className="flex-between mb-2">
