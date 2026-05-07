@@ -128,6 +128,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [confirmObj, setConfirmObj] = useState(null);
   const [showAllBiz, setShowAllBiz] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [showSummary, setShowSummary] = useState(false);
 
   const inv = payrollInvoices || [];
 
@@ -171,6 +172,20 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
       m[d].count++;
     });
     return Object.values(m).sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6);
+  }, [inv]);
+
+  const employeeSummary = useMemo(() => {
+    const m = {};
+    inv.forEach(r => {
+      const name = r.employeeName || 'Unknown';
+      if (!m[name]) m[name] = { name, totalPay: 0, totalRegHours: 0, totalOtHours: 0, count: 0, unpaidTotal: 0 };
+      m[name].totalPay += r.total || 0;
+      m[name].totalRegHours += parseFloat(r.regularHours) || 0;
+      m[name].totalOtHours += parseFloat(r.overtimeHours) || 0;
+      m[name].count++;
+      if ((r.status || 'unpaid') !== 'paid') m[name].unpaidTotal += r.total || 0;
+    });
+    return Object.values(m).sort((a, b) => b.totalPay - a.totalPay);
   }, [inv]);
 
   function save(data) {
@@ -358,6 +373,35 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
           })()}
         </div>
       )}
+
+      <div className="card mb-4" style={{padding:0}}>
+        <button
+          style={{width:'100%',padding:'12px 16px',background:'none',border:'none',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontWeight:700,color:'var(--brown)',fontSize:14}}
+          onClick={()=>setShowSummary(v=>!v)}
+        >
+          <span>👥 Employee Summary ({employeeSummary.length} employee{employeeSummary.length!==1?'s':''})</span>
+          <span>{showSummary?'▲':'▼'}</span>
+        </button>
+        {showSummary && (
+          <div className="tbl-wrap" style={{borderTop:'1px solid #EED9B0'}}>
+            <table>
+              <thead><tr><th>Employee</th><th>Periods</th><th>Reg Hrs</th><th>OT Hrs</th><th>Total Pay</th><th>Unpaid</th></tr></thead>
+              <tbody>
+                {employeeSummary.map(e => (
+                  <tr key={e.name}>
+                    <td style={{fontWeight:600}}>{e.name}</td>
+                    <td style={{color:'#777'}}>{e.count}</td>
+                    <td>{e.totalRegHours.toFixed(1)}</td>
+                    <td>{e.totalOtHours.toFixed(1)}</td>
+                    <td style={{fontWeight:700,color:'var(--brown)'}}>{fmt$(e.totalPay)}</td>
+                    <td style={{color:e.unpaidTotal>0?'#DC2626':'#15803D',fontWeight:e.unpaidTotal>0?600:400}}>{e.unpaidTotal>0?fmt$(e.unpaidTotal):'Paid'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {visible.length === 0 ? (
         <div className="card empty-state">

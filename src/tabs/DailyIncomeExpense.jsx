@@ -38,6 +38,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     taxPaid: '',
     notes: ''
   }));
+  const [editId, setEditId] = useState(null);
   const [monthF, setMonthF] = useState('');
   const [yearF, setYearF] = useState('');
 
@@ -91,8 +92,28 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     return Number.isFinite(n) ? +n.toFixed(2) : 0;
   }
 
+  function openEdit(row) {
+    setEditId(row.id);
+    setForm({ date: row.date, business: row.business || selectedBusiness || 'degrill', income: String(row.income ?? ''), expense: String(row.expense ?? ''), salesTaxCollected: String(row.salesTaxCollected ?? ''), taxPaid: String(row.taxPaid ?? ''), notes: row.notes || '' });
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setForm(f => ({ ...f, income: '', expense: '', salesTaxCollected: '', taxPaid: '', notes: '' }));
+  }
+
   function saveRow() {
     if (!form.date) { showToast('Date is required. [DMG-E006]', 'error'); return; }
+    if (editId) {
+      const next = entries.map(r => r.id !== editId ? r : { ...r, date: form.date, business: form.business || selectedBusiness || 'degrill', income: parseNum(form.income), expense: parseNum(form.expense), salesTaxCollected: parseNum(form.salesTaxCollected), taxPaid: parseNum(form.taxPaid), notes: String(form.notes || '').trim() });
+      setEntries(next);
+      save('_dailyFinanceEntries', next);
+      logActivity('edit_item', `Edited daily finance row ${form.date}`);
+      showToast('Entry updated.');
+      setEditId(null);
+      setForm(f => ({ ...f, income: '', expense: '', salesTaxCollected: '', taxPaid: '', notes: '' }));
+      return;
+    }
     const row = {
       id: crypto.randomUUID(),
       date: form.date,
@@ -266,8 +287,9 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           <FI label="Tax Paid" type="number" step="0.01" value={form.taxPaid} onChange={e => setForm(f => ({ ...f, taxPaid: e.target.value }))} />
         </div>
         <FI label="Notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-        <div className="flex" style={{ justifyContent: 'flex-end' }}>
-          <Btn className="btn-primary" onClick={saveRow}>Save Daily Entry</Btn>
+        <div className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
+          {editId && <Btn className="btn-outline" onClick={cancelEdit}>Cancel Edit</Btn>}
+          <Btn className="btn-primary" onClick={saveRow}>{editId ? 'Update Entry' : 'Save Daily Entry'}</Btn>
         </div>
       </div>
 
@@ -331,7 +353,10 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
                   <td>{fmt$(r.taxPaid || 0)}</td>
                   <td>{fmt$((r.salesTaxCollected || 0) - (r.taxPaid || 0))}</td>
                   <td>{r.notes || '—'}</td>
-                  <td><Btn className="btn-danger btn-sm" onClick={() => deleteRow(r.id)}>Delete</Btn></td>
+                  <td style={{whiteSpace:'nowrap'}}>
+                    <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={() => openEdit(r)}>Edit</Btn>
+                    <Btn className="btn-danger btn-sm" onClick={() => deleteRow(r.id)}>Delete</Btn>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (

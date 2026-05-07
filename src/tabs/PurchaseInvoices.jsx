@@ -44,7 +44,7 @@ function Btn({ className='', children, ...p }) {
 
 export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap }) {
   const biz = BUSINESSES[selectedBusiness];
-  const blankF = () => ({supplier:'',date:today(),taxEnabled:false,notes:'',
+  const blankF = () => ({supplier:'',date:today(),dueDate:'',taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
     lineItems:[{description:'',quantity:'',unit:'each',unitPrice:''}]});
 
@@ -113,6 +113,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     setForm({
       supplier: inv.supplier || '',
       date: inv.date || today(),
+      dueDate: inv.dueDate || '',
       taxEnabled: !!inv.taxEnabled,
       notes: inv.notes || '',
       payment: {
@@ -133,7 +134,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
       unit: l.unit || 'each',
       unitPrice: String(l.price ?? l.unitPrice ?? ''),
     }));
-    setForm({ supplier: inv.supplier || '', date: today(), taxEnabled: !!inv.taxEnabled, notes: inv.notes || '', payment: { account:'', date:'', transactionId:'' }, lineItems: lines });
+    setForm({ supplier: inv.supplier || '', date: today(), dueDate:'', taxEnabled: !!inv.taxEnabled, notes: inv.notes || '', payment: { account:'', date:'', transactionId:'' }, lineItems: lines });
     setEditingPurchaseId(null);
     setViewInv(null);
     setShowForm(true);
@@ -151,6 +152,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
         ...prev,
         supplier: form.supplier,
         date: form.date,
+        dueDate: form.dueDate,
         notes: form.notes,
         lineItems: valid,
         subtotal: T.sub,
@@ -171,7 +173,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
       return;
     }
     const inv={id:nextId('purchase'),type:'purchase',business:selectedBusiness,
-      supplier:form.supplier,date:form.date,notes:form.notes,
+      supplier:form.supplier,date:form.date,dueDate:form.dueDate,notes:form.notes,
       lineItems:valid,subtotal:T.sub,taxEnabled:form.taxEnabled,taxRate:biz.taxRate,taxAmount:T.tax,
       total:T.total,status:'unpaid',payment:{...form.payment},createdAt:today()};
     const u=[...purchaseInvoices,inv]; setPurchaseInvoices(u); save('purchaseInvoices',u);
@@ -285,9 +287,9 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   function exportExcel() {
     if (!visiblePurchase.length) { showToast('No invoices to export.', 'error'); return; }
     try {
-      const header = ['Invoice#', 'Supplier', 'Date', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Notes'];
+      const header = ['Invoice#', 'Supplier', 'Date', 'Due Date', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Notes'];
       const rows = visiblePurchase.map(inv => [
-        inv.id, inv.supplier, inv.date, inv.business || '', inv.status,
+        inv.id, inv.supplier, inv.date, inv.dueDate || '', inv.business || '', inv.status,
         +(inv.subtotal || 0).toFixed(2), +(inv.taxAmount || 0).toFixed(2), +(inv.total || 0).toFixed(2),
         inv.notes || ''
       ]);
@@ -306,9 +308,9 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   function exportCsv() {
     if (!visiblePurchase.length) { showToast('No invoices to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['Invoice#', 'Supplier', 'Date', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Notes'];
+    const header = ['Invoice#', 'Supplier', 'Date', 'Due Date', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Notes'];
     const rows = visiblePurchase.map(inv => [
-      inv.id, inv.supplier, inv.date, inv.business || '', inv.status,
+      inv.id, inv.supplier, inv.date, inv.dueDate || '', inv.business || '', inv.status,
       +(inv.subtotal || 0).toFixed(2), +(inv.taxAmount || 0).toFixed(2), +(inv.total || 0).toFixed(2),
       inv.notes || '',
     ]);
@@ -365,13 +367,17 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Invoice #</th><th>Supplier</th><th>Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Invoice #</th><th>Supplier</th><th>Date</th><th>Due Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {visiblePurchase.map(inv=>(
                     <tr key={inv.id}>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td style={{fontWeight:600}}>{inv.supplier}</td>
                       <td>{fmtDate(inv.date)}</td>
+                      <td style={{color: inv.dueDate && inv.dueDate < today() && inv.status !== 'paid' ? '#DC2626' : undefined, fontWeight: inv.dueDate && inv.dueDate < today() && inv.status !== 'paid' ? 600 : undefined}}>
+                        {inv.dueDate ? fmtDate(inv.dueDate) : '—'}
+                        {inv.dueDate && inv.dueDate < today() && inv.status !== 'paid' ? ' ⚠' : ''}
+                      </td>
                       <td style={{fontSize:12,color:'#777'}}>{inv._type==='transfer'?'P&P Internal Transfer':BUSINESSES[inv.business]?.name}</td>
                       <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
                       <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
@@ -396,6 +402,9 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
         <div className="grid-2">
           <FI label="Supplier Name *" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))} placeholder="Sysco, US Foods…" suggestions={supplierSuggestions} />
           <FI label="Invoice Date" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} />
+        </div>
+        <div className="grid-2" style={{marginBottom:14}}>
+          <FI label="Due Date (optional)" type="date" value={form.dueDate||''} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} />
         </div>
         <datalist id={descListId}>
           {lineDescSuggestions.map(s => <option key={s} value={s} />)}
