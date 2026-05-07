@@ -155,12 +155,15 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
             </div>
             {custInvs.length === 0
               ? <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>No invoices for this customer yet.</p>
-              : (
+              : (() => {
+                  const totalRevenue = custInvs.reduce((s, inv) => s + (inv.grandTotal || inv.total || 0), 0);
+                  const outstanding = custInvs.filter(inv => inv.status !== 'paid').reduce((s, inv) => s + (inv.balanceDue || 0), 0);
+                  return (
                 <>
-                  <div style={{ marginBottom: 10, fontSize: 14 }}>
-                    <strong>Total Revenue: </strong>
-                    <span style={{ color: 'var(--brown)', fontWeight: 700 }}>{fmt$(custInvs.reduce((s, i) => s + (i.grandTotal || 0), 0))}</span>
-                    <span style={{ marginLeft: 16, color: '#888' }}>{custInvs.length} invoice{custInvs.length !== 1 ? 's' : ''}</span>
+                  <div style={{display:'flex', gap:16, marginBottom:8, fontSize:13, color:'#555', flexWrap:'wrap'}}>
+                    <span>Total invoiced: <strong style={{color:'var(--brown)'}}>{fmt$(totalRevenue)}</strong></span>
+                    <span>Outstanding: <strong style={{color: outstanding > 0 ? '#DC2626' : '#16A34A'}}>{fmt$(outstanding)}</strong></span>
+                    <span>{custInvs.length} invoice{custInvs.length!==1?'s':''}</span>
                   </div>
                   <div className="tbl-wrap">
                     <table>
@@ -180,7 +183,8 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
                     </table>
                   </div>
                 </>
-              )
+                  );
+                })()
             }
           </div>
         )}

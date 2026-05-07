@@ -303,6 +303,52 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 | `_customCategories` | Admin-defined extra item categories (`CUSTOM_CATEGORIES_KEY`) |
 | `_shoppingLoc` | Last-selected "Shopping for" location in ShoppingList (UI preference) |
 
+## CSV import round-trip (Slice 27)
+
+`ItemDatabase.jsx` import now reads per-location columns from the exported CSV format:
+- Column names: `englewood_qty`, `hackensack_qty`, `englewood_min`, `hackensack_min`, `notes`
+- On **Add**: new items get `locQty`/`locMinQty` populated from import data
+- On **Update**: existing items merge import locQty/locMinQty (preserving values not in CSV)
+- `IMPORT_COL` also handles `notes` column alias
+- Round-trip verified: export → import produces same data
+
+## Purchase invoice price back-propagation (Slice 25 / BL-54)
+
+`PurchaseInvoices.jsx`: when "Mark Paid" is clicked, auto-updates matching item seller prices:
+- Matches each line item description to item name (case-insensitive)
+- Matches supplier name to seller name (case-insensitive)
+- Only updates existing sellers — does NOT add new sellers automatically
+- Logs a toast if any prices were updated: "Marked paid. Updated prices for X items."
+- Requires `setItems` prop (already passed from App.jsx)
+
+## Item history modal (Slice 26 / BL-50)
+
+`ItemDatabase.jsx`: "History" button in admin Actions column opens a Modal with:
+- Purchase invoice lines matching the item name (all invoices, newest first)
+- Inventory adjustments matching the item (by id or name, newest first)
+- Delta column colored green (positive) / red (negative)
+- `purchaseInvoices` prop is required (passed from App.jsx since BL-45)
+
+## Activity log CSV export (Slice 26 / BL-53)
+
+`ActivityLog.jsx`: "⬇ Export CSV" button exports the currently-filtered log entries (respects user/date filters) as a downloadable CSV.
+
+## Catering invoice price memory (Slice 26 / BL-52)
+
+`CateringInvoices.jsx`: `setLine` function now auto-fills `unitPrice` when the description matches an item name (same pattern as purchase invoices). Uses `items[0].sellers[0].price` as the default price.
+
+## Dashboard quick-add to shopping list (Slice 26)
+
+`Dashboard.jsx`: "➕ Add all to Shopping List" button in the low-stock section adds all low-stock items to the shopping list. Requires `shoppingList` + `setShoppingList` props (passed from App.jsx using `shopping`/`setShopping` state).
+
+## Purchase invoice Excel export (Slice 27 / BL-51)
+
+`PurchaseInvoices.jsx`: "⬇ Export Excel" button exports visible invoices (respects "All businesses" toggle) as `purchase-invoices-YYYY-MM-DD.xlsx`.
+
+## Test coverage (Slice 27)
+
+101 tests across 9 files (up from 85). New: `src/tabs/itemUtils.test.js` (isLowStock pure function), `src/formatters.test.js` additions (safePrice, safeQty, sellerKey), `src/utils/activity.test.js` addition (unknown action type).
+
 ## Known technical debt
 
 - `src/App.jsx` shell (~700 lines after Epic C full extraction); all tabs in `src/tabs/`, UI components in `src/ui/`, utility functions in `src/utils/`, shared auth/backend helpers in `src/authHelpers.js`. Epic C (BL-07) is complete.

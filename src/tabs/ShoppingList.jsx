@@ -168,6 +168,41 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
     logActivity('export_csv', 'Exported shopping list CSV');
   }
 
+  function printList() {
+    if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
+    const rows = shoppingList.map(e => `
+    <tr>
+      <td>${e.itemName}</td>
+      <td>${e.quantity} ${e.unit || ''}</td>
+      <td>${e.selectedSeller || '—'}</td>
+      <td>${e.price != null ? '$' + Number(e.price).toFixed(2) : '—'}</td>
+      <td>${e.notes || ''}</td>
+    </tr>
+  `).join('');
+    const html = `<!DOCTYPE html><html><head><title>Shopping List</title><style>
+    body { font-family: Arial, sans-serif; font-size: 14px; padding: 20px; }
+    h2 { color: #8B4513; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background: #FFF0D4; padding: 8px 12px; text-align: left; border-bottom: 2px solid #D2691E; }
+    td { padding: 7px 12px; border-bottom: 1px solid #eee; }
+    .total { text-align: right; font-size: 16px; font-weight: bold; margin-top: 16px; color: #8B4513; }
+    @media print { body { padding: 0; } }
+  </style></head><body>
+    <h2>Shopping List — ${shoppingLoc} — ${new Date().toLocaleDateString()}</h2>
+    <table>
+      <thead><tr><th>Item</th><th>Qty</th><th>Seller</th><th>Unit Price</th><th>Notes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="total">Total: $${grandTotal.toFixed(2)}</div>
+  </body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) { showToast('Pop-up blocked. Allow pop-ups for printing.', 'error'); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
   return (
     <div>
       <div className="flex-between mb-2 flex-wrap gap-2">
@@ -181,6 +216,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
             </select>
           </label>
           <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title={`Add items low at ${shoppingLoc}`}>⚠ Low Stock ({shoppingLoc})</Btn>
+          <Btn className="btn-outline" onClick={printList}>🖨 Print</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
