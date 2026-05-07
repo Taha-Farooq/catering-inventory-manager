@@ -255,6 +255,10 @@ Low-stock detection in `ItemDatabase.jsx` and `ShoppingList.jsx` checks **both**
 
 In `PurchaseInvoices.jsx`, the `setLine` function auto-fills `unitPrice` and `unit` when the description field exactly matches (case-insensitive) an item name in the DB. It prefers the seller that matches `form.supplier`; falls back to `sellers[0]`. Only fills blank fields — does not overwrite existing values.
 
+## Inventory adjustment log (Slice 22 / BL-39)
+
+New admin tab "📝 Inv. Log" (`src/tabs/InventoryAdjustments.jsx`) added to the Stock nav group. Props: `{ items, setItems }`. Storage key: `INVENTORY_ADJUSTMENTS_KEY = '_inventoryAdjustments'` (array of `{ id, itemId, itemName, location, delta, reason, notes, date, createdAt }`). On save, immediately increments/decrements `item.locQty[location.toLowerCase()]`. Deleting a log entry does NOT reverse the stock change. Tab is admin-only; non-admin users don't see it.
+
 ## Custom categories (Slice 21 / BL-38)
 
 `CUSTOM_CATEGORIES_KEY = '_customCategories'` in `constants.js` stores an array of admin-defined category strings. `SettingsModal.jsx` renders a "🏷️ Item Categories" section where admin can add/remove these. `ItemDatabase.jsx` computes `allCategories` via `useMemo` by merging `CATEGORIES` with the custom list on each render. The category dropdown in the item form, the category filter, and the bulk import validation all use `allCategories`. When adding custom categories, duplicates of built-in names are blocked at the UI level.

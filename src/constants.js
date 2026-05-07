@@ -9,9 +9,12 @@ export const BUSINESSES = {
   dera: { name: 'Dera Masala Grill Inc', location: 'Clifton, NJ', taxRate: 0.06625 },
 };
 
+export const INVENTORY_ADJUSTMENTS_KEY = '_inventoryAdjustments';
+
 export const TABS_ADMIN = [
   { id: 'checkio', label: '✅ Check In/Out' },
   { id: 'items', label: '📦 Items' },
+  { id: 'invadj', label: '📝 Inv. Log' },
   { id: 'shopping', label: '🛒 Shopping' },
   { id: 'purchase', label: '📋 Purchase Inv.' },
   { id: 'transfer', label: '🚚 Transfer Inv.' },
@@ -75,7 +78,7 @@ export const INTERNAL_SELLER_NAME_KEYS = new Set([
 ]);
 
 export const NAV_GROUPS_ADMIN = [
-  { id: 'ops', label: 'Stock', tabs: ['items', 'shopping', 'pricer'] },
+  { id: 'ops', label: 'Stock', tabs: ['items', 'invadj', 'shopping', 'pricer'] },
   { id: 'inv', label: 'Invoices', tabs: ['purchase', 'catering', 'transfer', 'payroll', 'archive'] },
   { id: 'people', label: 'Staff', tabs: ['checkio', 'customers', 'actlog'] },
   { id: 'finance', label: 'Money', tabs: ['analytics', 'dailyfin', 'margins', 'history'] },

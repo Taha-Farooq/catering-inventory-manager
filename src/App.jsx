@@ -64,6 +64,7 @@ import DailyIncomeExpense from './tabs/DailyIncomeExpense.jsx';
 import CheckInOutPage from './tabs/CheckInOutPage.jsx';
 import MenuMarginsLab from './tabs/MenuMarginsLab.jsx';
 import ItemDatabase from './tabs/ItemDatabase.jsx';
+import InventoryAdjustments from './tabs/InventoryAdjustments.jsx';
 import ShoppingList from './tabs/ShoppingList.jsx';
 import PurchaseInvoices from './tabs/PurchaseInvoices.jsx';
 import CateringInvoices from './tabs/CateringInvoices.jsx';
@@ -638,6 +639,7 @@ function App() {
           </div>
         )}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} />}
+        {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}

@@ -500,15 +500,18 @@ Large items that need their own kick-off before breaking into slices.
 
 ---
 
-### BL-39 — Inventory adjustment log
+### BL-39 — Inventory adjustment log ← DONE Slice 22
 
 **Problem:** No audit trail for manual stock changes (receiving, waste, corrections).
 
 **Scope:**
-- Adjustment form: item, qty change (+/-), reason, date. Saved to `_inventoryAdjustments`.
-- History shown per item in Item Database (expandable row or modal).
+- New "📝 Inv. Log" tab (admin-only) in the Stock nav group.
+- Form: item (searchable datalist), location (Englewood/Hackensack), qty delta (+/-), reason (Received/Used/Waste/Correction/Transfer/Other), optional notes, date.
+- On save: creates adjustment record in `_inventoryAdjustments`, updates `item.locQty[location]` immediately.
+- Table view: all adjustments sorted newest-first with filters for item, location, reason.
+- Delete: removes log entry only (does NOT reverse the stock change — audit trail integrity).
 
-**Files touched:** new `src/tabs/InventoryAdjustments.jsx`, `src/App.jsx`, `src/constants.js`
+**Files touched:** new `src/tabs/InventoryAdjustments.jsx`, `src/App.jsx`, `src/constants.js` (INVENTORY_ADJUSTMENTS_KEY, TABS_ADMIN, NAV_GROUPS_ADMIN)
 
 ---
 
@@ -548,7 +551,7 @@ Large items that need their own kick-off before breaking into slices.
 | BL-36 | Export item database as CSV/Excel | **Done** — Slice 20 |
 | BL-37 | Purchase invoice → update stock levels on receipt | **Done** — Slice 20 |
 | BL-38 | Custom categories management in Settings | **Done** — Slice 21 |
-| BL-39 | Inventory adjustment log (received/waste/correction) | Backlog |
+| BL-39 | Inventory adjustment log (received/waste/correction) | **Done** — Slice 22 |
 | BL-42 | Quick inline stock +/− adjustment per location in ItemDatabase | **Done** — Slice 21 |
 | BL-43 | Shopping list: location context filter (which location am I buying for?) | Backlog |
 | BL-44 | Item search by seller name in ItemDatabase | Backlog |
