@@ -106,6 +106,7 @@ export default function InventoryAdjustments({ items, setItems }) {
     setAdjustments(updatedAdj);
     setItems(updatedItems);
     setForm(blankForm());
+    logActivity('adjustment_saved', `${delta > 0 ? '+' : ''}${delta} ${form.itemName} @ ${form.location} (${form.reason})`);
     showToast('Adjustment logged.', 'success');
   }
 
@@ -177,10 +178,12 @@ export default function InventoryAdjustments({ items, setItems }) {
   }
 
   function handleDelete(id) {
+    const rec = adjustments.find(a => a.id === id);
     const updated = adjustments.filter(a => a.id !== id);
     save(INVENTORY_ADJUSTMENTS_KEY, updated);
     setAdjustments(updated);
     setConfirmDeleteId(null);
+    if (rec) logActivity('adjustment_deleted', `Deleted adj for ${rec.itemName} (${rec.delta > 0 ? '+' : ''}${rec.delta})`);
     showToast('Adjustment deleted.', 'success');
   }
 

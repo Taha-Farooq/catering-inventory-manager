@@ -614,6 +614,9 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-67 | Payroll invoices: CSV export + status filter + outstanding banner | **Done** — Slice 32 |
 | BL-68 | Vitest tests for Dashboard utility functions (10 new tests) | **Done** — Slice 32 |
 | BL-69 | Catering invoices: status filter + outstanding balance banner | **Done** — Slice 32 |
+| BL-70 | CustomerManagement: CSV export + sort by revenue/invoice count | **Done** — Slice 33 |
+| BL-71 | Dashboard: Inventory value by category (inline bar chart) | **Done** — Slice 33 |
+| BL-72 | InventoryAdjustments: log activity on save and delete | **Done** — Slice 33 |
 
 ---
 

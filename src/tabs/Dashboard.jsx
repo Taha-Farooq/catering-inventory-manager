@@ -95,6 +95,23 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     return Object.values(m).sort((a, b) => b.total - a.total).slice(0, 5).map(s => ({ ...s, total: +s.total.toFixed(2) }));
   }, [purchaseInvoices]);
 
+  const inventoryByCategory = useMemo(() => {
+    const m = {};
+    items.forEach(item => {
+      const cat = item.category || 'Other';
+      const price = item.sellers?.[0]?.price || 0;
+      const totalQty = LOCATIONS.reduce((s, loc) => {
+        const qty = parseFloat(item.locQty?.[loc.toLowerCase()]);
+        return s + (isNaN(qty) ? 0 : qty);
+      }, 0);
+      const val = totalQty * price;
+      if (!m[cat]) m[cat] = { category: cat, value: 0, items: 0 };
+      m[cat].value += val;
+      m[cat].items++;
+    });
+    return Object.values(m).sort((a, b) => b.value - a.value).map(c => ({ ...c, value: +c.value.toFixed(2) }));
+  }, [items]);
+
   const catalogWarnings = useMemo(() => {
     return items.flatMap(item => {
       const issues = [];
@@ -220,6 +237,28 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
           <div className="stat-lbl">Outstanding (Catering)</div>
         </div>
       </div>
+
+      {/* Inventory Value by Category */}
+      {inventoryByCategory.length > 0 && stats.inventoryValue > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#128200; Inventory Value by Category</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {inventoryByCategory.map(c => (
+              <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                <div style={{ width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#555', flexShrink: 0 }}>{c.category}</div>
+                <div style={{ flex: 1, background: '#F5ECD7', borderRadius: 4, overflow: 'hidden', height: 16 }}>
+                  <div style={{
+                    width: `${stats.inventoryValue > 0 ? (c.value / stats.inventoryValue * 100) : 0}%`,
+                    background: 'var(--brown)', height: '100%', borderRadius: 4,
+                  }} />
+                </div>
+                <div style={{ width: 68, fontWeight: 600, color: 'var(--brown)', textAlign: 'right', flexShrink: 0 }}>{fmt$(c.value)}</div>
+                <div style={{ width: 40, color: '#888', textAlign: 'right', fontSize: 11, flexShrink: 0 }}>{c.items} item{c.items !== 1 ? 's' : ''}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Low Stock Items */}
       <div className="card mb-4">

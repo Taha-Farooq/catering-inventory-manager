@@ -3,6 +3,7 @@ import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
 import Modal from '../ui/Modal.jsx';
 import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
+import { today } from '../utils/storage.js';
 import { logActivity } from '../tabUtils.js';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
@@ -33,19 +34,50 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
   const [viewId, setViewId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('name'); // 'name' | 'revenue' | 'invoices'
 
   const nameSuggestions = useMemo(() => uniqSuggestions(...customers.map(c => c.name)), [customers]);
   const phoneSuggestions = useMemo(() => uniqSuggestions(...customers.map(c => c.phone)), [customers]);
   const emailSuggestions = useMemo(() => uniqSuggestions(...customers.map(c => c.email)), [customers]);
 
+  const custRevMap = useMemo(() => {
+    const m = {};
+    customers.forEach(c => {
+      const invs = cateringInvoices.filter(i => i.customerId === c.id);
+      m[c.id] = { count: invs.length, rev: invs.reduce((s, i) => s + (i.grandTotal || 0), 0) };
+    });
+    return m;
+  }, [customers, cateringInvoices]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return customers.filter(c =>
+    const list = customers.filter(c =>
       c.name.toLowerCase().includes(q) ||
       (c.phone || '').includes(q) ||
       (c.email || '').toLowerCase().includes(q)
     );
-  }, [customers, search]);
+    if (sortBy === 'revenue') return [...list].sort((a, b) => (custRevMap[b.id]?.rev || 0) - (custRevMap[a.id]?.rev || 0));
+    if (sortBy === 'invoices') return [...list].sort((a, b) => (custRevMap[b.id]?.count || 0) - (custRevMap[a.id]?.count || 0));
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [customers, search, sortBy, custRevMap]);
+
+  function exportCsv() {
+    if (!customers.length) { showToast('No customers to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Name', 'Phone', 'Email', 'Address', 'Invoices', 'Total Revenue', 'Notes'];
+    const rows = customers.map(c => {
+      const cm = custRevMap[c.id] || { count: 0, rev: 0 };
+      return [c.name, c.phone || '', c.email || '', c.address || '', cm.count, +cm.rev.toFixed(2), c.notes || ''];
+    });
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'customers-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Customer list exported.');
+    logActivity('export_csv', `Exported ${customers.length} customers`);
+  }
 
   const pendingDeleteCustomer = useMemo(
     () => (confirmId ? customers.find(c => c.id === confirmId) : null),
@@ -93,9 +125,19 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
     <div>
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{ margin: 0 }}>Customers ({customers.length})</div>
-        <Btn className="btn-primary" onClick={() => { setForm(blank()); setEditId(null); setShowForm(true); }}>+ Add Customer</Btn>
+        <div className="flex gap-2 flex-wrap" style={{ alignItems: 'center' }}>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
+          <Btn className="btn-primary" onClick={() => { setForm(blank()); setEditId(null); setShowForm(true); }}>+ Add Customer</Btn>
+        </div>
       </div>
-      <input className="input mb-4" placeholder="Search customers…" value={search} onChange={e => setSearch(e.target.value)} />
+      <div className="flex gap-2 mb-4" style={{ flexWrap: 'wrap' }}>
+        <input className="input" style={{ flex: '1 1 200px' }} placeholder="Search customers…" value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="input" style={{ width: 'auto' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <option value="name">Sort: Name A–Z</option>
+          <option value="revenue">Sort: Revenue ↓</option>
+          <option value="invoices">Sort: Invoice count ↓</option>
+        </select>
+      </div>
 
       {filtered.length === 0
         ? <div className="card empty-state">No customers yet.</div>
