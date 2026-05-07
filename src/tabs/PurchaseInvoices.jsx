@@ -6,7 +6,7 @@ import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
 import { BUSINESSES, LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
-import { save, today } from '../utils/storage.js';
+import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printInvoiceById } from '../utils/print.js';
 import { nextId } from '../utils/invoiceIds.js';
@@ -550,7 +550,36 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
                   </div>
                 </>
               )}
-              {unmatched.length > 0 && (
+              {unmatched.length > 0 && setItems && (() => {
+                function addMissing() {
+                  const supplierName = stockUpdateInv.supplier || '';
+                  const rawPrice = (lineItem) => parseFloat(lineItem.unitPrice ?? lineItem.price);
+                  let nextItems = [...items];
+                  let added = 0;
+                  (stockUpdateInv.lineItems || []).forEach(l => {
+                    const desc = (l.description || '').trim();
+                    if (!desc) return;
+                    const alreadyIn = nextItems.find(it => it.name.toLowerCase() === desc.toLowerCase());
+                    if (alreadyIn) return;
+                    const price = rawPrice(l);
+                    const sellers = supplierName ? [{ name: supplierName, price: isNaN(price) ? null : price }] : [];
+                    nextItems = [...nextItems, { id: uid(), name: desc, category: 'Other', unit: 'each', upc: '', sellers, locQty: {}, locMinQty: {}, notes: '', createdAt: today() }];
+                    added++;
+                  });
+                  if (added === 0) { showToast('All items are already in the database.'); return; }
+                  setItems(nextItems);
+                  save('items', nextItems);
+                  logActivity('add_item', `Added ${added} items from invoice ${stockUpdateInv.id}`);
+                  showToast(`Added ${added} item${added!==1?'s':''} to Item Database.`, 'success');
+                }
+                return (
+                  <div style={{background:'#FEF9E7',border:'1px solid #FDE68A',borderRadius:6,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#92400E',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
+                    <div><strong>No match in Item DB ({unmatched.length}):</strong> {unmatched.map(r=>r.desc).join(', ')}</div>
+                    <Btn className="btn-outline btn-sm" style={{flexShrink:0}} onClick={addMissing}>+ Add to DB</Btn>
+                  </div>
+                );
+              })()}
+              {unmatched.length > 0 && !setItems && (
                 <div style={{background:'#FEF9E7',border:'1px solid #FDE68A',borderRadius:6,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#92400E'}}>
                   <strong>No match in Item DB ({unmatched.length}):</strong> {unmatched.map(r=>r.desc).join(', ')}
                 </div>
