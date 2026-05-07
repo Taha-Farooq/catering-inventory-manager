@@ -93,7 +93,8 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     const q=search.toLowerCase();
     return items.filter(i=>{
       if (catFilter && i.category !== catFilter) return false;
-      return i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q);
+      const sellerNames = (i.sellers||[]).map(s=>(s.name||'').toLowerCase()).join(' ');
+      return i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q)||sellerNames.includes(q);
     });
   },[items,search,catFilter]);
 

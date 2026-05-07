@@ -101,7 +101,7 @@ export default function InventoryAdjustments({ items, setItems }) {
 
     const updatedAdj = [record, ...adjustments];
     save(INVENTORY_ADJUSTMENTS_KEY, updatedAdj);
-    save('_items', updatedItems);
+    save('items', updatedItems);
     setAdjustments(updatedAdj);
     setItems(updatedItems);
     setForm(blankForm());
