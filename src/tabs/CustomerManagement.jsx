@@ -59,7 +59,7 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
   }
 
   function saveCust() {
-    if (!form.name.trim()) { showToast('Customer name is required.', 'error'); return; }
+    if (!form.name.trim()) { showToast('Customer name is required. [DMG-E006]', 'error'); return; }
     let u;
     if (editId) {
       u = customers.map(c => c.id === editId ? { ...c, ...form } : c);

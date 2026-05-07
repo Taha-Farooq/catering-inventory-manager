@@ -71,7 +71,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 2 — Error surface and diagnostics package
 
-**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`src/ui/Confirm.jsx`** for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal, **and tab delete flows** (items, invoices, customers, archive, transfer, price history) with **DMG-E012** on confirm where relevant. Optional: DMG codes on every validation toast. **DMG-E003 not yet wired** — see BL-12.
+**Status:** Partial — `src/errors.js`; Help tab diagnostics; **`ToastProvider`** + **`showToast`** (no `alert`). **`src/ui/Confirm.jsx`** for destructive choices (replaces **`window.confirm`**): staff delete, full backup restore, shopping list clear, activity log clear, menu item delete, sign out, kiosk mode, corrupt-key removal, **and tab delete flows** (items, invoices, customers, archive, transfer, price history) with **DMG-E012** on confirm where relevant. **DMG-E003 done** (Slice 7 — `src/ErrorBoundary.jsx`). Optional remaining: DMG codes on form validation toasts (missing-field rejections show plain text toasts) — see BL-29.
 
 **Objective:** Centralize errors; every categorized failure shows `DMG-Exxx` and structured detail for support.
 
@@ -135,7 +135,7 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ### Slice 5 — Auth and backend contract hardening
 
-**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; auth and scan/attendance APIs report **DMG-E020–E031**. **Offline banner** (`navigator.onLine` via `useOnlineStatus`). Settings backup **ZIP export/import** failures → toast + **DMG-E041** (no blocking `alert`). Attendance and Scan DB tabs still show raw error toasts when backend is unavailable — no graceful degraded state; see BL-15. Scan DB backup gap (data on backend not in main ZIP) — see BL-18.
+**Status:** Partial — `src/apiErrors.js` classifies fetch/HTTP failures; auth and scan/attendance APIs report **DMG-E020–E031**. **Offline banner** (`navigator.onLine` via `useOnlineStatus`). Settings backup **ZIP export/import** failures → toast + **DMG-E041** (no blocking `alert`). **BL-15 done (Slice 8):** Check In/Out and Scan DB tabs show `BackendUnavailableBanner` with DMG code instead of raw error toasts. **BL-18 partial done:** Scan DB tab has a "Download Scan DB Backup" button calling `/api/scan/export`.
 
 **Objective:** Predictable behavior when Render backend or central auth is down.
 
@@ -245,23 +245,16 @@ Each slice should end with: merged PR, GitHub Pages deploy, **manual smoke check
 
 ---
 
-### Slice 15 — Editable business contact info in Settings (BL-27)
+### Slice 15 — Editable business contact info in Settings (BL-27) ✅ Done
 
-**Status:** Queued
+**Status:** Done — `_bizContact` localStorage key (JSON keyed by business ID) stores admin-editable phone/address/email overrides per business. `mergeBrandingWithOverrides` merges them on top of `BRANDING` defaults. `_bizContact` is included in Settings backup ZIP (v2.2) and restored by `runBackupImport`. `BIZ_CONTACT_KEY` is in `STORAGE_SCAN_KEYS`. All invoice view/print modals show the updated contact info.
 
-**Problem:** `BRANDING` phone/address/email are hardcoded constants in `App.jsx`. Updating them requires a code change and redeploy — no admin can change them without touching source.
-
-**Scope:**
-- Add a "Business Contact Info" section to `SettingsModal` with fields for each business: phone, address, email.
-- Store in localStorage key `_bizContact` (JSON object keyed by business ID).
-- `mergeBrandingWithOverrides` (or a new `resolveBranding`) reads `_bizContact` overrides on top of BRANDING defaults.
-- Include `_bizContact` in backup ZIP (bump to v2.2) and restore in `runBackupImport`.
-- Add `_bizContact` to `STORAGE_SCAN_KEYS` in `storageHealth.js`.
-
-**Acceptance:**
-- Admin can set phone/address/email per business in Settings; saved immediately.
-- Invoice prints show the updated contact info.
-- Backup ZIP includes the contact overrides; restoring a ZIP restores them.
+**What was implemented:**
+- `BIZ_CONTACT_KEY = '_bizContact'` in `src/constants.js`.
+- `SettingsModal` in `App.jsx`: "Business Contact Info" section with phone, address, email fields per business; saved immediately on change.
+- `mergeBrandingWithOverrides` updated to merge `bizContact` overrides on top of `BRANDING`.
+- Backup ZIP v2.2 includes `bizContact`; restore path handles `settings.bizContact`.
+- `BIZ_CONTACT_KEY` added to `STORAGE_SCAN_KEYS` in `src/storageHealth.js`.
 
 ---
 
@@ -301,8 +294,10 @@ Large items that need their own kick-off before breaking into slices.
 | BL-24 | Per-business invoice filtering (UI) | **Done** — Slice 14 |
 | BL-25 | Invoice tabs admin-only auth restriction | **Done** — Slice 14 |
 | BL-26 | Manual payroll invoice creation + edit (PayrollInvoices tab) | **Done** — Slice 14 |
-| BL-27 | Editable BRANDING contact info in Settings | Queued → Slice 15 |
+| BL-27 | Editable BRANDING contact info in Settings | **Done** — Slice 15 |
 | BL-28 | Customer address field on catering invoices | **Done** — Slice 14 |
+| BL-29 | DMG codes on form validation toasts | **Done** — Slice 17 |
+| BL-30 | Vitest coverage for `src/utils/` modules | **Done** — Slice 17 |
 
 ---
 
@@ -317,9 +312,10 @@ Large items that need their own kick-off before breaking into slices.
 **What was implemented:**
 
 - **Shared utility modules:** `src/utils/storage.js` (`load`, `save`, `uid`, `today`), `src/utils/activity.js` (`logActivity`), `src/utils/print.js` (`printHtmlDocument`, `printInvoiceById`, `documentBaseHref`, `rewriteImgSrcsForPrint`), `src/utils/invoiceIds.js` (`nextId`, `nextTransferId`, `normalizeTransferInvoice`), `src/ui/BrandMark.jsx` (`BrandMark` component).
-- **Tab extractions:** CheckInOutPage, MenuMarginsLab, ItemDatabase, ShoppingList, PurchaseInvoices, CateringInvoices, TransferInvoices, InvoiceArchive, Analytics, PriceHistory, PriceUpdater — all moved to `src/tabs/`.
-- **App.jsx reduced:** from ~5900 lines to ~1800 lines (shell only: auth, routing, settings modal, login screen, first-run wizard).
+- **Tab extractions (16 total):** ActivityLog, ScanDatabaseBeta, CustomerManagement, DailyIncomeExpense, PayrollInvoices, CheckInOutPage, MenuMarginsLab, ItemDatabase, ShoppingList, PurchaseInvoices, CateringInvoices, TransferInvoices, InvoiceArchive, Analytics, PriceHistory, PriceUpdater — all in `src/tabs/`.
+- **App.jsx reduced:** from ~5900 lines to ~2356 lines (shell only: auth, routing, settings modal, login screen, first-run wizard, branding utilities).
 - **`getInvoiceBranding` stays in App.jsx** and is passed as a prop to invoice tabs (depends on `BRANDING` constant + `mergeBrandingWithOverrides`).
+- **52 Vitest tests passing** after extraction (79 after Slice 17).
 
 ---
 
@@ -334,6 +330,19 @@ Large items that need their own kick-off before breaking into slices.
 - **Payroll Invoices tab (BL-26):** New `src/tabs/PayrollInvoices.jsx` component — first tab extracted to `src/tabs/`. Features: list with business filter, create form (employee name, business, pay period type, start/end date, hourly rate, regular/overtime hours, live pay preview), view modal with business branding header, edit, mark paid, delete, print. Payroll records use `invoiceStandard: 'PAYROLL_MANUAL_V1'` to distinguish from auto-generated weekly records.
 - **Transfer tab rename:** "P&P Transfer Inv." → "Transfer Inv." (BL-17 partial).
 - **Tests:** constants.test.js expanded to 6 tests; 51 total passing.
+
+---
+
+## Slice 17 — Utility tests + DMG validation codes (BL-29, BL-30) ✅ Done
+
+**Status:** Done.
+
+**What was implemented:**
+
+- **`src/utils/storage.test.js`** (11 tests): `load`, `save` (including quota/DMG-E011 and generic/DMG-E010 error paths), `uid` UUID v4 format, `today` YYYY-MM-DD format.
+- **`src/utils/invoiceIds.test.js`** (16 tests): `nextId` sequential P-/C- IDs with 4-digit padding and localStorage persistence; `nextTransferId` PPH-ENG-{date}-{seq} format; `normalizeTransferInvoice` — defaults, from/to override, commission math, legacy `unitPrice` field, explicit commission preservation, empty lineItems, auto-ID generation.
+- **DMG-E006 on form validation toasts (BL-29):** 13 validation toasts across ItemDatabase, PurchaseInvoices, CateringInvoices, CustomerManagement, TransferInvoices, DailyIncomeExpense, MenuMarginsLab, PayrollInvoices now append `[DMG-E006]` — completes Slice 2 optional item.
+- **Total tests: 79** (up from 52 before Slice 17).
 
 ---
 

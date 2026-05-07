@@ -62,7 +62,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
 
   function saveItem() {
-    if (!form.name.trim()) { showToast('Item name is required.', 'error'); return; }
+    if (!form.name.trim()) { showToast('Item name is required. [DMG-E006]', 'error'); return; }
     const sellers = [];
     const seenSellerKeys = new Set();
     for (const s of form.sellers) {
@@ -76,7 +76,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       if (seenSellerKeys.has(sk)) { showToast(`Duplicate seller "${sellerName}" for this item. Use unique seller names.`, 'error'); return; }
       seenSellerKeys.add(sk);
       const p = safePrice(s.price);
-      if (s.price!==''&&p===null) { showToast(`Invalid price for "${sellerName}". Must be a positive number or left blank.`, 'error'); return; }
+      if (s.price!==''&&p===null) { showToast(`Invalid price for "${sellerName}". Must be a positive number or left blank. [DMG-E006]`, 'error'); return; }
       sellers.push({name:sellerName,price:p});
     }
     if (editId) {

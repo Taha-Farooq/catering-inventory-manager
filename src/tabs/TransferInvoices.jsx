@@ -120,7 +120,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
       })
       .filter(l => l.item && (l.quantity || l.price > 0));
     if (!lines.length) { showToast('Add at least one line item.', 'error'); return; }
-    if (!form.date) { showToast('Date is required.', 'error'); return; }
+    if (!form.date) { showToast('Date is required. [DMG-E006]', 'error'); return; }
 
     const subTotal = +lines.reduce((s, l) => s + l.price, 0).toFixed(2);
     const commissionTotal = +lines.reduce((s, l) => s + l.commission, 0).toFixed(2);

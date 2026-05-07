@@ -92,7 +92,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   }
 
   function saveRow() {
-    if (!form.date) { showToast('Date is required.', 'error'); return; }
+    if (!form.date) { showToast('Date is required. [DMG-E006]', 'error'); return; }
     const row = {
       id: crypto.randomUUID(),
       date: form.date,

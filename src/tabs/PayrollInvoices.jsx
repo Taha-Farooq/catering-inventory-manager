@@ -166,11 +166,11 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   }
 
   function submit() {
-    if (!form.employeeName.trim()) { showToast('Employee name is required.', 'error'); return; }
-    if (!form.periodStart) { showToast('Period start date is required.', 'error'); return; }
-    if (!form.periodEnd) { showToast('Period end date is required.', 'error'); return; }
-    if (!(parseFloat(form.hourlyRate) > 0)) { showToast('Hourly rate must be greater than 0.', 'error'); return; }
-    if (!(parseFloat(form.regularHours) >= 0)) { showToast('Regular hours must be 0 or more.', 'error'); return; }
+    if (!form.employeeName.trim()) { showToast('Employee name is required. [DMG-E006]', 'error'); return; }
+    if (!form.periodStart) { showToast('Period start date is required. [DMG-E006]', 'error'); return; }
+    if (!form.periodEnd) { showToast('Period end date is required. [DMG-E006]', 'error'); return; }
+    if (!(parseFloat(form.hourlyRate) > 0)) { showToast('Hourly rate must be greater than 0. [DMG-E006]', 'error'); return; }
+    if (!(parseFloat(form.regularHours) >= 0)) { showToast('Regular hours must be 0 or more. [DMG-E006]', 'error'); return; }
 
     const { rate, reg, ot, total } = calcPayroll(form);
 

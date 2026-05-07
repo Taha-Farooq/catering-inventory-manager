@@ -77,13 +77,17 @@ Stable catalog: `docs/PRODUCT_BACKLOG.md`. Implementation helpers:
 - **`useOnlineStatus`** — offline banner when `navigator.onLine` is false (local app data still saves).
 - **`Confirm`** — `src/ui/Confirm.jsx` (imported by `App.jsx`) for destructive flows (settings restore, staff delete, shopping clear, activity log, menu delete, logout, kiosk, corrupt keys, tab deletes). Backdrop click = cancel.
 - **`handleRepairStorageKey`** in `App.jsx` — Help tab overwrites one corrupt key after validating JSON (Slice 3 / BL-08).
-- **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** / **`src/browserCaps.test.js`** — Vitest (run `npm test`).
+- **`src/apiErrors.test.js`** / **`src/constants.test.js`** / **`src/storageHealth.test.js`** / **`src/formatters.test.js`** / **`src/browserCaps.test.js`** / **`src/utils/storage.test.js`** / **`src/utils/invoiceIds.test.js`** — Vitest (run `npm test`; 79 tests total).
 
 Boot-related:
 
 - **`DMG-E001`** — Bundle/scripts failed to load or hung before mount (watchdog).
 - **`DMG-E002`** — Mount threw or compile/runtime failure during startup.
 - **`DMG-E003`** — React render error thrown after initial mount. **Fixed** — `src/ErrorBoundary.jsx` wraps `<App>` in `main.jsx` (Slice 7).
+
+Form validation:
+
+- **`DMG-E006`** — Form submission blocked by a missing or invalid required field. Appears in the toast body (e.g. "Supplier name is required. [DMG-E006]"). Not a system error — used as a stable reference for support conversations.
 
 ## Data namespace policy
 
@@ -102,9 +106,9 @@ Boot-related:
 `payrollInvoices` (localStorage) = manually-entered payroll summaries (amounts, periods, notes).
 `backend/data/scan-db.json` = metadata for PDFs ingested via the Scan DB tab (may include payroll PDFs).
 
-These are **separate systems** — scan-db stores document references, not payroll accounting entries. If a scanned PDF is a payroll document, the user must manually create a corresponding `payrollInvoices` entry; there is no automatic link. See BL-18 for the planned integration.
+These are **separate systems** — scan-db stores document references, not payroll accounting entries. If a scanned PDF is a payroll document, the user must manually create a corresponding `payrollInvoices` entry; there is no automatic link. Full auto-linking is Epic B (BL-18, deferred).
 
-**Scan DB backup gap:** `scan-db.json` lives on the backend and is NOT included in the Settings ZIP export. Use `/api/scan/export` (admin, GET) to download a separate JSON backup. See BL-18 for adding a UI trigger.
+**Scan DB backup:** `scan-db.json` lives on the backend and is NOT included in the Settings ZIP export. The Scan DB tab has a **"Download Scan DB Backup"** button (calls `/api/scan/export`, admin-only) to download a separate JSON backup. This is a manual step — it is not triggered by the main Settings ZIP export.
 
 ## Scan DB architecture (admin-device only)
 
@@ -156,7 +160,7 @@ The Scan DB (`src/tabs/ScanDatabaseBeta.jsx`) is intentionally **admin-device-on
 
 - Prefer **small, focused PRs** matching backlog slices.
 - Do not revert **additive** `localStorage` keys without migration notes (see comments in `App.jsx` about compatibility).
-- After editing `src/App.jsx`, `src/ui/*`, `src/utils/*`, or `src/tabs/*`, run **`npm run build`** to confirm no import errors; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, or adding `*.test.js`.
+- After editing `src/App.jsx`, `src/ui/*`, `src/utils/*`, or `src/tabs/*`, run **`npm run build`** to confirm no import errors; run **`npm test`** when changing `apiErrors.js`, `constants.js`, `storageHealth.js`, `formatters.js`, `browserCaps.js`, `utils/storage.js`, `utils/invoiceIds.js`, or adding `*.test.js`.
 - **Invoice logos:** default files in **`public/assets/logos/*.jpg`**. Optional per-business **HTTPS** overrides in **Settings** → stored in localStorage key **`_logoOverrides`** (`LOGO_OVERRIDES_KEY` in `constants.js`); also embedded in backup ZIP `settings.json` as `logoOverrides` for round-trip.
 - **COGS / costing** and heavy analytics belong in backlog (`BL-01`); pair with existing items + shopping list when implemented.
 - **Entity IDs** use `crypto.randomUUID()` (BL-14). Existing IDs in localStorage use the old `_xxxxxxxxx` format and remain valid indefinitely.

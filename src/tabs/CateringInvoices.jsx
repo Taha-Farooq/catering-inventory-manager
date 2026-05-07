@@ -117,7 +117,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   }
 
   function saveInvoice(){
-    if (!form.customerName.trim()){showToast('Customer name is required.','error');return;}
+    if (!form.customerName.trim()){showToast('Customer name is required. [DMG-E006]','error');return;}
     const valid=T.lines.filter(l=>l.description.trim());
     if (!valid.length){showToast('Add at least one line item with a description.','error');return;}
     if (T.dep<0){showToast('Deposit cannot be negative.','error');return;}

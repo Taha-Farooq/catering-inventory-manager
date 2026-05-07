@@ -146,7 +146,7 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
     setShowMenuForm(true);
   }
   function saveMenuItem() {
-    if (!menuForm.name.trim()) { showToast('Menu item name is required.', 'error'); return; }
+    if (!menuForm.name.trim()) { showToast('Menu item name is required. [DMG-E006]', 'error'); return; }
     const payload = {
       id: editingId || uid(),
       name: menuForm.name.trim(),
