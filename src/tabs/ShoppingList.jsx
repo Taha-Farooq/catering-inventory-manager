@@ -6,12 +6,13 @@ import { reportError } from '../errors.js';
 import { fmt$, safeQty } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
+import { nextId } from '../utils/invoiceIds.js';
 
 function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function ShoppingList({ items, shoppingList, setShoppingList }) {
+export default function ShoppingList({ items, shoppingList, setShoppingList, purchaseInvoices, setPurchaseInvoices, selectedBusiness }) {
   const [search, setSearch] = useState('');
   const [showDrop, setShowDrop] = useState(false);
   const [dragFromIdx, setDragFromIdx] = useState(null);
@@ -108,6 +109,42 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
   function confirmClearAll() {
     setShowClearListConfirm(false);
     setShoppingList([]); save('shoppingList',[]);
+  }
+
+  function createPurchaseInvoices() {
+    if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
+    if (!setPurchaseInvoices) return;
+    const bySeller = {};
+    shoppingList.forEach(e => {
+      const seller = e.selectedSeller || 'Unspecified Supplier';
+      if (!bySeller[seller]) bySeller[seller] = [];
+      bySeller[seller].push(e);
+    });
+    const biz = selectedBusiness || 'degrill';
+    const newInvoices = Object.entries(bySeller).map(([seller, entries]) => {
+      const lineItems = entries.map(e => ({
+        description: e.itemName,
+        quantity: String(safeQty(e.quantity)),
+        unit: e.unit || 'each',
+        unitPrice: e.price != null ? String(e.price) : '',
+      }));
+      const subtotal = entries.reduce((s, e) => s + safeQty(e.quantity) * (e.price || 0), 0);
+      return {
+        id: nextId('purchase'), type: 'purchase', business: biz,
+        supplier: seller, date: today(),
+        notes: 'Auto-created from shopping list',
+        lineItems, subtotal, taxEnabled: false, taxRate: 0, taxAmount: 0,
+        total: subtotal, status: 'unpaid',
+        payment: { account: '', date: '', transactionId: '' },
+        createdAt: new Date().toISOString(),
+      };
+    });
+    const updated = [...(purchaseInvoices || []), ...newInvoices];
+    save('purchaseInvoices', updated);
+    setPurchaseInvoices(updated);
+    logActivity('create_invoice', `Created ${newInvoices.length} purchase invoices from shopping list`);
+    const sellerNames = Object.keys(bySeller).join(', ');
+    showToast(`Created ${newInvoices.length} purchase invoice${newInvoices.length !== 1 ? 's' : ''} (${sellerNames}). Review in Purchase Invoices.`);
   }
 
   const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
@@ -216,6 +253,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
             </select>
           </label>
           <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title={`Add items low at ${shoppingLoc}`}>⚠ Low Stock ({shoppingLoc})</Btn>
+          {setPurchaseInvoices && <Btn className="btn-outline btn-sm" onClick={createPurchaseInvoices} title="Create one purchase invoice per supplier from this list">📋 Create Invoices</Btn>}
           <Btn className="btn-outline" onClick={printList}>🖨 Print</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
