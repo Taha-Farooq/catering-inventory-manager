@@ -619,6 +619,17 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-72 | InventoryAdjustments: log activity on save and delete | **Done** — Slice 33 |
 | BL-73 | Analytics: gross profit + margin % stat cards + revenue by event type | **Done** — Slice 34 |
 | BL-74 | Catering invoice view: estimated ingredient cost + margin % banner | **Done** — Slice 34 |
+| BL-75 | Shopping list: per-seller subtotal breakdown in total card | **Done** — Slice 35 |
+| BL-76 | Purchase invoices: supplier text filter + date range (from/to) filter | **Done** — Slice 35+37 |
+| BL-77 | Catering invoices: customer name filter + date range filter | **Done** — Slice 37 |
+| BL-78 | Transfer invoices: status filter + CSV export | **Done** — Slice 36 |
+| BL-79 | ItemDatabase: Notes column in items table | **Done** — Slice 36 |
+| BL-80 | MenuMarginsLab: CSV export of menu items | **Done** — Slice 36 |
+| BL-81 | PriceHistory: CSV export of price history | **Done** — Slice 36 |
+| BL-82 | PayrollInvoices: monthly payroll bar chart (last 6 months) | **Done** — Slice 36 |
+| BL-83 | Purchase invoices: "Add to DB" from unmatched items in stock modal | **Done** — Slice 38 |
+| BL-84 | DailyIncomeExpense: CSV export | **Done** — Slice 39 |
+| BL-85 | ItemDatabase: batch selection + bulk category change | **Done** — Slice 40 |
 
 ---
 

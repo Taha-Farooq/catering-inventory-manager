@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId, useRef } from 'react';
+import React, { useState, useMemo, useId, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -76,6 +76,8 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const [historyItem, setHistoryItem] = useState(null); // item or null
   const [sortCol, setSortCol] = useState('name');
   const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [batchCategory, setBatchCategory] = useState('');
 
   const allCategories = useMemo(() => {
     const custom = load(CUSTOM_CATEGORIES_KEY, []);
@@ -134,6 +136,29 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
   }
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === sorted.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(sorted.map(i => i.id)));
+  }
+  function applyBatchCategory() {
+    if (!batchCategory || !selectedIds.size) return;
+    const nextItems = items.map(it => selectedIds.has(it.id) ? { ...it, category: batchCategory } : it);
+    setItems(nextItems);
+    save('items', nextItems);
+    showToast(`Updated category for ${selectedIds.size} item${selectedIds.size !== 1 ? 's' : ''}.`, 'success');
+    setSelectedIds(new Set());
+    setBatchCategory('');
+  }
+
+  useEffect(() => { setSelectedIds(new Set()); }, [search, catFilter]);
 
   function SortTh({ col, children }) {
     const active = sortCol === col;
@@ -386,13 +411,26 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       {filtered.length===0
         ? <div className="card empty-state">{items.length===0?'No items yet. Click "Add Item" to get started.':'No items match your search.'}</div>
         : (
+          <>
+          {selectedIds.size > 0 && (
+            <div style={{background:'#FFF0D4',border:'1px solid #EED9B0',borderRadius:8,padding:'10px 14px',marginBottom:12,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <span style={{fontWeight:600,color:'var(--brown)',fontSize:13}}>{selectedIds.size} item{selectedIds.size!==1?'s':''} selected</span>
+              <select className="input" style={{width:'auto'}} value={batchCategory} onChange={e=>setBatchCategory(e.target.value)}>
+                <option value="">Change category…</option>
+                {allCategories.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+              <button className="btn btn-outline btn-sm" onClick={applyBatchCategory} disabled={!batchCategory}>Apply</button>
+              <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px',marginLeft:'auto'}} onClick={()=>setSelectedIds(new Set())}>✕ Clear selection</button>
+            </div>
+          )}
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><SortTh col="name">Name</SortTh><SortTh col="category">Category</SortTh><SortTh col="unit">Unit</SortTh><th>UPC</th><th>Notes</th><SortTh col="stock">Stock</SortTh><SortTh col="price">Sellers / Prices</SortTh>{isAdmin&&<th>Actions</th>}</tr></thead>
+                <thead><tr><th style={{width:36}}><input type="checkbox" checked={selectedIds.size === sorted.length && sorted.length > 0} onChange={toggleSelectAll} style={{cursor:'pointer'}} /></th><SortTh col="name">Name</SortTh><SortTh col="category">Category</SortTh><SortTh col="unit">Unit</SortTh><th>UPC</th><th>Notes</th><SortTh col="stock">Stock</SortTh><SortTh col="price">Sellers / Prices</SortTh>{isAdmin&&<th>Actions</th>}</tr></thead>
                 <tbody>
                   {sorted.map(item=>(
                     <tr key={item.id} style={isLowStock(item)?{background:'#FFF5F5'}:{}}>
+                      <td><input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} style={{cursor:'pointer'}} /></td>
                       <td style={{fontWeight:600}}>
                         {item.name}
                         {isLowStock(item)&&<span title="At or below reorder point" style={{marginLeft:6,color:'#DC2626',fontSize:12}}>⚠ Low</span>}
@@ -455,6 +493,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
               </table>
             </div>
           </div>
+          </>
         )
       }
 

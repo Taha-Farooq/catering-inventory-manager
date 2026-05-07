@@ -349,6 +349,28 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 
 101 tests across 9 files (up from 85). New: `src/tabs/itemUtils.test.js` (isLowStock pure function), `src/formatters.test.js` additions (safePrice, safeQty, sellerKey), `src/utils/activity.test.js` addition (unknown action type).
 
+## Slices 30–39 feature summary
+
+**Slice 30 (BL-49, BL-58–60):** Partial receipt tracking in stock update modal (editable per-line "Receive qty"); purchase invoice status filter; dashboard low-stock CSV export; outstanding balance banners on purchase and catering invoice pages.
+
+**Slice 31 (BL-61–62):** ItemDatabase table sortable columns (Name, Category, Unit, Stock, Price) with ▲/▼ indicators; shopping list mark-as-bought checkbox (session-only strikethrough).
+
+**Slice 32 (BL-63–69):** Catering invoice CSV export + status filter; Dashboard: 6-month purchase spending bar chart + 6-month catering revenue bar chart; purchase invoice CSV export; payroll CSV export + status filter + outstanding banner; 10 new Vitest tests (dashboardUtils.test.js); catering outstanding banner.
+
+**Slice 33 (BL-70–72):** CustomerManagement CSV export + sort by revenue/invoices; Dashboard: Inventory Value by Category bar chart; InventoryAdjustments now calls logActivity on save and delete.
+
+**Slice 34 (BL-73–74):** Analytics: gross profit + margin % stat cards + Revenue by Event Type bar chart; catering invoice view modal shows estimated ingredient cost and gross margin % banner.
+
+**Slice 35–37:** Shopping list per-seller subtotals; purchase invoice supplier text filter + date range filter; catering invoice customer name filter + date range filter.
+
+**Slice 36 (BL-78–82):** TransferInvoices status filter + CSV export; ItemDatabase notes column; MenuMarginsLab CSV export; PriceHistory CSV export; PayrollInvoices monthly bar chart.
+
+**Slice 38 (BL-83):** PurchaseInvoices stock modal: "Add to DB" button for unmatched items adds them to Item Database with supplier price pre-filled.
+
+**Slice 39 (BL-84):** DailyIncomeExpense CSV export added alongside existing Excel export.
+
+**Slice 40 (BL-85):** ItemDatabase batch selection with checkboxes + bulk category change action bar.
+
 ## Known technical debt
 
 - `src/App.jsx` shell (~700 lines after Epic C full extraction); all tabs in `src/tabs/`, UI components in `src/ui/`, utility functions in `src/utils/`, shared auth/backend helpers in `src/authHelpers.js`. Epic C (BL-07) is complete.
