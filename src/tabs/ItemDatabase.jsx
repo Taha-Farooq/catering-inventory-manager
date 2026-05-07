@@ -74,6 +74,8 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const importFileRef = useRef(null);
   const [purchaseSuggest, setPurchaseSuggest] = useState(null); // { count, avgQty, suggested }
   const [historyItem, setHistoryItem] = useState(null); // item or null
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
 
   const allCategories = useMemo(() => {
     const custom = load(CUSTOM_CATEGORIES_KEY, []);
@@ -107,6 +109,40 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       return i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q)||sellerNames.includes(q);
     });
   },[items,search,catFilter]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let av, bv;
+      if (sortCol === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      else if (sortCol === 'category') { av = (a.category || '').toLowerCase(); bv = (b.category || '').toLowerCase(); }
+      else if (sortCol === 'unit') { av = (a.unit || '').toLowerCase(); bv = (b.unit || '').toLowerCase(); }
+      else if (sortCol === 'stock') {
+        // sum across all locations for sort key
+        av = LOCATIONS.reduce((s, loc) => s + (parseFloat(a.locQty?.[loc.toLowerCase()]) || 0), 0);
+        bv = LOCATIONS.reduce((s, loc) => s + (parseFloat(b.locQty?.[loc.toLowerCase()]) || 0), 0);
+      } else if (sortCol === 'price') {
+        av = a.sellers?.[0]?.price || 0;
+        bv = b.sellers?.[0]?.price || 0;
+      } else { av = 0; bv = 0; }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filtered, sortCol, sortDir]);
+
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  function SortTh({ col, children }) {
+    const active = sortCol === col;
+    return (
+      <th style={{cursor:'pointer',userSelect:'none',whiteSpace:'nowrap'}} onClick={() => toggleSort(col)}>
+        {children} {active ? (sortDir === 'asc' ? '▲' : '▼') : <span style={{opacity:0.3}}>▲</span>}
+      </th>
+    );
+  }
 
   const pendingDeleteItem = useMemo(
     () => (confirmId ? items.find((i) => i.id === confirmId) : null),
@@ -353,9 +389,9 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>UPC</th><th>Stock</th><th>Sellers / Prices</th>{isAdmin&&<th>Actions</th>}</tr></thead>
+                <thead><tr><SortTh col="name">Name</SortTh><SortTh col="category">Category</SortTh><SortTh col="unit">Unit</SortTh><th>UPC</th><SortTh col="stock">Stock</SortTh><SortTh col="price">Sellers / Prices</SortTh>{isAdmin&&<th>Actions</th>}</tr></thead>
                 <tbody>
-                  {filtered.map(item=>(
+                  {sorted.map(item=>(
                     <tr key={item.id} style={isLowStock(item)?{background:'#FFF5F5'}:{}}>
                       <td style={{fontWeight:600}}>
                         {item.name}

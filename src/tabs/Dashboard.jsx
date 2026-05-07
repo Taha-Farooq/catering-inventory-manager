@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
-import { load, save, uid } from '../utils/storage.js';
+import { load, save, uid, today } from '../utils/storage.js';
 import { showToast } from '../toastContext.jsx';
 
 const ACTION_LABELS = {
@@ -121,6 +121,20 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     return { count: matching.length, total };
   }, [purchaseInvoices]);
 
+  function exportLowStockCsv() {
+    if (!lowStockRows.length) { showToast('No low-stock items.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Item', 'Category', 'Location', 'Current Qty', 'Min Qty'];
+    const rows = lowStockRows.map(({ item, loc, qty, minQ }) => [item.name, item.category || '', loc, qty, minQ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'low-stock-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Low-stock list exported.');
+  }
+
   function addLowStockToShoppingList() {
     const lowItems = items.filter(item => {
       return LOCATIONS.some(loc => {
@@ -189,9 +203,10 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
         <div className="flex-between mb-2">
           <div className="section-title" style={{ margin: 0 }}>&#9888; Low Stock Items</div>
           {lowStockRows.length > 0 && (
-            <button className="btn btn-outline btn-sm" onClick={addLowStockToShoppingList}>
-              ➕ Add all to Shopping List
-            </button>
+            <div className="flex gap-2">
+              <button className="btn btn-outline btn-sm" onClick={exportLowStockCsv}>⬇ Export CSV</button>
+              <button className="btn btn-outline btn-sm" onClick={addLowStockToShoppingList}>➕ Add all to Shopping List</button>
+            </div>
           )}
         </div>
         {lowStockRows.length === 0 ? (

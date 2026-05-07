@@ -208,7 +208,38 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   function markPaid(id){const u=cateringInvoices.map(x=>x.id===id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);showToast('Catering invoice marked paid.');logActivity('mark_paid','Marked catering invoice paid '+id);}
 
   const [showAllBiz, setShowAllBiz] = useState(false);
-  const visibleCatering = showAllBiz ? [...cateringInvoices].reverse() : [...cateringInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  const visibleCatering = useMemo(() => {
+    let list = showAllBiz ? [...cateringInvoices] : cateringInvoices.filter(i => !i.business || i.business === selectedBusiness);
+    if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    return [...list].reverse();
+  }, [cateringInvoices, showAllBiz, selectedBusiness, filterStatus]);
+
+  const outstandingTotal = useMemo(() =>
+    cateringInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.balanceDue || 0), 0),
+    [cateringInvoices]
+  );
+
+  function exportCsv() {
+    if (!visibleCatering.length) { showToast('No invoices to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Invoice#', 'Customer', 'Date', 'Event', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Deposit', 'Balance Due', 'Notes'];
+    const rows = visibleCatering.map(inv => [
+      inv.id, inv.customerName || '', inv.date || '', inv.eventType || '', inv.business || '',
+      inv.status || '', +(inv.subtotal || 0).toFixed(2), +(inv.taxAmount || 0).toFixed(2),
+      +(inv.grandTotal || inv.total || 0).toFixed(2), +(inv.deposit || 0).toFixed(2),
+      +(inv.balanceDue || 0).toFixed(2), inv.notes || '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'catering-invoices-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Catering invoices exported.');
+    logActivity('export_csv', `Exported ${visibleCatering.length} catering invoices`);
+  }
 
   return (
     <div>
@@ -219,9 +250,22 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
             <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
+          <select className="input" style={{width:'auto'}} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
       </div>
+
+      {outstandingTotal > 0 && (
+        <div style={{background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:8,padding:'10px 16px',marginBottom:16,fontSize:13.5,color:'#92400E',display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontWeight:700}}>⚠ Outstanding:</span>
+          {fmt$(outstandingTotal)} due across {cateringInvoices.filter(i=>i.status!=='paid').length} invoice{cateringInvoices.filter(i=>i.status!=='paid').length!==1?'s':''}
+        </div>
+      )}
 
       {visibleCatering.length===0
         ? <div className="card empty-state">{cateringInvoices.length===0 ? 'No catering invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>

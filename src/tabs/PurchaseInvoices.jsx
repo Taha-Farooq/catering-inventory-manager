@@ -223,31 +223,55 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     }).filter(r => r.qty > 0);
   }
 
+  function openStockUpdate(inv) {
+    const rows = buildStockMatches(inv);
+    const init = {};
+    rows.forEach((r, i) => { init[i] = String(r.qty); });
+    setReceivedQtys(init);
+    setStockUpdateInv(inv);
+  }
+
   function commitStockUpdate() {
     if (!stockUpdateInv || !setItems) return;
     const lc = stockUpdateLoc.toLowerCase();
-    const matches = buildStockMatches(stockUpdateInv).filter(r => r.match);
+    const rows = buildStockMatches(stockUpdateInv);
+    const matched = rows.filter(r => r.match);
     let nextItems = [...items];
     let count = 0;
-    matches.forEach(({ match, qty }) => {
+    matched.forEach((r, i) => {
+      const rcv = parseFloat(receivedQtys[rows.indexOf(r)]);
+      if (isNaN(rcv) || rcv <= 0) return;
       nextItems = nextItems.map(it => {
-        if (it.id !== match.id) return it;
+        if (it.id !== r.match.id) return it;
         const locQty = { ...it.locQty };
         const prev = parseFloat(locQty[lc]) || 0;
-        locQty[lc] = String(+(prev + qty).toFixed(4));
+        locQty[lc] = String(+(prev + rcv).toFixed(4));
         count++;
         return { ...it, locQty };
       });
     });
+    if (count === 0) { showToast('No items to update (all received quantities are 0).', 'error'); return; }
     setItems(nextItems);
     save('items', nextItems);
-    logActivity('stock_update', `Stock update from ${stockUpdateInv.id}: +${count} items at ${stockUpdateLoc}`);
+    logActivity('update_stock_from_invoice', `Stock update from ${stockUpdateInv.id}: +${count} items at ${stockUpdateLoc}`);
     showToast(`Updated stock for ${count} item${count !== 1 ? 's' : ''} at ${stockUpdateLoc}.`);
     setStockUpdateInv(null);
   }
 
   const [showAllBiz, setShowAllBiz] = useState(false);
-  const visiblePurchase = showAllBiz ? [...purchaseInvoices].reverse() : [...purchaseInvoices].reverse().filter(i=>(!i.business||i.business===selectedBusiness));
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [receivedQtys, setReceivedQtys] = useState({});
+
+  const visiblePurchase = useMemo(() => {
+    let list = showAllBiz ? [...purchaseInvoices] : purchaseInvoices.filter(i => !i.business || i.business === selectedBusiness);
+    if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    return [...list].reverse();
+  }, [purchaseInvoices, showAllBiz, selectedBusiness, filterStatus]);
+
+  const outstandingTotal = useMemo(() =>
+    purchaseInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0),
+    [purchaseInvoices]
+  );
 
   function exportExcel() {
     if (!visiblePurchase.length) { showToast('No invoices to export.', 'error'); return; }
@@ -279,10 +303,22 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
+          <select className="input" style={{width:'auto'}} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Export Excel</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
       </div>
+
+      {outstandingTotal > 0 && (
+        <div style={{background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:8,padding:'10px 16px',marginBottom:16,fontSize:13.5,color:'#92400E',display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontWeight:700}}>⚠ Outstanding:</span>
+          {fmt$(outstandingTotal)} unpaid across {purchaseInvoices.filter(i=>i.status!=='paid').length} invoice{purchaseInvoices.filter(i=>i.status!=='paid').length!==1?'s':''}
+        </div>
+      )}
 
       {visiblePurchase.length===0
         ? <div className="card empty-state">{purchaseInvoices.length===0 ? 'No purchase invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>
@@ -305,7 +341,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
                         <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>openPurchaseEdit(inv)}>Edit</Btn>
                         <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={()=>copyInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" style={{marginRight:4}} onClick={()=>markPaid(inv.id)}>Mark Paid</Btn>}
-                        {setItems&&<Btn className="btn-outline btn-sm" style={{marginRight:4}} title="Update item stock levels from this invoice" onClick={()=>setStockUpdateInv(inv)}>📦 Stock</Btn>}
+                        {setItems&&<Btn className="btn-outline btn-sm" style={{marginRight:4}} title="Update item stock levels from this invoice" onClick={()=>openStockUpdate(inv)}>📦 Stock</Btn>}
                         <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
                       </td>
                     </tr>
@@ -427,7 +463,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
         onCancel={() => setConfirmId(null)}
       />
 
-      <Modal open={!!stockUpdateInv} onClose={() => setStockUpdateInv(null)} title={`Update Stock from Invoice ${stockUpdateInv?.id || ''}`}>
+      <Modal open={!!stockUpdateInv} onClose={() => setStockUpdateInv(null)} title={`Receive Stock from Invoice ${stockUpdateInv?.id || ''}`}>
         {stockUpdateInv && (() => {
           const rows = buildStockMatches(stockUpdateInv);
           const matched = rows.filter(r => r.match);
@@ -435,25 +471,41 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
           return (
             <>
               <div style={{marginBottom:12}}>
-                <label style={{fontWeight:600,marginRight:8}}>Apply to location:</label>
+                <label style={{fontWeight:600,marginRight:8}}>Receive into location:</label>
                 <select className="input" style={{width:'auto',display:'inline-block'}} value={stockUpdateLoc} onChange={e=>setStockUpdateLoc(e.target.value)}>
                   {LOCATIONS.map(l=><option key={l}>{l}</option>)}
                 </select>
               </div>
+              <p style={{fontSize:12,color:'#666',marginBottom:10}}>Edit "Receive" qty to record a partial receipt. Set to 0 to skip a line.</p>
               {matched.length > 0 && (
                 <>
-                  <div style={{fontWeight:600,color:'#15803D',marginBottom:6,fontSize:13}}>Will update ({matched.length} item{matched.length!==1?'s':''}):</div>
-                  <div className="tbl-wrap" style={{maxHeight:220,overflowY:'auto',marginBottom:12}}>
+                  <div style={{fontWeight:600,color:'#15803D',marginBottom:6,fontSize:13}}>Matched items ({matched.length}):</div>
+                  <div className="tbl-wrap" style={{maxHeight:240,overflowY:'auto',marginBottom:12}}>
                     <table>
-                      <thead><tr><th>Item</th><th>+Qty</th><th>Current ({stockUpdateLoc})</th></tr></thead>
+                      <thead><tr><th>Item</th><th>Ordered</th><th>Receive</th><th>Current ({stockUpdateLoc})</th></tr></thead>
                       <tbody>
-                        {matched.map((r,i)=>(
-                          <tr key={i}>
-                            <td style={{fontWeight:600}}>{r.match.name}</td>
-                            <td style={{color:'#15803D',fontWeight:700}}>+{r.qty}</td>
-                            <td style={{color:'#888',fontSize:12}}>{r.match.locQty?.[stockUpdateLoc.toLowerCase()] || '—'}</td>
-                          </tr>
-                        ))}
+                        {rows.map((r, i) => {
+                          if (!r.match) return null;
+                          const idx = i;
+                          return (
+                            <tr key={i}>
+                              <td style={{fontWeight:600}}>{r.match.name}</td>
+                              <td style={{color:'#888',fontSize:12}}>{r.qty}</td>
+                              <td>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={receivedQtys[idx] ?? String(r.qty)}
+                                  onChange={e => setReceivedQtys(q => ({...q, [idx]: e.target.value}))}
+                                  style={{width:72,marginBottom:0}}
+                                />
+                              </td>
+                              <td style={{color:'#888',fontSize:12}}>{r.match.locQty?.[stockUpdateLoc.toLowerCase()] || '—'}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -469,7 +521,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
               )}
               <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:8}}>
                 <Btn className="btn-outline" onClick={()=>setStockUpdateInv(null)}>Cancel</Btn>
-                <Btn className="btn-primary" disabled={matched.length===0} onClick={commitStockUpdate}>Update {matched.length} Item{matched.length!==1?'s':''}</Btn>
+                <Btn className="btn-primary" disabled={matched.length===0} onClick={commitStockUpdate}>Receive Stock</Btn>
               </div>
             </>
           );

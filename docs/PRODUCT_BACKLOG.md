@@ -593,7 +593,7 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-41 | Price memory: auto-fill last purchase price in invoices + shopping | **Done** — Slice 19 |
 | BL-47 | Shopping list notes column | **Done** — Slice 23 |
 | BL-48 | Dashboard / inventory overview tab | **Done** — Slice 24 |
-| BL-49 | Mark invoice lines as received (partial receipt tracking) | Backlog |
+| BL-49 | Mark invoice lines as received (partial receipt tracking) | **Done** — Slice 30 |
 | BL-50 | Item purchase + adjustment history modal in ItemDatabase | **Done** — Slice 26 |
 | BL-51 | Purchase invoices Excel export | **Done** — Slice 27 |
 | BL-52 | Catering invoice price memory (same as purchase invoices) | **Done** — Slice 26 |
@@ -602,6 +602,27 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-55 | Pricer tab accessible to admins (was missing from TABS_ADMIN) | **Done** — Slice 25 |
 | BL-56 | Reorder auto-suggest "Use suggestion" button fills all locations | **Done** — Slice 23 |
 | BL-57 | Vitest coverage for safePrice, safeQty, sellerKey, isLowStock, uid | **Done** — Slice 27 |
+| BL-58 | Purchase invoice status filter (All/Unpaid/Paid) | **Done** — Slice 30 |
+| BL-59 | Dashboard low-stock CSV export button | **Done** — Slice 30 |
+| BL-60 | Purchase invoices outstanding balance banner | **Done** — Slice 30 |
+| BL-61 | ItemDatabase sortable columns (Name, Category, Unit, Stock, Price) | **Done** — Slice 31 |
+| BL-62 | Shopping list: mark-as-bought checkbox (session-only, struck-through style) | **Done** — Slice 31 |
+| BL-63 | Catering invoice CSV export | Backlog |
+| BL-64 | Monthly spending chart in Dashboard (purchase totals by month) | Backlog |
+| BL-65 | Supplier spending report (filterable by date range, breakdown by category) | Backlog |
+
+---
+
+## Slice 30 — Partial receipt + purchase invoice enhancements (BL-49, BL-58–BL-60) ✅ Done
+
+**Status:** Done.
+
+- **BL-49**: Stock update modal ("📦 Stock") now shows an editable "Receive" qty column per line item. Defaults to the invoiced quantity; edit down to receive partial shipments, set to 0 to skip a line. Renamed modal to "Receive Stock from Invoice".
+- **BL-58**: Purchase invoices list now has a status filter dropdown (All statuses / Unpaid only / Paid only) in the header row.
+- **BL-59**: Dashboard low-stock card now has a "⬇ Export CSV" button that downloads a CSV of all low-stock item/location rows.
+- **BL-60**: Yellow outstanding balance banner appears above the purchase invoice list when any invoices are unpaid, showing total amount and invoice count.
+
+**Files:** `src/tabs/PurchaseInvoices.jsx`, `src/tabs/Dashboard.jsx`
 
 ---
 

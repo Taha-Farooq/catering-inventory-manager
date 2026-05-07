@@ -19,6 +19,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [showClearListConfirm, setShowClearListConfirm] = useState(false);
   const [shoppingLoc, setShoppingLoc] = useState(() => load('_shoppingLoc', LOCATIONS[1]));
+  const [boughtIds, setBoughtIds] = useState(new Set());
+
+  function toggleBought(id) {
+    setBoughtIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   function reorderRows(from, to) {
     if (from === to) return;
@@ -257,6 +266,11 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
           <Btn className="btn-outline" onClick={printList}>🖨 Print</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
+          {boughtIds.size > 0 && (
+            <button className="btn btn-outline btn-sm" onClick={() => setBoughtIds(new Set())}>
+              Clear {boughtIds.size} bought
+            </button>
+          )}
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
         </div>
       </div>
@@ -297,7 +311,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
             <div className="card" style={{padding:0}}>
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th style={{width:36}}>✓</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
                   <tbody>
                     {shoppingList.map((e, idx)=>{
                       const lt=safeQty(e.quantity)*(e.price??0);
@@ -306,7 +320,8 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
                         <tr
                           key={e.id}
                           style={{
-                            opacity: dragFromIdx === idx ? 0.55 : 1,
+                            opacity: dragFromIdx === idx ? 0.55 : boughtIds.has(e.id) ? 0.7 : 1,
+                            background: boughtIds.has(e.id) ? '#F0FDF4' : undefined,
                             boxShadow: dragOverIdx === idx && dragFromIdx !== idx ? 'inset 0 0 0 2px var(--brown)' : undefined,
                             transition: 'opacity .12s ease'
                           }}
@@ -338,7 +353,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
                             }}
                             onDragEnd={() => { setDragFromIdx(null); setDragOverIdx(null); }}
                           >⋮⋮</td>
-                          <td style={{fontWeight:600}}>{e.itemName}</td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={boughtIds.has(e.id)}
+                              onChange={() => toggleBought(e.id)}
+                              style={{accentColor:'var(--brown)',width:16,height:16,cursor:'pointer'}}
+                            />
+                          </td>
+                          <td style={{fontWeight:600,textDecoration:boughtIds.has(e.id)?'line-through':undefined,color:boughtIds.has(e.id)?'#6B7280':undefined}}>{e.itemName}</td>
                           <td style={{fontFamily:'monospace',fontSize:12,color:upcDisp==='NOT-LISTED'?'#999':'#333'}}>{upcDisp}</td>
                           <td>
                             {(e.sellers||[]).length>1
