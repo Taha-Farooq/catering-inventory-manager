@@ -43,6 +43,10 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [monthF, setMonthF] = useState('');
   const [yearF, setYearF] = useState('');
+  const [incomeTaxRate, setIncomeTaxRate] = useState(() => {
+    const v = parseFloat(localStorage.getItem('_incomeTaxRate'));
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 22;
+  });
 
   useEffect(() => {
     setForm(f => ({ ...f, business: selectedBusiness || f.business || 'degrill' }));
@@ -68,7 +72,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   }, { income: 0, expense: 0, salesTaxCollected: 0, taxPaid: 0 }), [filtered]);
 
   const net = +(totals.income - totals.expense).toFixed(2);
-  const estimatedIncomeTax = +(Math.max(net, 0) * 0.22).toFixed(2);
+  const estimatedIncomeTax = +(Math.max(net, 0) * (incomeTaxRate / 100)).toFixed(2);
   const salesTaxDue = +(totals.salesTaxCollected - totals.taxPaid).toFixed(2);
 
   const monthly = useMemo(() => {
@@ -186,7 +190,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
       Income: +totals.income.toFixed(2),
       Expense: +totals.expense.toFixed(2),
       'Net Profit': +net.toFixed(2),
-      'Estimated Income Tax (22%)': +estimatedIncomeTax.toFixed(2),
+      [`Estimated Income Tax (${incomeTaxRate}%)`]: +estimatedIncomeTax.toFixed(2),
       'Sales Tax Collected': +totals.salesTaxCollected.toFixed(2),
       'Tax Paid': +totals.taxPaid.toFixed(2),
       'Sales Tax Due': +salesTaxDue.toFixed(2),
@@ -327,10 +331,17 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           { v: fmt$(totals.income), l: 'Income' },
           { v: fmt$(totals.expense), l: 'Expense' },
           { v: fmt$(net), l: 'Net Profit' },
-          { v: fmt$(estimatedIncomeTax), l: 'Estimated Income Tax' },
+          { v: fmt$(estimatedIncomeTax), l: `Est. Income Tax (${incomeTaxRate}%)` },
           { v: fmt$(salesTaxDue), l: 'Sales Tax Due' },
           { v: filtered.length, l: 'Daily Entries' }
         ].map((s, i) => <div key={i} className="stat-card"><div className="stat-val">{s.v}</div><div className="stat-lbl">{s.l}</div></div>)}
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,fontSize:12.5,color:'#666'}}>
+        <span>Income tax rate:</span>
+        <input type="number" min="0" max="95" step="0.5" value={incomeTaxRate}
+          className="input" style={{width:70,padding:'3px 6px',fontSize:12}}
+          onChange={e=>{ const v=parseFloat(e.target.value); if(Number.isFinite(v)&&v>=0&&v<=100){setIncomeTaxRate(v);localStorage.setItem('_incomeTaxRate',String(v));} }} />
+        <span>% (estimated federal income tax)</span>
       </div>
 
       {monthly.length > 1 && (
