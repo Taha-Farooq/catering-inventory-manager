@@ -161,6 +161,16 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     return months;
   }, [purchaseInvoices]);
 
+  const upcomingDue = useMemo(() => {
+    const t = today();
+    const twoWeeksOut = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return purchaseInvoices
+      .filter(inv => inv.dueDate && inv.status !== 'paid' && inv.dueDate <= twoWeeksOut)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .slice(0, 10)
+      .map(inv => ({ ...inv, isOverdue: inv.dueDate < t }));
+  }, [purchaseInvoices]);
+
   function exportLowStockCsv() {
     if (!lowStockRows.length) { showToast('No low-stock items.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -237,6 +247,33 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
           <div className="stat-lbl">Outstanding (Catering)</div>
         </div>
       </div>
+
+      {upcomingDue.length > 0 && (
+        <div className="card mb-4" style={{borderLeft: `4px solid ${upcomingDue.some(i=>i.isOverdue)?'#DC2626':'#F59E0B'}`}}>
+          <div className="section-title" style={{marginBottom:12,color:upcomingDue.some(i=>i.isOverdue)?'#DC2626':'#92400E'}}>
+            {upcomingDue.some(i=>i.isOverdue) ? '🔴' : '🟡'} {upcomingDue.filter(i=>i.isOverdue).length > 0 ? `${upcomingDue.filter(i=>i.isOverdue).length} Overdue` : ''}{upcomingDue.filter(i=>i.isOverdue).length > 0 && upcomingDue.filter(i=>!i.isOverdue).length > 0 ? ' + ' : ''}{upcomingDue.filter(i=>!i.isOverdue).length > 0 ? `${upcomingDue.filter(i=>!i.isOverdue).length} Due Soon` : ''} — Purchase Invoices
+          </div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Invoice #</th><th>Supplier</th><th>Due Date</th><th>Total</th><th>Status</th></tr></thead>
+              <tbody>
+                {upcomingDue.map(inv => (
+                  <tr key={inv.id} style={{background: inv.isOverdue ? '#FEF2F2' : '#FFFBEB'}}>
+                    <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
+                    <td>{inv.supplier}</td>
+                    <td style={{fontWeight:600,color:inv.isOverdue?'#DC2626':'#92400E'}}>
+                      {fmtDate(inv.dueDate)}{inv.isOverdue?' ⚠ Overdue':''}
+                    </td>
+                    <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
+                    <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {setTab && <div style={{textAlign:'right',marginTop:8}}><button className="btn btn-outline btn-sm" onClick={()=>setTab('purchases')}>View All Invoices →</button></div>}
+        </div>
+      )}
 
       {/* Inventory Value by Category */}
       {inventoryByCategory.length > 0 && stats.inventoryValue > 0 && (

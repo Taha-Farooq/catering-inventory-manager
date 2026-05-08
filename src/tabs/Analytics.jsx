@@ -67,6 +67,14 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
   },[filteredPurchase]);
 
+  const monthlyNetProfit=useMemo(()=>{
+    const m={};
+    filteredCatering.forEach(inv=>{const d=inv.date||inv.dateStart||inv.createdAt;if(!d)return;const k=d.slice(0,7);if(!m[k])m[k]={rev:0,spend:0};m[k].rev+=(inv.grandTotal||0);});
+    filteredPurchase.forEach(inv=>{const d=inv.date||inv.createdAt;if(!d)return;const k=d.slice(0,7);if(!m[k])m[k]={rev:0,spend:0};m[k].spend+=(inv.total||0);});
+    filteredDaily.forEach(e=>{const d=e.date;if(!d)return;const k=d.slice(0,7);if(!m[k])m[k]={rev:0,spend:0};m[k].rev+=(e.income||0);m[k].spend+=(e.expense||0);});
+    return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([k,v])=>{const net=+(v.rev-v.spend).toFixed(2);return{label:k.slice(5)+'/'+k.slice(2,4),net,positive:net>=0};});
+  },[filteredCatering,filteredPurchase,filteredDaily]);
+
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
   const isFiltered=filterFrom||filterTo;
 
@@ -139,6 +147,30 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
                       <div style={{width:`${c.total/maxV*100}%`,background:'#1D4ED8',height:'100%',borderRadius:4}} />
                     </div>
                     <div style={{width:80,fontWeight:600,color:'#1D4ED8',textAlign:'right',flexShrink:0}}>{fmt$(c.total)}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {monthlyNetProfit.length > 1 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{marginBottom:12}}>Net Profit by Month</div>
+          {(() => {
+            const maxAbs = Math.max(...monthlyNetProfit.map(m => Math.abs(m.net)), 1);
+            return (
+              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                {monthlyNetProfit.map(m => (
+                  <div key={m.label} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
+                    <div style={{width:42,color:'#555',flexShrink:0,textAlign:'right'}}>{m.label}</div>
+                    <div style={{flex:1,display:'flex',alignItems:'center',gap:4,overflow:'hidden'}}>
+                      <div style={{flex:1,background:'#F3F4F6',borderRadius:4,overflow:'hidden',height:18}}>
+                        <div style={{width:`${Math.abs(m.net)/maxAbs*100}%`,background:m.positive?'#15803D':'#DC2626',height:'100%',borderRadius:4,marginLeft:m.positive?0:'auto'}} />
+                      </div>
+                    </div>
+                    <div style={{width:80,fontWeight:600,color:m.positive?'#15803D':'#DC2626',textAlign:'right',flexShrink:0}}>{fmt$(m.net)}</div>
                   </div>
                 ))}
               </div>
