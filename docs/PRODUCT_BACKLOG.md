@@ -670,6 +670,9 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-125 | PayrollInvoices: blankForm initializes periodEnd from calcPeriodEnd; calcPayroll adds Math.max(0) guard on reg/ot hours | **Done** — Slice 59 |
 | BL-126 | itemImportUtils.test.js: 13 tests for normalizeImportHeaders (alias mapping, location columns, case insensitivity) | **Done** — Slice 60 |
 | BL-127 | dailyFinanceUtils.test.js: 18 tests for parseNum, calcTotals, calcSummary, buildMonthlyData | **Done** — Slice 60 |
+| BL-128 | CateringInvoices: Excel export with Invoices sheet + Line Items detail sheet | **Done** — Slice 61 |
+| BL-129 | PayrollInvoices: Excel export with Records sheet + Monthly Summary sheet | **Done** — Slice 61 |
+| BL-130 | menuMarginsUtils.test.js: 27 tests for toBase unit conversion, calcMargin, calcRecommendedPrice, getItemLatestCost | **Done** — Slice 61 |
 
 ---
 

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useId, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -291,6 +292,33 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     logActivity('export_csv', `Exported ${visibleCatering.length} catering invoices`);
   }
 
+  function exportExcel() {
+    if (!visibleCatering.length) { showToast('No invoices to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    // Summary sheet
+    const sumHeader = ['Invoice#', 'Customer', 'Date', 'Event', 'Business', 'Status', 'Subtotal', 'CC Fee', 'Tax', 'Grand Total', 'Total Paid', 'Balance Due', 'Notes'];
+    const sumRows = visibleCatering.map(inv => [
+      inv.id, inv.customerName || '', inv.date || '', inv.eventType || '', inv.business || '',
+      inv.status || '', +(inv.subtotal || 0).toFixed(2), +(inv.ccFee || 0).toFixed(2),
+      +(inv.taxAmount || 0).toFixed(2), +(inv.grandTotal || 0).toFixed(2),
+      +totalPaidFor(inv).toFixed(2), +balanceFor(inv).toFixed(2), inv.notes || '',
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHeader, ...sumRows]), 'Invoices');
+    // Line items sheet
+    const lineHeader = ['Invoice#', 'Customer', 'Date', 'Description', 'Qty', 'Unit Price', 'Line Total'];
+    const lineRows = visibleCatering.flatMap(inv =>
+      (inv.lineItems || []).map(l => [
+        inv.id, inv.customerName || '', inv.date || '',
+        l.description || '', l.qty ?? l.quantity ?? '', +(l.price ?? l.unitPrice ?? 0).toFixed(2),
+        +(l.total || 0).toFixed(2),
+      ])
+    );
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([lineHeader, ...lineRows]), 'Line Items');
+    XLSX.writeFile(wb, 'catering-invoices-' + today() + '.xlsx');
+    logActivity('export_xlsx', `Exported ${visibleCatering.length} catering invoices Excel`);
+    showToast('Catering invoices exported to Excel.');
+  }
+
   function bulkMarkPaid() {
     if (!selectedIds.size) return;
     const u = cateringInvoices.map(i =>
@@ -319,7 +347,8 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
             <option value="unpaid">Unpaid only</option>
             <option value="paid">Paid only</option>
           </select>
-          <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
       </div>

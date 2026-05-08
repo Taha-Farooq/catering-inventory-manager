@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { BUSINESSES } from '../constants.js';
 import { showToast } from '../toastContext.jsx';
 import { reportError } from '../errors.js';
@@ -172,6 +173,36 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     a.href = url; a.download = 'payroll-invoices-' + today() + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     showToast('Payroll exported as CSV.');
+  }
+
+  function exportExcel() {
+    if (!visible.length) { showToast('No payroll records to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    // Records sheet
+    const header = ['Invoice#', 'Employee', 'Period Start', 'Period End', 'Business', 'Status', 'Reg Hours', 'OT Hours', 'Hourly Rate', 'Total', 'Notes'];
+    const rows = visible.map(r => [
+      r.id, r.employeeName, r.periodStart || r.date, r.periodEnd || '', r.business || '',
+      r.status || 'unpaid', +(r.regularHours || 0), +(r.overtimeHours || 0),
+      +(r.hourlyRate || 0), +(r.total || 0).toFixed(2), r.notes || '',
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Payroll Records');
+    // Monthly summary sheet
+    const byMonth = {};
+    visible.forEach(r => {
+      const m = (r.periodStart || r.date || '').slice(0, 7);
+      if (!m) return;
+      if (!byMonth[m]) byMonth[m] = { month: m, total: 0, regHrs: 0, otHrs: 0, count: 0 };
+      byMonth[m].total += r.total || 0;
+      byMonth[m].regHrs += parseFloat(r.regularHours) || 0;
+      byMonth[m].otHrs += parseFloat(r.overtimeHours) || 0;
+      byMonth[m].count++;
+    });
+    const mRows = Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month))
+      .map(m => [m.month, m.count, +m.regHrs.toFixed(1), +m.otHrs.toFixed(1), +m.total.toFixed(2)]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Month','Records','Reg Hrs','OT Hrs','Total'], ...mRows]), 'Monthly Summary');
+    XLSX.writeFile(wb, 'payroll-invoices-' + today() + '.xlsx');
+    showToast('Payroll exported as Excel.');
+    logActivity('export_xlsx', `Exported ${visible.length} payroll records Excel`);
   }
 
   const monthlyPayroll = useMemo(() => {
@@ -356,6 +387,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
           </select>
           <input className="input" style={{ width: 160 }} placeholder="Search employee…" value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)} />
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary" onClick={openNew}>+ New Payroll Invoice</Btn>
         </div>
       </div>
