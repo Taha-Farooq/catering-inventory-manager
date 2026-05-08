@@ -659,6 +659,9 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-114 | MenuMarginsLab: fix missing Confirm import (crash on delete) + fix exportCsv field names | **Done** — Slice 50 |
 | BL-115 | PayrollInvoices: auto-compute periodEnd from period type; Period End > Start validation | **Done** — Slice 50 |
 | BL-116 | DailyIncomeExpense: confirmation dialog before deleting entries | **Done** — Slice 50 |
+| BL-117 | Analytics: date range presets (Last 7d/30d/This Month/Last Month/This Year) + CSV export | **Done** — Slice 53 |
+| BL-118 | PayrollInvoices: employee name search filter | **Done** — Slice 52 |
+| BL-119 | analyticsDateUtils.test.js: 13 tests for monthlyNetProfit + applyPreset | **Done** — Slice 54 |
 
 ---
 
