@@ -80,9 +80,10 @@ function LogoField({ label, fieldKey, logoFields, setLogoFields, fileRef, onFile
 // SETTINGS MODAL (admin only)
 export default function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap }) {
   const { items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
-          dailyFinanceEntries, customers, priceHist,
+          dailyFinanceEntries, customers, priceHist, suppliers,
           setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
           setPayrollInvoices, setDailyFinanceEntries, setCustomers, setPriceHist, setBiz,
+          setSuppliers,
           logoOverrides, setLogoOverrides,
           bizContact, setBizContact } = appState;
   const importRef = useRef();
@@ -390,12 +391,13 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         payrollInvoices:(payrollInvoices||[]),
         dailyFinanceEntries:(dailyFinanceEntries||[]),
         customers, priceHistory:priceHist,
+        suppliers:(suppliers||[]),
         inventoryAdjustments: load(INVENTORY_ADJUSTMENTS_KEY, []),
         settings:{
           selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact,
           customCategories,
         },
-        exportDate: new Date().toISOString(), version:'2.3'
+        exportDate: new Date().toISOString(), version:'2.4'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
@@ -433,7 +435,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
 
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
                     'transferInvoices','payrollInvoices','dailyFinanceEntries',
-                    'customers','priceHistory','inventoryAdjustments','settings'];
+                    'customers','priceHistory','suppliers','inventoryAdjustments','settings'];
       const entries = await Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
@@ -465,18 +467,20 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           setCustomCategories(v.customCategories);
           save(CUSTOM_CATEGORIES_KEY, v.customCategories);
         }
+        if (k==='suppliers')            { setSuppliers(v);           save('_suppliers',v); }
         if (k==='inventoryAdjustments') {
           save(INVENTORY_ADJUSTMENTS_KEY, v);
         }
       });
       logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
       showToast('Backup restored! All data has been loaded.');
-      if (isLegacy || !backupVersion.startsWith('2.3')) {
+      if (isLegacy || !backupVersion.startsWith('2.4')) {
         const missing = [];
         if (!zip.file('transferInvoices.json'))       missing.push('Transfer Invoices');
         if (!zip.file('payrollInvoices.json'))        missing.push('Payroll Invoices');
         if (!zip.file('dailyFinanceEntries.json'))    missing.push('Daily Finance Entries');
         if (!zip.file('inventoryAdjustments.json'))   missing.push('Inventory Adjustments');
+        if (!zip.file('suppliers.json'))              missing.push('Suppliers');
         if (missing.length) {
           showToast(
             `Older backup (v${backupVersion}): ${missing.join(', ')} were not in this ZIP and remain unchanged on your device.`,

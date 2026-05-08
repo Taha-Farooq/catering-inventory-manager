@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useId, useRef } from 'react';
+import React, { useState, useMemo, useId, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
-import { CATEGORIES, LOCATIONS, CUSTOM_CATEGORIES_KEY, INTERNAL_SELLER_NAME_KEYS } from '../constants.js';
+import { CATEGORIES, LOCATIONS, CUSTOM_CATEGORIES_KEY, INTERNAL_SELLER_NAME_KEYS, PURCHASE_UNITS, CASE_UNITS } from '../constants.js';
 import { fmt$, fmtDate, sellerKey, uniqSuggestions, safePrice } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
@@ -12,6 +12,7 @@ const IMPORT_COL = {
   name: ['name','item name','item'],
   category: ['category','cat'],
   unit: ['unit','uom','unit of measure'],
+  caseSize: ['case size', 'casesize', 'case_size', 'units per case'],
   upc: ['upc','barcode'],
   seller: ['seller','supplier','vendor'],
   price: ['price','unit price','cost','$/unit'],
@@ -61,7 +62,7 @@ function Btn({ className='', children, ...p }) {
 export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole, purchaseInvoices = [] }) {
   const isAdmin = userRole === 'admin';
   const locQtyBlank = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
-  const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:'',locQty:{...locQtyBlank},locMinQty:{...locQtyBlank}};
+  const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',caseSize:'',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:'',locQty:{...locQtyBlank},locMinQty:{...locQtyBlank}};
   const blank = () => ({...BLANK, sellers:[{name:'',price:''}]});
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
@@ -74,6 +75,11 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const importFileRef = useRef(null);
   const [purchaseSuggest, setPurchaseSuggest] = useState(null); // { count, avgQty, suggested }
   const [historyItem, setHistoryItem] = useState(null); // item or null
+  const [filterLow, setFilterLow] = useState(false);
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [batchCategory, setBatchCategory] = useState('');
 
   const allCategories = useMemo(() => {
     const custom = load(CUSTOM_CATEGORIES_KEY, []);
@@ -103,10 +109,68 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     const q=search.toLowerCase();
     return items.filter(i=>{
       if (catFilter && i.category !== catFilter) return false;
+      if (filterLow && !isLowStock(i)) return false;
       const sellerNames = (i.sellers||[]).map(s=>(s.name||'').toLowerCase()).join(' ');
       return i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q)||sellerNames.includes(q);
     });
-  },[items,search,catFilter]);
+  },[items,search,catFilter,filterLow]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let av, bv;
+      if (sortCol === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      else if (sortCol === 'category') { av = (a.category || '').toLowerCase(); bv = (b.category || '').toLowerCase(); }
+      else if (sortCol === 'unit') { av = (a.unit || '').toLowerCase(); bv = (b.unit || '').toLowerCase(); }
+      else if (sortCol === 'stock') {
+        // sum across all locations for sort key
+        av = LOCATIONS.reduce((s, loc) => s + (parseFloat(a.locQty?.[loc.toLowerCase()]) || 0), 0);
+        bv = LOCATIONS.reduce((s, loc) => s + (parseFloat(b.locQty?.[loc.toLowerCase()]) || 0), 0);
+      } else if (sortCol === 'price') {
+        av = a.sellers?.[0]?.price || 0;
+        bv = b.sellers?.[0]?.price || 0;
+      } else { av = 0; bv = 0; }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filtered, sortCol, sortDir]);
+
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === sorted.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(sorted.map(i => i.id)));
+  }
+  function applyBatchCategory() {
+    if (!batchCategory || !selectedIds.size) return;
+    const nextItems = items.map(it => selectedIds.has(it.id) ? { ...it, category: batchCategory } : it);
+    setItems(nextItems);
+    save('items', nextItems);
+    showToast(`Updated category for ${selectedIds.size} item${selectedIds.size !== 1 ? 's' : ''}.`, 'success');
+    setSelectedIds(new Set());
+    setBatchCategory('');
+  }
+
+  useEffect(() => { setSelectedIds(new Set()); }, [search, catFilter]);
+
+  function SortTh({ col, children }) {
+    const active = sortCol === col;
+    return (
+      <th style={{cursor:'pointer',userSelect:'none',whiteSpace:'nowrap'}} onClick={() => toggleSort(col)}>
+        {children} {active ? (sortDir === 'asc' ? '▲' : '▼') : <span style={{opacity:0.3}}>▲</span>}
+      </th>
+    );
+  }
 
   const pendingDeleteItem = useMemo(
     () => (confirmId ? items.find((i) => i.id === confirmId) : null),
@@ -120,6 +184,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       sellers: sellers.length ? sellers.map(s=>({...s})) : [{name:'',price:''}],
       locQty: { ...locQtyBlank2, ...(item.locQty || {}) },
       locMinQty: { ...locQtyBlank2, ...(item.locMinQty || {}) },
+      caseSize: item.caseSize || '',
     });
     setEditId(item.id);
     setShowForm(true);
@@ -136,6 +201,21 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       setPurchaseSuggest(null);
     }
   }
+  function duplicateItem(item) {
+    const sellers = (item.sellers || []).map(s => ({ ...s }));
+    const locQtyBlank2 = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
+    setForm({
+      ...item, id: uid(), name: item.name + ' (Copy)',
+      sellers: sellers.length ? sellers : [{ name: '', price: '' }],
+      locQty: { ...locQtyBlank2 },
+      locMinQty: { ...locQtyBlank2, ...(item.locMinQty || {}) },
+      caseSize: item.caseSize || '',
+      createdAt: today(),
+    });
+    setEditId(null);
+    setPurchaseSuggest(null);
+    setShowForm(true);
+  }
   function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
 
   function saveItem() {
@@ -144,17 +224,13 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     const seenSellerKeys = new Set();
     for (const s of form.sellers) {
       const sellerName = (s.name || '').trim();
-      if (!sellerName) continue;
-      const sk = sellerKey(sellerName);
-      if (INTERNAL_SELLER_NAME_KEYS.has(sk)) {
-        showToast(`"${sellerName}" looks like one of your own companies, not an external supplier. Please use the actual vendor name.`, 'warning');
-        return;
-      }
-      if (seenSellerKeys.has(sk)) { showToast(`Duplicate seller "${sellerName}" for this item. Use unique seller names. [DMG-E006]`, 'error'); return; }
-      seenSellerKeys.add(sk);
       const p = safePrice(s.price);
-      if (s.price!==''&&p===null) { showToast(`Invalid price for "${sellerName}". Must be a positive number or left blank. [DMG-E006]`, 'error'); return; }
-      sellers.push({name:sellerName,price:p});
+      if (!sellerName && p === null) continue; // skip completely empty rows
+      if (s.price !== '' && p === null) { showToast(`Invalid price for "${sellerName || '(no seller)'}". Must be a positive number or left blank. [DMG-E006]`, 'error'); return; }
+      if (seenSellerKeys.has(sellerName.toLowerCase())) { showToast(`Duplicate seller "${sellerName}" for this item. Use unique seller names. [DMG-E006]`, 'error'); return; }
+      if (sellerName) seenSellerKeys.add(sellerName.toLowerCase());
+      if (INTERNAL_SELLER_NAME_KEYS.has(sellerKey(sellerName))) { showToast(`"${sellerName}" looks like one of your own companies, not an external supplier. Please use the actual vendor name.`, 'warning'); return; }
+      sellers.push({ name: sellerName, price: p });
     }
     if (editId) {
       const old = items.find(x=>x.id===editId);
@@ -209,16 +285,32 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     logActivity('edit_item', `Stock ${delta > 0 ? '+' : ''}${delta} ${loc}: ${item?.name}`);
   }
 
+  function downloadImportTemplate() {
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['name','category','unit','case size','upc','seller','price',
+      ...LOCATIONS.flatMap(l => [l.toLowerCase()+'_qty', l.toLowerCase()+'_min']),
+      'notes'];
+    const example = ['Chicken Breast','Meat','lb','','','Sysco','4.50',
+      ...LOCATIONS.flatMap(() => ['','']),''];
+    const csv = [headers.map(esc).join(','), example.map(esc).join(',')].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'items-import-template.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Import template downloaded.');
+  }
+
   function exportItemsCsv() {
     if (!items.length) { showToast('No items to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const headers = ['name','category','unit','upc','seller','price',
+    const headers = ['name','category','unit','case size','upc','seller','price',
       ...LOCATIONS.flatMap(l => [l.toLowerCase()+'_qty', l.toLowerCase()+'_min']),
       'notes'];
     const rows = items.map(item => {
       const first = Array.isArray(item.sellers) && item.sellers[0] ? item.sellers[0] : {};
       return [
-        item.name, item.category, item.unit, item.upc || '',
+        item.name, item.category, item.unit, item.caseSize || '', item.upc || '',
         first.name || '', first.price != null ? first.price : '',
         ...LOCATIONS.flatMap(l => [
           item.locQty?.[l.toLowerCase()] ?? '',
@@ -238,6 +330,31 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     logActivity('export_items_csv', `Exported ${items.length} items`);
   }
 
+  function exportItemsExcel() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    const mainHeader = ['Name','Category','Unit','Case Size','UPC',
+      ...LOCATIONS.flatMap(l => [l+' Qty', l+' Min Qty']),
+      'Notes'];
+    const mainRows = items.map(item => [
+      item.name, item.category, item.unit, item.caseSize || '', item.upc || '',
+      ...LOCATIONS.flatMap(l => [
+        item.locQty?.[l.toLowerCase()] ?? '',
+        item.locMinQty?.[l.toLowerCase()] ?? '',
+      ]),
+      item.notes || '',
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mainHeader, ...mainRows]), 'Items');
+    const sellersHeader = ['Item Name','Seller','Price'];
+    const sellersRows = items.flatMap(item =>
+      (item.sellers || []).map(s => [item.name, s.name || '', s.price != null ? +Number(s.price).toFixed(2) : ''])
+    );
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sellersHeader, ...sellersRows]), 'Sellers');
+    XLSX.writeFile(wb, 'items-' + today() + '.xlsx');
+    showToast(`Exported ${items.length} items as Excel.`);
+    logActivity('export_items_xlsx', `Exported ${items.length} items`);
+  }
+
   function handleImportFile(file) {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -254,6 +371,8 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           const rawCat = colMap.category !== undefined ? String(row[colMap.category] ?? '').trim() : '';
           const category = allCategories.includes(rawCat) ? rawCat : (rawCat ? 'Other' : 'Produce');
           const unit = String(row[colMap.unit] ?? 'each').trim() || 'each';
+          const caseSizeRaw = colMap.caseSize !== undefined ? row[colMap.caseSize] : '';
+          const caseSize = caseSizeRaw !== '' ? String(parseInt(caseSizeRaw) || '') : '';
           const upc = String(row[colMap.upc] ?? '').trim();
           const sellerName = colMap.seller !== undefined ? String(row[colMap.seller] ?? '').trim() : '';
           const rawPrice = colMap.price !== undefined ? row[colMap.price] : '';
@@ -268,7 +387,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
             if (colMap[mKey] !== undefined) { const v = String(row[colMap[mKey]] ?? '').trim(); if (v !== '') locMinQty[lc] = v; }
           });
           const existing = items.find(it => it.name.toLowerCase() === name.toLowerCase());
-          return { rowNum: i + 2, name, category, unit, upc, sellerName, price, notes, locQty, locMinQty, status: existing ? 'update' : 'add', existingId: existing?.id ?? null, error: priceError };
+          return { rowNum: i + 2, name, category, unit, caseSize, upc, sellerName, price, notes, locQty, locMinQty, status: existing ? 'update' : 'add', existingId: existing?.id ?? null, error: priceError };
         }).filter(r => r.name || r.error);
         setImportRows(parsed);
         setShowImport(true);
@@ -302,7 +421,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
         updated++;
       } else if (r.status === 'add') {
         const locQtyBlank3 = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
-        nextItems = [...nextItems, { id: uid(), name: r.name, category: r.category, unit: r.unit, upc: r.upc, sellers: seller, currentQty: '', minQty: '', locQty: { ...locQtyBlank3, ...r.locQty }, locMinQty: { ...locQtyBlank3, ...r.locMinQty }, notes: r.notes || '', createdAt: today() }];
+        nextItems = [...nextItems, { id: uid(), name: r.name, category: r.category, unit: r.unit, caseSize: r.caseSize || '', upc: r.upc, sellers: seller, currentQty: '', minQty: '', locQty: { ...locQtyBlank3, ...r.locQty }, locMinQty: { ...locQtyBlank3, ...r.locMinQty }, notes: r.notes || '', createdAt: today() }];
         added++;
       }
     });
@@ -323,10 +442,12 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           {isAdmin && <Btn className="btn-outline" onClick={cleanupInternalSellers}>🧹 Clean Seller List</Btn>}
           {isAdmin && (
             <>
-              <Btn className="btn-outline" onClick={exportItemsCsv}>⬇ Export CSV</Btn>
+              <Btn className="btn-outline" onClick={exportItemsCsv}>⬇ CSV</Btn>
+              <Btn className="btn-outline" onClick={exportItemsExcel}>⬇ Excel</Btn>
               <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }} />
               <Btn className="btn-outline" onClick={() => importFileRef.current?.click()}>⬆ Import CSV</Btn>
+              <Btn className="btn-outline" onClick={downloadImportTemplate} title="Download a blank CSV template with the correct column headers">📋 Template</Btn>
             </>
           )}
           <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>
@@ -338,7 +459,10 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <option value="">All categories</option>
           {allCategories.map(c=><option key={c}>{c}</option>)}
         </select>
-        {(search||catFilter) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');}}>✕ Clear</Btn>}
+        <Btn className={`btn-sm ${filterLow?'btn-danger':'btn-outline'}`} style={{alignSelf:'center',whiteSpace:'nowrap'}} onClick={()=>setFilterLow(v=>!v)}>
+          {filterLow ? '⚠ Low Stock Only' : '⚠ Low Stock'}
+        </Btn>
+        {(search||catFilter||filterLow) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');setFilterLow(false);}}>✕ Clear</Btn>}
       </div>
       {!isAdmin && <div style={{background:'#dbeafe',color:'#1d4ed8',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13}}>💡 Tip: You can add new items using the button above. To edit or delete items, contact your admin.</div>}
       {lowStockCount > 0 && (
@@ -350,13 +474,26 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       {filtered.length===0
         ? <div className="card empty-state">{items.length===0?'No items yet. Click "Add Item" to get started.':'No items match your search.'}</div>
         : (
+          <>
+          {selectedIds.size > 0 && (
+            <div style={{background:'#FFF0D4',border:'1px solid #EED9B0',borderRadius:8,padding:'10px 14px',marginBottom:12,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <span style={{fontWeight:600,color:'var(--brown)',fontSize:13}}>{selectedIds.size} item{selectedIds.size!==1?'s':''} selected</span>
+              <select className="input" style={{width:'auto'}} value={batchCategory} onChange={e=>setBatchCategory(e.target.value)}>
+                <option value="">Change category…</option>
+                {allCategories.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+              <button className="btn btn-outline btn-sm" onClick={applyBatchCategory} disabled={!batchCategory}>Apply</button>
+              <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px',marginLeft:'auto'}} onClick={()=>setSelectedIds(new Set())}>✕ Clear selection</button>
+            </div>
+          )}
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>UPC</th><th>Stock</th><th>Sellers / Prices</th>{isAdmin&&<th>Actions</th>}</tr></thead>
+                <thead><tr><th style={{width:36}}><input type="checkbox" checked={selectedIds.size === sorted.length && sorted.length > 0} onChange={toggleSelectAll} style={{cursor:'pointer'}} /></th><SortTh col="name">Name</SortTh><SortTh col="category">Category</SortTh><SortTh col="unit">Unit</SortTh><th>UPC</th><th>Notes</th><SortTh col="stock">Stock</SortTh><SortTh col="price">Sellers / Prices</SortTh>{isAdmin&&<th>Actions</th>}</tr></thead>
                 <tbody>
-                  {filtered.map(item=>(
+                  {sorted.map(item=>(
                     <tr key={item.id} style={isLowStock(item)?{background:'#FFF5F5'}:{}}>
+                      <td><input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} style={{cursor:'pointer'}} /></td>
                       <td style={{fontWeight:600}}>
                         {item.name}
                         {isLowStock(item)&&<span title="At or below reorder point" style={{marginLeft:6,color:'#DC2626',fontSize:12}}>⚠ Low</span>}
@@ -364,6 +501,9 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                       <td><span style={{fontSize:11.5,background:'#FFF0D4',color:'var(--brown)',padding:'2px 7px',borderRadius:10}}>{item.category}</span></td>
                       <td>{item.unit}</td>
                       <td style={{fontFamily:'monospace',fontSize:12,color:'#888'}}>{item.upc||'—'}</td>
+                      <td style={{maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12,color:'#666'}} title={item.notes||''}>
+                        {item.notes ? item.notes : <span style={{color:'#ddd'}}>—</span>}
+                      </td>
                       <td style={{fontSize:12}}>
                         {LOCATIONS.map(loc => {
                           const lc = loc.toLowerCase();
@@ -406,6 +546,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                       {isAdmin&&(
                         <td style={{whiteSpace:'nowrap'}}>
                           <Btn className="btn-outline btn-sm" style={{marginRight:5}} onClick={() => setHistoryItem(item)}>History</Btn>
+                          <Btn className="btn-outline btn-sm" style={{marginRight:5}} onClick={()=>duplicateItem(item)} title="Duplicate this item">⧉</Btn>
                           <Btn className="btn-secondary btn-sm" style={{marginRight:5}} onClick={()=>openEdit(item)}>Edit</Btn>
                           <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(item.id)}>Delete</Btn>
                         </td>
@@ -416,6 +557,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
               </table>
             </div>
           </div>
+          </>
         )
       }
 
@@ -427,9 +569,24 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           </FS>
         </div>
         <div className="grid-2">
-          <FI label="Unit of Measure" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} placeholder="lb, kg, each, case…" suggestions={unitSuggestions} />
+          <div className="field">
+            <label>Unit of Measure</label>
+            <div style={{display:'flex',gap:6,alignItems:'center'}}>
+              <select className="input" style={{flex:'0 0 auto',width:'auto'}} value={PURCHASE_UNITS.includes(form.unit)?form.unit:'custom'} onChange={e=>{if(e.target.value!=='custom')setForm(f=>({...f,unit:e.target.value}));else setForm(f=>({...f,unit:''}));}}>
+                {PURCHASE_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                <option value="custom">custom…</option>
+              </select>
+              {!PURCHASE_UNITS.includes(form.unit)&&<input className="input" style={{flex:1}} placeholder="e.g. flat, tray…" value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} />}
+            </div>
+          </div>
           <FI label="UPC Code (optional)" value={form.upc} onChange={e=>setForm(f=>({...f,upc:e.target.value}))} placeholder="Barcode" />
         </div>
+        {CASE_UNITS.has(form.unit)&&(
+          <div className="field">
+            <label>Case Size <span style={{fontWeight:400,color:'#888',fontSize:12}}>(units per case)</span></label>
+            <input className="input" type="number" min="1" step="1" placeholder="e.g. 12" value={form.caseSize||''} onChange={e=>setForm(f=>({...f,caseSize:e.target.value}))} />
+          </div>
+        )}
         {purchaseSuggest && (
           <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:6,padding:'9px 14px',marginBottom:12,fontSize:13,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
             <span>📊 Based on <strong>{purchaseSuggest.count} purchases</strong> (avg <strong>{purchaseSuggest.avgQty} {form.unit}</strong>/order) — suggested reorder point: <strong>{purchaseSuggest.suggested} {form.unit}</strong></span>
@@ -471,7 +628,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           {form.sellers.map((s,i)=>(
             <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center'}}>
               <FI fieldStyle={{ flex: 2 }} suggestions={sellerSuggestions} placeholder="Seller name" value={s.name} onChange={e=>setSeller(i,'name',e.target.value)} />
-              <input className="input" placeholder="Price (blank = unknown)" type="number" min="0" step="0.01" value={s.price} onChange={e=>setSeller(i,'price',e.target.value)} style={{flex:1}} />
+              <input className="input" placeholder={`$/  ${form.unit||'unit'} (blank=unknown)`} type="number" min="0" step="0.01" value={s.price} onChange={e=>setSeller(i,'price',e.target.value)} style={{flex:1}} />
               {form.sellers.length>1&&<Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,sellers:f.sellers.filter((_,x)=>x!==i)}))}>✕</Btn>}
             </div>
           ))}

@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
-import { load, save, uid } from '../utils/storage.js';
+import { load, save, uid, today } from '../utils/storage.js';
 import { showToast } from '../toastContext.jsx';
+import { logActivity } from '../utils/activity.js';
 
 const ACTION_LABELS = {
   login: 'Logged In', logout: 'Logged Out', view_tab: 'Viewed Page',
@@ -26,7 +27,7 @@ function isItemLowStock(item) {
   });
 }
 
-export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], setTab, shoppingList = [], setShoppingList }) {
+export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], payrollInvoices = [], setTab, shoppingList = [], setShoppingList }) {
   const stats = useMemo(() => {
     const totalItems = items.length;
 
@@ -47,8 +48,26 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
       .filter(i => i.status !== 'paid')
       .reduce((s, i) => s + (i.balanceDue || 0), 0);
 
-    return { totalItems, lowStock, inventoryValue, outstanding };
-  }, [items, cateringInvoices]);
+    const payrollOutstanding = payrollInvoices
+      .filter(i => (i.status || 'unpaid') !== 'paid')
+      .reduce((s, i) => s + (i.total || 0), 0);
+
+    return { totalItems, lowStock, inventoryValue, outstanding, payrollOutstanding };
+  }, [items, cateringInvoices, payrollInvoices]);
+
+  useEffect(() => {
+    const todayStr = today();
+    const snaps = load('_inventorySnapshots', []);
+    if (!snaps.find(s => s.date === todayStr)) {
+      const updated = [...snaps, { date: todayStr, value: stats.inventoryValue }].slice(-30);
+      save('_inventorySnapshots', updated);
+    }
+  }, [stats.inventoryValue]);
+
+  const snapshots = useMemo(() => {
+    const snaps = load('_inventorySnapshots', []);
+    return [...snaps].sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+  }, []);
 
   const lowStockRows = useMemo(() => {
     const rows = [];
@@ -95,6 +114,23 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     return Object.values(m).sort((a, b) => b.total - a.total).slice(0, 5).map(s => ({ ...s, total: +s.total.toFixed(2) }));
   }, [purchaseInvoices]);
 
+  const inventoryByCategory = useMemo(() => {
+    const m = {};
+    items.forEach(item => {
+      const cat = item.category || 'Other';
+      const price = item.sellers?.[0]?.price || 0;
+      const totalQty = LOCATIONS.reduce((s, loc) => {
+        const qty = parseFloat(item.locQty?.[loc.toLowerCase()]);
+        return s + (isNaN(qty) ? 0 : qty);
+      }, 0);
+      const val = totalQty * price;
+      if (!m[cat]) m[cat] = { category: cat, value: 0, items: 0 };
+      m[cat].value += val;
+      m[cat].items++;
+    });
+    return Object.values(m).sort((a, b) => b.value - a.value).map(c => ({ ...c, value: +c.value.toFixed(2) }));
+  }, [items]);
+
   const catalogWarnings = useMemo(() => {
     return items.flatMap(item => {
       const issues = [];
@@ -110,16 +146,80 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     }).slice(0, 20);
   }, [items]);
 
-  const purchasesThisMonth = useMemo(() => {
+  const monthlyRevenue = useMemo(() => {
+    const months = [];
     const now = new Date();
-    const ym = now.toISOString().slice(0, 7);
-    const matching = purchaseInvoices.filter(inv => {
-      const d = inv.date || inv.createdAt || '';
-      return d.slice(0, 7) === ym;
-    });
-    const total = matching.reduce((s, inv) => s + (inv.total || 0), 0);
-    return { count: matching.length, total };
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = d.toISOString().slice(0, 7);
+      const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+      const matching = cateringInvoices.filter(inv => {
+        const ds = inv.date || inv.createdAt || '';
+        return ds.slice(0, 7) === ym;
+      });
+      const total = matching.reduce((s, inv) => s + (inv.grandTotal || inv.total || 0), 0);
+      months.push({ ym, label, total, count: matching.length });
+    }
+    return months;
+  }, [cateringInvoices]);
+
+  const monthlySpending = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = d.toISOString().slice(0, 7);
+      const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+      const matching = purchaseInvoices.filter(inv => {
+        const ds = inv.date || inv.createdAt || '';
+        return ds.slice(0, 7) === ym;
+      });
+      const total = matching.reduce((s, inv) => s + (inv.total || 0), 0);
+      months.push({ ym, label, total, count: matching.length });
+    }
+    return months;
   }, [purchaseInvoices]);
+
+  const upcomingDue = useMemo(() => {
+    const t = today();
+    const twoWeeksOut = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return purchaseInvoices
+      .filter(inv => inv.dueDate && inv.status !== 'paid' && inv.dueDate <= twoWeeksOut)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .slice(0, 10)
+      .map(inv => ({ ...inv, isOverdue: inv.dueDate < t }));
+  }, [purchaseInvoices]);
+
+  const upcomingEvents = useMemo(() => {
+    const t = today();
+    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return cateringInvoices
+      .filter(inv => {
+        const eventDate = inv.useRange ? inv.dateStart : inv.date;
+        return eventDate && eventDate >= t && eventDate <= thirtyDaysOut;
+      })
+      .sort((a, b) => {
+        const da = (a.useRange ? a.dateStart : a.date) || '';
+        const db = (b.useRange ? b.dateStart : b.date) || '';
+        return da.localeCompare(db);
+      })
+      .slice(0, 10);
+  }, [cateringInvoices]);
+
+  function exportLowStockCsv() {
+    if (!lowStockRows.length) { showToast('No low-stock items.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Item', 'Category', 'Location', 'Current Qty', 'Min Qty'];
+    const rows = lowStockRows.map(({ item, loc, qty, minQ }) => [item.name, item.category || '', loc, qty, minQ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'low-stock-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Low-stock list exported.');
+    logActivity('export_csv', `Exported ${lowStockRows.length} low-stock items`);
+  }
 
   function addLowStockToShoppingList() {
     const lowItems = items.filter(item => {
@@ -151,11 +251,26 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     setShoppingList(nextList);
     save('shoppingList', nextList);
     showToast(`Added ${added} item${added !== 1 ? 's' : ''} to shopping list${skipped ? ` (${skipped} already there)` : ''}.`);
+    if (added > 0) logActivity('add_item', `Added ${added} low-stock items to shopping list from Dashboard`);
   }
 
   return (
     <div>
       <div className="section-title">Dashboard</div>
+
+      {/* Quick Actions */}
+      {setTab && (
+        <div className="card mb-4">
+          <div style={{fontWeight:700,color:'var(--brown)',marginBottom:10,fontSize:14}}>Quick Actions</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <button className="btn btn-primary btn-sm" onClick={()=>setTab('catering')}>🍽 New Catering Invoice</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('purchase')}>📋 New Purchase Invoice</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('shopping')}>🛒 Shopping List</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('invadj')}>📝 Log Adjustment</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('items')}>📦 Item Database</button>
+          </div>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="stat-grid">
@@ -176,22 +291,123 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
         </div>
         <div className="stat-card">
           <div className="stat-val">{fmt$(stats.inventoryValue)}</div>
+          {snapshots.length >= 2 && (() => {
+            const max = Math.max(...snapshots.map(s => s.value), 1);
+            return (
+              <div style={{display:'flex',alignItems:'flex-end',gap:2,height:28,marginTop:6}}>
+                {snapshots.map((s, i) => (
+                  <div key={s.date} title={`${fmtDate(s.date)}: ${fmt$(s.value)}`}
+                    style={{flex:1,background:i===snapshots.length-1?'var(--brown)':'#D2691E55',
+                      height:Math.max(3, (s.value/max)*28)+'px',borderRadius:'2px 2px 0 0',minWidth:6}} />
+                ))}
+              </div>
+            );
+          })()}
           <div className="stat-lbl">Inventory Value</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-val">{fmt$(stats.outstanding)}</div>
+        <div className="stat-card" onClick={() => setTab && setTab('catering')} style={setTab ? {cursor:'pointer'} : {}} title={setTab ? 'Go to Catering Invoices' : undefined}>
+          <div className="stat-val" style={stats.outstanding > 0 ? {color:'#DC2626'} : {}}>{fmt$(stats.outstanding)}</div>
           <div className="stat-lbl">Outstanding (Catering)</div>
         </div>
+        {stats.payrollOutstanding > 0 && (
+          <div className="stat-card" onClick={() => setTab && setTab('payroll')} style={setTab ? {cursor:'pointer'} : {}} title={setTab ? 'Go to Payroll' : undefined}>
+            <div className="stat-val" style={{color:'#DC2626'}}>{fmt$(stats.payrollOutstanding)}</div>
+            <div className="stat-lbl">Unpaid Payroll</div>
+          </div>
+        )}
       </div>
+
+      {upcomingEvents.length > 0 && (
+        <div className="card mb-4" style={{ borderLeft: '4px solid #15803D' }}>
+          <div className="section-title" style={{ marginBottom: 12, color: '#15803D' }}>
+            🍽️ Upcoming Catering Events — Next 30 Days
+          </div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Event Date</th><th>Customer</th><th>Event Type</th><th>Total</th><th>Status</th></tr></thead>
+              <tbody>
+                {upcomingEvents.map(inv => (
+                  <tr key={inv.id} style={{ background: '#F0FDF4' }}>
+                    <td style={{ fontWeight: 600, color: '#15803D', whiteSpace: 'nowrap' }}>
+                      {inv.useRange
+                        ? `${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`
+                        : fmtDate(inv.date)}
+                    </td>
+                    <td style={{ fontWeight: 600 }}>{inv.customerName || '—'}</td>
+                    <td style={{ fontSize: 13, color: '#555' }}>{inv.eventType || 'Catering'}</td>
+                    <td style={{ fontWeight: 600 }}>{fmt$(inv.grandTotal || inv.total || 0)}</td>
+                    <td><span className={`badge badge-${inv.status || 'unpaid'}`}>{inv.status || 'unpaid'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {setTab && (
+            <div style={{ textAlign: 'right', marginTop: 8 }}>
+              <button className="btn btn-outline btn-sm" onClick={() => setTab('catering')}>View All Events →</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {upcomingDue.length > 0 && (
+        <div className="card mb-4" style={{borderLeft: `4px solid ${upcomingDue.some(i=>i.isOverdue)?'#DC2626':'#F59E0B'}`}}>
+          <div className="section-title" style={{marginBottom:12,color:upcomingDue.some(i=>i.isOverdue)?'#DC2626':'#92400E'}}>
+            {upcomingDue.some(i=>i.isOverdue) ? '🔴' : '🟡'} {upcomingDue.filter(i=>i.isOverdue).length > 0 ? `${upcomingDue.filter(i=>i.isOverdue).length} Overdue` : ''}{upcomingDue.filter(i=>i.isOverdue).length > 0 && upcomingDue.filter(i=>!i.isOverdue).length > 0 ? ' + ' : ''}{upcomingDue.filter(i=>!i.isOverdue).length > 0 ? `${upcomingDue.filter(i=>!i.isOverdue).length} Due Soon` : ''} — Purchase Invoices
+          </div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Invoice #</th><th>Supplier</th><th>Due Date</th><th>Total</th><th>Status</th></tr></thead>
+              <tbody>
+                {upcomingDue.map(inv => (
+                  <tr key={inv.id} style={{background: inv.isOverdue ? '#FEF2F2' : '#FFFBEB'}}>
+                    <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
+                    <td>{inv.supplier}</td>
+                    <td style={{fontWeight:600,color:inv.isOverdue?'#DC2626':'#92400E'}}>
+                      {fmtDate(inv.dueDate)}{inv.isOverdue?' ⚠ Overdue':''}
+                    </td>
+                    <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
+                    <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {setTab && <div style={{textAlign:'right',marginTop:8}}><button className="btn btn-outline btn-sm" onClick={()=>setTab('purchase')}>View All Invoices →</button></div>}
+        </div>
+      )}
+
+      {/* Inventory Value by Category */}
+      {inventoryByCategory.length > 0 && stats.inventoryValue > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#128200; Inventory Value by Category</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {inventoryByCategory.map(c => (
+              <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                <div style={{ width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#555', flexShrink: 0 }}>{c.category}</div>
+                <div style={{ flex: 1, background: '#F5ECD7', borderRadius: 4, overflow: 'hidden', height: 16 }}>
+                  <div style={{
+                    width: `${stats.inventoryValue > 0 ? (c.value / stats.inventoryValue * 100) : 0}%`,
+                    background: 'var(--brown)', height: '100%', borderRadius: 4,
+                  }} />
+                </div>
+                <div style={{ width: 68, fontWeight: 600, color: 'var(--brown)', textAlign: 'right', flexShrink: 0 }}>{fmt$(c.value)}</div>
+                <div style={{ width: 40, color: '#888', textAlign: 'right', fontSize: 11, flexShrink: 0 }}>{c.items} item{c.items !== 1 ? 's' : ''}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Low Stock Items */}
       <div className="card mb-4">
         <div className="flex-between mb-2">
           <div className="section-title" style={{ margin: 0 }}>&#9888; Low Stock Items</div>
           {lowStockRows.length > 0 && (
-            <button className="btn btn-outline btn-sm" onClick={addLowStockToShoppingList}>
-              ➕ Add all to Shopping List
-            </button>
+            <div className="flex gap-2">
+              <button className="btn btn-outline btn-sm" onClick={exportLowStockCsv}>⬇ Export CSV</button>
+              <button className="btn btn-outline btn-sm" onClick={addLowStockToShoppingList}>➕ Add all to Shopping List</button>
+            </div>
           )}
         </div>
         {lowStockRows.length === 0 ? (
@@ -263,14 +479,81 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
         )}
       </div>
 
-      {/* Purchases This Month */}
-      <div className="card mb-4">
-        <div className="section-title" style={{ marginBottom: 12 }}>&#128203; Purchases This Month</div>
-        <div style={{ fontSize: 14, color: '#555' }}>
-          {purchasesThisMonth.count} invoice{purchasesThisMonth.count !== 1 ? 's' : ''}, total{' '}
-          <strong>{fmt$(purchasesThisMonth.total)}</strong>
+      {/* Monthly Spending (last 6 months) */}
+      {purchaseInvoices.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#128203; Purchase Spending — Last 6 Months</div>
+          {(() => {
+            const maxTotal = Math.max(...monthlySpending.map(m => m.total), 1);
+            const thisMonthTotal = monthlySpending[monthlySpending.length - 1]?.total || 0;
+            const prevMonthTotal = monthlySpending[monthlySpending.length - 2]?.total || 0;
+            const trend = thisMonthTotal > prevMonthTotal ? '▲' : thisMonthTotal < prevMonthTotal ? '▼' : '—';
+            const trendColor = thisMonthTotal > prevMonthTotal ? '#DC2626' : '#15803D';
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 13 }}>
+                  <div>This month: <strong style={{ color: 'var(--brown)' }}>{fmt$(thisMonthTotal)}</strong></div>
+                  <div style={{ color: trendColor }}>{trend} vs last month ({fmt$(prevMonthTotal)})</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {monthlySpending.map(m => (
+                    <div key={m.ym} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                      <div style={{ width: 52, color: '#888', textAlign: 'right', flexShrink: 0 }}>{m.label}</div>
+                      <div style={{ flex: 1, background: '#F5ECD7', borderRadius: 4, overflow: 'hidden', height: 18 }}>
+                        <div style={{
+                          width: `${maxTotal > 0 ? (m.total / maxTotal * 100) : 0}%`,
+                          background: 'var(--brown)', height: '100%', borderRadius: 4,
+                          transition: 'width 0.3s',
+                        }} />
+                      </div>
+                      <div style={{ width: 68, fontWeight: 600, color: 'var(--brown)', flexShrink: 0 }}>{fmt$(m.total)}</div>
+                      <div style={{ width: 40, color: '#888', textAlign: 'right', flexShrink: 0, fontSize: 11 }}>{m.count} inv</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
-      </div>
+      )}
+
+      {/* Catering Revenue (last 6 months) */}
+      {cateringInvoices.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 12 }}>&#127860; Catering Revenue — Last 6 Months</div>
+          {(() => {
+            const maxTotal = Math.max(...monthlyRevenue.map(m => m.total), 1);
+            const thisMonthTotal = monthlyRevenue[monthlyRevenue.length - 1]?.total || 0;
+            const prevMonthTotal = monthlyRevenue[monthlyRevenue.length - 2]?.total || 0;
+            const trend = thisMonthTotal > prevMonthTotal ? '▲' : thisMonthTotal < prevMonthTotal ? '▼' : '—';
+            const trendColor = thisMonthTotal > prevMonthTotal ? '#15803D' : thisMonthTotal < prevMonthTotal ? '#DC2626' : '#888';
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 13 }}>
+                  <div>This month: <strong style={{ color: '#15803D' }}>{fmt$(thisMonthTotal)}</strong></div>
+                  <div style={{ color: trendColor }}>{trend} vs last month ({fmt$(prevMonthTotal)})</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {monthlyRevenue.map(m => (
+                    <div key={m.ym} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                      <div style={{ width: 52, color: '#888', textAlign: 'right', flexShrink: 0 }}>{m.label}</div>
+                      <div style={{ flex: 1, background: '#F0FDF4', borderRadius: 4, overflow: 'hidden', height: 18 }}>
+                        <div style={{
+                          width: `${maxTotal > 0 ? (m.total / maxTotal * 100) : 0}%`,
+                          background: '#15803D', height: '100%', borderRadius: 4,
+                          transition: 'width 0.3s',
+                        }} />
+                      </div>
+                      <div style={{ width: 68, fontWeight: 600, color: '#15803D', flexShrink: 0 }}>{fmt$(m.total)}</div>
+                      <div style={{ width: 40, color: '#888', textAlign: 'right', flexShrink: 0, fontSize: 11 }}>{m.count} inv</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Top Suppliers */}
       {topSuppliers.length > 0 && (

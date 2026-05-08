@@ -1,23 +1,33 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { LOCATIONS } from '../constants.js';
+import { LOCATIONS, PURCHASE_UNITS, CASE_UNITS } from '../constants.js';
 import { showToast } from '../toastContext.jsx';
 import { reportError } from '../errors.js';
 import { fmt$, safeQty } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
+import { nextId } from '../utils/invoiceIds.js';
 
 function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function ShoppingList({ items, shoppingList, setShoppingList }) {
+export default function ShoppingList({ items, shoppingList, setShoppingList, purchaseInvoices, setPurchaseInvoices, selectedBusiness }) {
   const [search, setSearch] = useState('');
   const [showDrop, setShowDrop] = useState(false);
   const [dragFromIdx, setDragFromIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [showClearListConfirm, setShowClearListConfirm] = useState(false);
   const [shoppingLoc, setShoppingLoc] = useState(() => load('_shoppingLoc', LOCATIONS[1]));
+  const [boughtIds, setBoughtIds] = useState(new Set());
+
+  function toggleBought(id) {
+    setBoughtIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   function reorderRows(from, to) {
     if (from === to) return;
@@ -75,6 +85,29 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
     setShoppingList(u); save('shoppingList', u);
   }
 
+  function updateUnit(id, newUnit) {
+    const entry = shoppingList.find(s => s.id === id);
+    if (!entry) return;
+    const dbItem = items.find(i => i.id === entry.itemId);
+    let newPrice = entry.price;
+    // When switching to a case unit and item has caseSize, auto-calc case price
+    if (CASE_UNITS.has(newUnit) && !CASE_UNITS.has(entry.unit) && dbItem?.caseSize) {
+      const cs = parseInt(dbItem.caseSize);
+      if (!isNaN(cs) && cs > 0 && entry.price != null) {
+        newPrice = +(entry.price * cs).toFixed(2);
+      }
+    }
+    // Switching back from case to base unit
+    if (!CASE_UNITS.has(newUnit) && CASE_UNITS.has(entry.unit) && dbItem?.caseSize) {
+      const cs = parseInt(dbItem.caseSize);
+      if (!isNaN(cs) && cs > 0 && entry.price != null) {
+        newPrice = +(entry.price / cs).toFixed(2);
+      }
+    }
+    const u = shoppingList.map(s => s.id === id ? { ...s, unit: newUnit, price: newPrice } : s);
+    setShoppingList(u); save('shoppingList', u);
+  }
+
   function addLowStockItems() {
     const lc = shoppingLoc.toLowerCase();
     const lowStock = items.filter(i => {
@@ -102,6 +135,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
     showToast(`Added ${added} low-stock item${added!==1?'s':''}${updated?` (${updated} already on list)`:''}.`);
   }
 
+  function removeBought() {
+    const count = boughtIds.size;
+    const next = shoppingList.filter(s => !boughtIds.has(s.id));
+    setShoppingList(next);
+    save('shoppingList', next);
+    setBoughtIds(new Set());
+    showToast(`Removed ${count} bought item${count !== 1 ? 's' : ''} from list.`);
+  }
+
   function clearAll() {
     setShowClearListConfirm(true);
   }
@@ -110,7 +152,48 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
     setShoppingList([]); save('shoppingList',[]);
   }
 
+  function createPurchaseInvoices() {
+    if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
+    if (!setPurchaseInvoices) return;
+    const bySeller = {};
+    shoppingList.forEach(e => {
+      const seller = e.selectedSeller || 'Unspecified Supplier';
+      if (!bySeller[seller]) bySeller[seller] = [];
+      bySeller[seller].push(e);
+    });
+    const biz = selectedBusiness || 'degrill';
+    const newInvoices = Object.entries(bySeller).map(([seller, entries]) => {
+      const lineItems = entries.map(e => ({
+        description: e.itemName,
+        quantity: String(safeQty(e.quantity)),
+        unit: e.unit || 'each',
+        unitPrice: e.price != null ? String(e.price) : '',
+      }));
+      const subtotal = entries.reduce((s, e) => s + safeQty(e.quantity) * (e.price || 0), 0);
+      return {
+        id: nextId('purchase'), type: 'purchase', business: biz,
+        supplier: seller, date: today(),
+        notes: 'Auto-created from shopping list',
+        lineItems, subtotal, taxEnabled: false, taxRate: 0, taxAmount: 0,
+        total: subtotal, status: 'unpaid',
+        payment: { account: '', date: '', transactionId: '' },
+        createdAt: new Date().toISOString(),
+      };
+    });
+    const updated = [...(purchaseInvoices || []), ...newInvoices];
+    save('purchaseInvoices', updated);
+    setPurchaseInvoices(updated);
+    logActivity('create_invoice', `Created ${newInvoices.length} purchase invoices from shopping list`);
+    const sellerNames = Object.keys(bySeller).join(', ');
+    showToast(`Created ${newInvoices.length} purchase invoice${newInvoices.length !== 1 ? 's' : ''} (${sellerNames}). Review in Purchase Invoices.`);
+  }
+
   const grandTotal = useMemo(()=>shoppingList.reduce((s,e)=>s+safeQty(e.quantity)*(e.price??0),0),[shoppingList]);
+  const sellerTotals = useMemo(()=>{
+    const m={};
+    shoppingList.forEach(e=>{const s=e.selectedSeller||'Unspecified';if(!m[s])m[s]=0;m[s]+=safeQty(e.quantity)*(e.price??0);});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,total])=>({name,total:+total.toFixed(2)}));
+  },[shoppingList]);
 
   function exportXlsx() {
     if (!shoppingList.length) { showToast('Shopping list is empty.', 'error'); return; }
@@ -216,9 +299,20 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
             </select>
           </label>
           <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title={`Add items low at ${shoppingLoc}`}>⚠ Low Stock ({shoppingLoc})</Btn>
+          {setPurchaseInvoices && <Btn className="btn-outline btn-sm" onClick={createPurchaseInvoices} title="Create one purchase invoice per supplier from this list">📋 Create Invoices</Btn>}
           <Btn className="btn-outline" onClick={printList}>🖨 Print</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
+          {boughtIds.size > 0 && (
+            <>
+              <button className="btn btn-outline btn-sm" onClick={() => setBoughtIds(new Set())} title="Unmark all bought items (keep them on list)">
+                Unmark {boughtIds.size}
+              </button>
+              <button className="btn btn-danger btn-sm" onClick={removeBought} title="Remove bought items from shopping list">
+                ✕ Remove {boughtIds.size} bought
+              </button>
+            </>
+          )}
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
         </div>
       </div>
@@ -259,7 +353,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
             <div className="card" style={{padding:0}}>
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th style={{width:36}}>✓</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Stock</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
                   <tbody>
                     {shoppingList.map((e, idx)=>{
                       const lt=safeQty(e.quantity)*(e.price??0);
@@ -268,7 +362,8 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
                         <tr
                           key={e.id}
                           style={{
-                            opacity: dragFromIdx === idx ? 0.55 : 1,
+                            opacity: dragFromIdx === idx ? 0.55 : boughtIds.has(e.id) ? 0.7 : 1,
+                            background: boughtIds.has(e.id) ? '#F0FDF4' : undefined,
                             boxShadow: dragOverIdx === idx && dragFromIdx !== idx ? 'inset 0 0 0 2px var(--brown)' : undefined,
                             transition: 'opacity .12s ease'
                           }}
@@ -300,7 +395,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
                             }}
                             onDragEnd={() => { setDragFromIdx(null); setDragOverIdx(null); }}
                           >⋮⋮</td>
-                          <td style={{fontWeight:600}}>{e.itemName}</td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={boughtIds.has(e.id)}
+                              onChange={() => toggleBought(e.id)}
+                              style={{accentColor:'var(--brown)',width:16,height:16,cursor:'pointer'}}
+                            />
+                          </td>
+                          <td style={{fontWeight:600,textDecoration:boughtIds.has(e.id)?'line-through':undefined,color:boughtIds.has(e.id)?'#6B7280':undefined}}>{e.itemName}</td>
                           <td style={{fontFamily:'monospace',fontSize:12,color:upcDisp==='NOT-LISTED'?'#999':'#333'}}>{upcDisp}</td>
                           <td>
                             {(e.sellers||[]).length>1
@@ -313,8 +416,26 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
                             <input type="number" className="input" style={{width:80,padding:'4px 8px'}} min="0" step="0.5"
                               value={e.quantity} onChange={ev=>updateQty(e.id,ev.target.value)} />
                           </td>
-                          <td>{e.unit}</td>
-                          <td>{e.price!=null?fmt$(e.price):<span style={{color:'#bbb'}}>—</span>}</td>
+                          <td>
+                            <select className="input" style={{padding:'3px 6px',width:'auto',fontSize:13,minWidth:58}}
+                              value={PURCHASE_UNITS.includes(e.unit)?e.unit:(e.unit||'each')}
+                              onChange={ev=>updateUnit(e.id,ev.target.value)}>
+                              {PURCHASE_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                              {e.unit && !PURCHASE_UNITS.includes(e.unit) && <option value={e.unit}>{e.unit}</option>}
+                            </select>
+                          </td>
+                          {(() => {
+                            const dbItem = items.find(i => i.id === e.itemId);
+                            const qty = dbItem?.locQty?.[shoppingLoc.toLowerCase()];
+                            const qtyNum = parseFloat(qty);
+                            const color = qty == null || qty === '' ? '#999' : qtyNum <= 0 ? '#DC2626' : '#15803D';
+                            return <td style={{fontSize:12,color,fontWeight:qtyNum>0?600:undefined}}>{qty != null && qty !== '' ? qty : '—'}</td>;
+                          })()}
+                          <td>
+                            {e.price!=null ? (
+                              <span title={`$${e.price}/${e.unit||'unit'}`}>{fmt$(e.price)}<span style={{fontSize:10,color:'#999',marginLeft:2}}>/{e.unit||'ea'}</span></span>
+                            ) : <span style={{color:'#bbb'}}>—</span>}
+                          </td>
                           <td style={{fontWeight:600,color:'var(--brown)'}}>{e.price!=null?fmt$(lt):'—'}</td>
                           <td><input type="text" className="input" style={{width:120, padding:'4px 8px', fontSize:12}} placeholder="notes…" value={e.notes||''} onChange={ev=>updateNotes(e.id, ev.target.value)} /></td>
                           <td><Btn className="btn-danger btn-sm" onClick={()=>removeItem(e.id)}>✕</Btn></td>
@@ -325,9 +446,22 @@ export default function ShoppingList({ items, shoppingList, setShoppingList }) {
                 </table>
               </div>
             </div>
-            <div className="card" style={{textAlign:'right'}}>
-              <span style={{fontSize:13,color:'#888',marginRight:16}}>{shoppingList.length} item{shoppingList.length!==1?'s':''}</span>
-              <span style={{fontSize:20,fontWeight:700,color:'var(--brown)'}}>Total: {fmt$(grandTotal)}</span>
+            <div className="card">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
+                {sellerTotals.length > 1 && (
+                  <div style={{fontSize:12.5,color:'#666'}}>
+                    {sellerTotals.map(s=>(
+                      <div key={s.name} style={{marginBottom:2}}>
+                        <span style={{fontWeight:600}}>{s.name}:</span> {fmt$(s.total)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{marginLeft:'auto',textAlign:'right'}}>
+                  <span style={{fontSize:13,color:'#888',marginRight:16}}>{shoppingList.length} item{shoppingList.length!==1?'s':''}</span>
+                  <span style={{fontSize:20,fontWeight:700,color:'var(--brown)'}}>Total: {fmt$(grandTotal)}</span>
+                </div>
+              </div>
             </div>
           </>
         )

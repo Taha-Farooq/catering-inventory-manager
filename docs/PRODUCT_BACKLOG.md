@@ -298,11 +298,11 @@ Large items that need their own kick-off before breaking into slices.
 | BL-28 | Customer address field on catering invoices | **Done** — Slice 14 |
 | BL-29 | DMG codes on form validation toasts | **Done** — Slice 17 |
 | BL-30 | Vitest coverage for `src/utils/` modules | **Done** — Slice 17 |
-| BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
-| BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
+| BL-31 | Item quantity tracking + low-stock alerts | **Done** — Slice 18 |
+| BL-32 | Invoice duplicate/copy | **Done** — Slice 18 |
 | BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
-| BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
-| BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
+| BL-34 | Date range shortcuts in Archive + Daily Finance | **Done** — Slice 18 |
+| BL-35 | Items bulk import from CSV/Excel | **Done** — Slice 19 |
 
 ---
 
@@ -593,7 +593,7 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-41 | Price memory: auto-fill last purchase price in invoices + shopping | **Done** — Slice 19 |
 | BL-47 | Shopping list notes column | **Done** — Slice 23 |
 | BL-48 | Dashboard / inventory overview tab | **Done** — Slice 24 |
-| BL-49 | Mark invoice lines as received (partial receipt tracking) | Backlog |
+| BL-49 | Mark invoice lines as received (partial receipt tracking) | **Done** — Slice 30 |
 | BL-50 | Item purchase + adjustment history modal in ItemDatabase | **Done** — Slice 26 |
 | BL-51 | Purchase invoices Excel export | **Done** — Slice 27 |
 | BL-52 | Catering invoice price memory (same as purchase invoices) | **Done** — Slice 26 |
@@ -602,6 +602,137 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-55 | Pricer tab accessible to admins (was missing from TABS_ADMIN) | **Done** — Slice 25 |
 | BL-56 | Reorder auto-suggest "Use suggestion" button fills all locations | **Done** — Slice 23 |
 | BL-57 | Vitest coverage for safePrice, safeQty, sellerKey, isLowStock, uid | **Done** — Slice 27 |
+| BL-58 | Purchase invoice status filter (All/Unpaid/Paid) | **Done** — Slice 30 |
+| BL-59 | Dashboard low-stock CSV export button | **Done** — Slice 30 |
+| BL-60 | Purchase invoices outstanding balance banner | **Done** — Slice 30 |
+| BL-61 | ItemDatabase sortable columns (Name, Category, Unit, Stock, Price) | **Done** — Slice 31 |
+| BL-62 | Shopping list: mark-as-bought checkbox (session-only, struck-through style) | **Done** — Slice 31 |
+| BL-63 | Catering invoice CSV export | **Done** — Slice 32 |
+| BL-64 | Monthly spending chart in Dashboard (purchase totals by month) | **Done** — Slice 32 |
+| BL-65 | Catering revenue monthly chart in Dashboard | **Done** — Slice 32 |
+| BL-66 | Purchase invoice CSV export (complement to existing Excel) | **Done** — Slice 32 |
+| BL-67 | Payroll invoices: CSV export + status filter + outstanding banner | **Done** — Slice 32 |
+| BL-68 | Vitest tests for Dashboard utility functions (10 new tests) | **Done** — Slice 32 |
+| BL-69 | Catering invoices: status filter + outstanding balance banner | **Done** — Slice 32 |
+| BL-70 | CustomerManagement: CSV export + sort by revenue/invoice count | **Done** — Slice 33 |
+| BL-71 | Dashboard: Inventory value by category (inline bar chart) | **Done** — Slice 33 |
+| BL-72 | InventoryAdjustments: log activity on save and delete | **Done** — Slice 33 |
+| BL-73 | Analytics: gross profit + margin % stat cards + revenue by event type | **Done** — Slice 34 |
+| BL-74 | Catering invoice view: estimated ingredient cost + margin % banner | **Done** — Slice 34 |
+| BL-75 | Shopping list: per-seller subtotal breakdown in total card | **Done** — Slice 35 |
+| BL-76 | Purchase invoices: supplier text filter + date range (from/to) filter | **Done** — Slice 35+37 |
+| BL-77 | Catering invoices: customer name filter + date range filter | **Done** — Slice 37 |
+| BL-78 | Transfer invoices: status filter + CSV export | **Done** — Slice 36 |
+| BL-79 | ItemDatabase: Notes column in items table | **Done** — Slice 36 |
+| BL-80 | MenuMarginsLab: CSV export of menu items | **Done** — Slice 36 |
+| BL-81 | PriceHistory: CSV export of price history | **Done** — Slice 36 |
+| BL-82 | PayrollInvoices: monthly payroll bar chart (last 6 months) | **Done** — Slice 36 |
+| BL-83 | Purchase invoices: "Add to DB" from unmatched items in stock modal | **Done** — Slice 38 |
+| BL-84 | DailyIncomeExpense: CSV export | **Done** — Slice 39 |
+| BL-85 | ItemDatabase: batch selection + bulk category change | **Done** — Slice 40 |
+| BL-86 | Analytics: top customers by revenue bar chart | **Done** — Slice 41 |
+| BL-87 | PayrollInvoices: collapsible per-employee summary table | **Done** — Slice 41 |
+| BL-88 | PurchaseInvoices: optional due date field + overdue indicator | **Done** — Slice 41 |
+| BL-89 | DailyIncomeExpense: edit existing entries in-place | **Done** — Slice 41 |
+| BL-90 | Analytics: global date-range filter applied to all charts + stats | **Done** — Slice 42 |
+| BL-91 | CateringInvoices: bulk mark-paid (checkbox + batch action bar) | **Done** — Slice 42 |
+| BL-92 | New analyticsUtils.test.js: 20 tests (eventType, topCustomers, dateFilter, margin) | **Done** — Slice 42 |
+| BL-93 | New payrollUtils.test.js: 14 tests (calcPayroll edge cases, employeeSummary) | **Done** — Slice 42 |
+| BL-94 | Analytics: monthly net profit bar chart (green/red bars, respects date filter) | **Done** — Slice 43 |
+| BL-95 | Dashboard: upcoming & overdue purchase invoices card (within 14 days or past due) | **Done** — Slice 43 |
+| BL-96 | ItemDatabase: unit dropdown (PURCHASE_UNITS) + caseSize field for cases/bags | **Done** — Slice 44 |
+| BL-97 | Fix: seller price silently dropped when seller name blank — now saved + retrievable | **Done** — Slice 44 |
+| BL-98 | PurchaseInvoices: unit dropdown + case-size auto-price hint; price auto-fill trim fix | **Done** — Slice 44 |
+| BL-99 | ShoppingList: unit dropdown per row with auto case↔unit price conversion | **Done** — Slice 44 |
+| BL-100 | CateringInvoices: price auto-fill trim fix + price>0 guard + caseSize awareness | **Done** — Slice 44 |
+| BL-102 | CateringInvoices: multiple partial payments (`payments` array, Payment History block) | **Done** — Slice 46 |
+| BL-103 | PurchaseInvoices: bulk mark-paid (checkboxes, select-all, blue action bar, price back-propagation batch) | **Done** — Slice 45 |
+| BL-104 | Dashboard: daily `_inventorySnapshots` + 7-day sparkline in inventory value stat card | **Done** — Slice 45 (simplified: daily snapshots + sparkline) |
+| BL-106 | CateringInvoices view modal: "By Category" subtotal breakdown of line items | **Done** — Slice 45 |
+| BL-107 | ActivityLog: action-type filter + keyword search + pagination (50/page) | **Done** — Slice 45 |
+| BL-108 | PriceHistory: fix missing Confirm import (delete crashed) | **Done** — Slice 45 |
+| BL-109 | ShoppingList: current stock level column (green/red/grey) at selected location | **Done** — Slice 45 |
+| BL-110 | ItemDatabase: low-stock filter toggle in search bar | **Done** — Slice 46 |
+| BL-111 | TransferInvoices: date-range filter + price auto-fill from item DB + logActivity on paid | **Done** — Slice 46 |
+| BL-112 | PriceUpdater: category filter dropdown + batch save-all (stale-closure fix) | **Done** — Slice 48 |
+| BL-113 | Dashboard: Quick Actions card with nav buttons for common workflows | **Done** — Slice 49 |
+| BL-114 | MenuMarginsLab: fix missing Confirm import (crash on delete) + fix exportCsv field names | **Done** — Slice 50 |
+| BL-115 | PayrollInvoices: auto-compute periodEnd from period type; Period End > Start validation | **Done** — Slice 50 |
+| BL-116 | DailyIncomeExpense: confirmation dialog before deleting entries | **Done** — Slice 50 |
+| BL-117 | Analytics: date range presets (Last 7d/30d/This Month/Last Month/This Year) + CSV export | **Done** — Slice 53 |
+| BL-118 | PayrollInvoices: employee name search filter | **Done** — Slice 52 |
+| BL-119 | analyticsDateUtils.test.js: 13 tests for monthlyNetProfit + applyPreset | **Done** — Slice 54 |
+| BL-120 | ShoppingList: "Remove X bought" button deletes checked items from list; "Unmark X" clears checks only | **Done** — Slice 55 |
+| BL-121 | DailyIncomeExpense: configurable income tax rate (persistent, defaults 22%) replacing hardcoded constant | **Done** — Slice 56 |
+| BL-122 | cateringCalc.test.js: 11 tests for calcT (subtotal, CC fee 3.5%, tax, balance) | **Done** — Slice 57 |
+| BL-123 | transferCalc.test.js: 7 tests for transfer invoice 15% commission calculation | **Done** — Slice 58 |
+| BL-124 | TransferInvoices/CateringInvoices/PurchaseInvoices: deduplicate getInvoiceBranding() (4→1 per render via IIFE); TransferInvoices add Status column to list table | **Done** — Slice 59 |
+| BL-125 | PayrollInvoices: blankForm initializes periodEnd from calcPeriodEnd; calcPayroll adds Math.max(0) guard on reg/ot hours | **Done** — Slice 59 |
+| BL-126 | itemImportUtils.test.js: 13 tests for normalizeImportHeaders (alias mapping, location columns, case insensitivity) | **Done** — Slice 60 |
+| BL-127 | dailyFinanceUtils.test.js: 18 tests for parseNum, calcTotals, calcSummary, buildMonthlyData | **Done** — Slice 60 |
+| BL-128 | CateringInvoices: Excel export with Invoices sheet + Line Items detail sheet | **Done** — Slice 61 |
+| BL-129 | PayrollInvoices: Excel export with Records sheet + Monthly Summary sheet | **Done** — Slice 61 |
+| BL-130 | menuMarginsUtils.test.js: 27 tests for toBase unit conversion, calcMargin, calcRecommendedPrice, getItemLatestCost | **Done** — Slice 61 |
+| BL-131 | Dashboard: payroll outstanding stat card (red, clickable → payroll tab, shown only when > 0) | **Done** — Slice 62 |
+| BL-132 | InventoryAdjustments: paginate log at 50 rows/page with Prev/Next controls; page resets on filter change | **Done** — Slice 62 |
+| BL-133 | ItemDatabase: Excel export with Items + Sellers sheets; ⬇ CSV / ⬇ Excel buttons | **Done** — Slice 63 |
+| BL-134 | CustomerManagement: Excel export for customer list; Excel export for per-customer statement in history modal | **Done** — Slice 63 |
+| BL-135 | MenuMarginsLab: Excel export with Menu Items + Margins sheets | **Done** — Slice 63 |
+| BL-136 | PriceHistory: Excel export button (single sheet, same columns as CSV) | **Done** — Slice 64 |
+| BL-137 | Analytics: Excel export with Summary, Top Customers, Event Types, Monthly Net Profit sheets | **Done** — Slice 64 |
+| BL-138 | ActivityLog: Excel export button (single sheet, same columns as CSV) | **Done** — Slice 65 |
+| BL-139 | Dashboard: logActivity on low-stock CSV export and "Add all to Shopping List" | **Done** — Slice 65 |
+| BL-140 | SupplierManagement: new tab for supplier contacts, spend stats, Discover, CSV + Excel export | **Done** — Slice 66 |
+| BL-141 | Backup/restore coverage: add `_suppliers` to SettingsModal ZIP payload (v2.4) and restore handler | **Done** — Slice 67 |
+| BL-142 | NAV_GROUPS_ADMIN: add `suppliers` to 'people' group so it appears in top nav | **Done** — Slice 67 |
+| BL-143 | PriceUpdater: CSV + Excel export of current price list (item, category, unit, supplier, price) | **Done** — Slice 67 |
+| BL-144 | HelpCenter: Feature Overview card listing all 17+ tabs with brief description | **Done** — Slice 67 |
+| BL-145 | SupplierManagement: add `address` field to blank form, Add/Edit modal, view modal, CSV + Excel export | **Done** — Slice 67 |
+| BL-146 | PurchaseInvoices: supplier contact card (phone/email/address) shown in invoice view modal when supplier is registered; supplier suggestions include registered suppliers | **Done** — Slice 67 |
+| BL-147 | Dashboard: fix broken "View All Invoices →" link (`'purchases'` → `'purchase'`) | **Done** — Slice 67 |
+| BL-148 | Dashboard: "Upcoming Catering Events — Next 30 Days" card with event date, customer, type, total, status | **Done** — Slice 68 |
+| BL-149 | SupplierManagement: "Create Purchase Invoice" button in view modal; navigates to purchase tab with form pre-filled | **Done** — Slice 68 |
+| BL-150 | Analytics: per-business filter dropdown (All Businesses / DeGrill / Parathas / Dera) alongside date range filters | **Done** — Slice 69 |
+| BL-151 | ItemDatabase: duplicate item button (⧉) — opens Add form pre-filled with copy of item, name gets " (Copy)" suffix | **Done** — Slice 69 |
+| BL-152 | CateringInvoices: guest count field; per-head cost shown in view modal; Guests column in CSV + Excel exports | **Done** — Slice 69 |
+| BL-153 | DailyIncomeExpense: per-business filter dropdown alongside Year/Month filters; Clear resets all three filters; Excel summary Scope label includes business name | **Done** — Slice 70 |
+| BL-154 | CustomerManagement: "Send Reminder" mailto button in account statement modal when customer has email + outstanding balance | **Done** — Slice 70 |
+| BL-155 | CateringInvoices: date range validation — save rejects if dateEnd < dateStart for multi-day events | **Done** — Slice 70 |
+| BL-156 | SupplierManagement: purchase orders export (CSV + Excel) from supplier view modal; total spend + unpaid summary line; show up to 15 recent orders with "X more" overflow notice | **Done** — Slice 70 |
+| BL-157 | PriceHistory: "Recent Price Changes" card showing last 5 price changes (date, item, seller, ±diff) displayed when no item is selected | **Done** — Slice 70 |
+| BL-158 | ItemDatabase: "📋 Template" button downloads a blank CSV import template with correct column headers + one example row | **Done** — Slice 70 |
+| BL-159 | dailyFinanceUtils.test.js: 8 new tests for filterEntries business/year/month filter logic | **Done** — Slice 70 |
+| BL-160 | cateringUtils.test.js: 5 new tests for isDateRangeValid (date range boundary conditions) | **Done** — Slice 70 |
+| BL-161 | Analytics: event count + avg per event added to Top Customers and Event Types bars; Excel exports include Events + Avg columns | **Done** — Slice 71 |
+| BL-162 | Analytics: Repeat Customers stat card (X/Y total, pct%) + calcRepeatCustomers tests | **Done** — Slice 71 |
+| BL-163 | CateringInvoices: customer name typed match auto-fills phone/email/address from existing customer record | **Done** — Slice 71 |
+| BL-164 | CateringInvoices: "Upcoming" and "This Month" quick filter preset buttons in filter bar | **Done** — Slice 71 |
+| BL-165 | PurchaseInvoices: markPaid records paidAt + payment.date (today) on quick Mark Paid; shown in view modal | **Done** — Slice 71 |
+
+---
+
+### Backlog items (deferred)
+
+**BL-101 — Unit conversion calculator**
+Allow switching between weight units (lb↔kg, oz↔g) with automatic price conversion. E.g., item stored in lb, user entering in kg — show the kg-equivalent price.
+Files: `src/constants.js`, `src/tabs/ItemDatabase.jsx`, `src/tabs/PurchaseInvoices.jsx`
+
+**BL-105 — Item barcode/UPC scanner integration**
+On mobile/tablet, use the device camera to scan a UPC barcode and look up or add the item. Currently UPC is a manual text field.
+Files: new `src/ui/BarcodeScanner.jsx`, `src/tabs/ItemDatabase.jsx`
+
+---
+
+## Slice 30 — Partial receipt + purchase invoice enhancements (BL-49, BL-58–BL-60) ✅ Done
+
+**Status:** Done.
+
+- **BL-49**: Stock update modal ("📦 Stock") now shows an editable "Receive" qty column per line item. Defaults to the invoiced quantity; edit down to receive partial shipments, set to 0 to skip a line. Renamed modal to "Receive Stock from Invoice".
+- **BL-58**: Purchase invoices list now has a status filter dropdown (All statuses / Unpaid only / Paid only) in the header row.
+- **BL-59**: Dashboard low-stock card now has a "⬇ Export CSV" button that downloads a CSV of all low-stock item/location rows.
+- **BL-60**: Yellow outstanding balance banner appears above the purchase invoice list when any invoices are unpaid, showing total amount and invoice count.
+
+**Files:** `src/tabs/PurchaseInvoices.jsx`, `src/tabs/Dashboard.jsx`
 
 ---
 

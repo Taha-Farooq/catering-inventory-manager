@@ -23,6 +23,7 @@ export const TABS_ADMIN = [
   { id: 'catering', label: '🍽️ Catering Inv.' },
   { id: 'payroll', label: '💼 Payroll Inv.' },
   { id: 'customers', label: '👥 Customers' },
+  { id: 'suppliers', label: '🏪 Suppliers' },
   { id: 'analytics', label: '📊 Analytics' },
   { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
   { id: 'archive', label: '🗂️ Archive' },
@@ -67,6 +68,19 @@ export const PAYMENT_TERMS = [
 
 export const MENU_UNITS = ['each', 'oz', 'lb', 'g', 'kg', 'ml', 'l'];
 
+// Standard purchase units for the item database and invoice lines
+export const PURCHASE_UNITS = [
+  'lb', 'oz', 'kg', 'g',       // weight
+  'each', 'dozen',              // count
+  'case', 'bag', 'box', 'flat', // case/bulk
+  'gallon', 'qt', 'pint', 'liter', 'ml', // volume
+  'bunch', 'head',              // produce
+];
+// Which unit values are weight-based (price = per weight unit)
+export const WEIGHT_UNITS = new Set(['lb', 'oz', 'kg', 'g']);
+// Which unit values are case/bulk (case size matters)
+export const CASE_UNITS = new Set(['case', 'bag', 'box', 'flat']);
+
 export const INTERNAL_SELLER_NAME_KEYS = new Set([
   'degrill inc',
   'degrill',
@@ -82,7 +96,7 @@ export const INTERNAL_SELLER_NAME_KEYS = new Set([
 export const NAV_GROUPS_ADMIN = [
   { id: 'ops', label: 'Stock', tabs: ['dashboard', 'items', 'invadj', 'shopping', 'pricer'] },
   { id: 'inv', label: 'Invoices', tabs: ['purchase', 'catering', 'transfer', 'payroll', 'archive'] },
-  { id: 'people', label: 'Staff', tabs: ['checkio', 'customers', 'actlog'] },
+  { id: 'people', label: 'Staff', tabs: ['checkio', 'customers', 'suppliers', 'actlog'] },
   { id: 'finance', label: 'Money', tabs: ['analytics', 'dailyfin', 'margins', 'history'] },
   { id: 'admin', label: 'Tools', tabs: ['scanbeta', 'help'] },
 ];

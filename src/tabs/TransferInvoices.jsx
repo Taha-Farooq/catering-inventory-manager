@@ -52,18 +52,36 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   const [editingTransferId, setEditingTransferId] = useState(null);
   const [viewId, setViewId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
 
   const pendingDeleteTransfer = useMemo(
     () => (confirmId ? transferInvoices.find((i) => i.id === confirmId) : null),
     [confirmId, transferInvoices]
   );
   const sorted = useMemo(() => [...transferInvoices].map(normalizeTransferInvoice).sort((a, b) => (b.date || '').localeCompare(a.date || '')), [transferInvoices]);
+  const visible = useMemo(() => {
+    let list = sorted;
+    if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    if (filterDateFrom) list = list.filter(i => (i.date || '') >= filterDateFrom);
+    if (filterDateTo) list = list.filter(i => (i.date || '') <= filterDateTo);
+    return list;
+  }, [sorted, filterStatus, filterDateFrom, filterDateTo]);
   const viewInv = sorted.find(x => x.id === viewId);
 
   function setLine(i, field, value) {
     setForm(f => {
       const lines = [...f.lineItems];
-      lines[i] = { ...lines[i], [field]: value };
+      const upd = { ...lines[i], [field]: value };
+      if (field === 'item' && value) {
+        const match = items.find(it => it.name.toLowerCase() === value.toLowerCase());
+        if (match) {
+          const sel = (match.sellers || []).find(s => s.price > 0) || match.sellers?.[0];
+          if (sel?.price > 0 && upd.price === '') upd.price = String(sel.price);
+        }
+      }
+      lines[i] = upd;
       return { ...f, lineItems: lines };
     });
   }
@@ -241,12 +259,38 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
     showToast('Transfer invoices exported to Excel.');
   }
 
+  function exportCsv() {
+    if (!visible.length) { showToast('No transfer invoices to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Invoice#', 'Date', 'From', 'To', 'Status', 'Total', 'Notes'];
+    const rows = visible.map(inv => [
+      inv.id, inv.date || '', inv.from || '', inv.to || '',
+      inv.status || '', +(inv.grandTotal || 0).toFixed(2), inv.notes || ''
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'transfer-invoices-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Transfer invoices exported.');
+  }
+
   return (
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>🚚 P&P Transfer Invoice Generator</div>
-        <div className="flex gap-2">
+        <div className="flex gap-2" style={{alignItems:'center',flexWrap:'wrap'}}>
+          <select className="input" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{width:'auto',marginBottom:0}}>
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
+          <input className="input" type="date" style={{width:'auto',marginBottom:0}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
+          <input className="input" type="date" style={{width:'auto',marginBottom:0}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
+          {(filterDateFrom||filterDateTo) && <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px',marginBottom:0}} onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}}>✕</button>}
           <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
         </div>
       </div>
@@ -293,19 +337,20 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
         </div>
       )}
 
-      {sorted.length===0 && <div className="card empty-state">No transfer invoices yet.</div>}
-      {sorted.length>0 && (
+      {visible.length===0 && <div className="card empty-state">{sorted.length===0 ? 'No transfer invoices yet.' : 'No transfer invoices match the selected filter.'}</div>}
+      {visible.length>0 && (
         <div className="card">
           <div className="tbl-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Total</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Status</th><th>Total</th><th></th></tr></thead>
               <tbody>
-                {sorted.map(inv=>(
+                {visible.map(inv=>(
                   <tr key={inv.id}>
                     <td>{inv.id}</td>
                     <td>{fmtDate(inv.date)}</td>
                     <td>{inv.from}</td>
                     <td>{inv.to}</td>
+                    <td><span className={`badge badge-${inv.status||'unpaid'}`}>{inv.status||'unpaid'}</span></td>
                     <td style={{fontWeight:700}}>{fmt$(inv.grandTotal)}</td>
                     <td>
                       <div className="flex gap-2">
@@ -314,7 +359,9 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
                         <Btn className="btn-outline btn-sm" onClick={()=>copyTransferInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" onClick={()=>{
                           const updated=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);
-                          setTransferInvoices(updated); save('transferInvoices',updated); showToast('Transfer invoice marked paid.');
+                          setTransferInvoices(updated); save('transferInvoices',updated);
+                          logActivity('mark_paid','Marked transfer invoice paid '+inv.id);
+                          showToast('Transfer invoice marked paid.');
                         }}>Paid</Btn>}
                         <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
                       </div>
@@ -328,16 +375,18 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
       )}
 
       <Modal open={!!viewInv} onClose={()=>setViewId(null)} title={`Transfer Invoice ${viewInv?.id || ''}`} wide maxW={900} closeOnBackdrop>
-        {viewInv && (
+        {viewInv&&(()=>{
+          const brand = getInvoiceBranding(viewInv, brandingMap);
+          return (
           <div id={`transfer-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <BrandMark brand={brand} />
                 <div>
-                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
-                  <div style={{fontSize:12,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
-                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#666'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
-                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{brand.name}</div>
+                  <div style={{fontSize:12,color:'#666'}}>{brand.address}</div>
+                  {brand.phone&&<div style={{fontSize:12,color:'#666'}}>Tel: {brand.phone}</div>}
+                  {brand.email&&<div style={{fontSize:12,color:'#666'}}>{brand.email}</div>}
                 </div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}>
@@ -387,7 +436,8 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
             </div>
           </div>
-        )}
+          );
+        })()}
       </Modal>
 
       <Confirm

@@ -60,6 +60,7 @@ import PayrollInvoices from './tabs/PayrollInvoices.jsx';
 import ActivityLog from './tabs/ActivityLog.jsx';
 import ScanDatabaseBeta from './tabs/ScanDatabaseBeta.jsx';
 import CustomerManagement from './tabs/CustomerManagement.jsx';
+import SupplierManagement from './tabs/SupplierManagement.jsx';
 import DailyIncomeExpense from './tabs/DailyIncomeExpense.jsx';
 import CheckInOutPage from './tabs/CheckInOutPage.jsx';
 import MenuMarginsLab from './tabs/MenuMarginsLab.jsx';
@@ -278,6 +279,8 @@ function App() {
   const [payrollInvoices, setPayrollInvoices] = useState(()=>load('payrollInvoices',[]));
   const [cateringInv, setCateringInv] = useState(()=>load('cateringInvoices',[]));
   const [customers, setCustomers] = useState(()=>load('customers',[]));
+  const [suppliers, setSuppliers] = useState(()=>load('_suppliers',[]));
+  const [purchasePreset, setPurchasePreset] = useState(null);
   const [dailyFinanceEntries, setDailyFinanceEntries] = useState(()=>load('_dailyFinanceEntries', []));
   const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
@@ -490,9 +493,10 @@ function App() {
 
   const appState = {
     items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
-    dailyFinanceEntries, customers, priceHist,
+    dailyFinanceEntries, customers, priceHist, suppliers,
     setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
     setPayrollInvoices, setDailyFinanceEntries, setCustomers, setPriceHist, setBiz,
+    setSuppliers,
     logoOverrides, setLogoOverrides,
     bizContact, setBizContact,
   };
@@ -639,16 +643,17 @@ function App() {
             />
           </div>
         )}
-        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} />}
+        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} />}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
-        {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} />}
+        {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
-        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} />}
         {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
         {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
         {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} />}
+        {tab==='suppliers' && isAdmin && <SupplierManagement suppliers={suppliers} setSuppliers={setSuppliers} items={items} purchaseInvoices={purchaseInv} onCreateInvoice={name=>{setPurchasePreset(name);setTab('purchase');}} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
         {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} save={save} />}
         {tab==='payroll'   && isAdmin && <PayrollInvoices payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} selectedBusiness={biz} brandingMap={brandingMap} />}

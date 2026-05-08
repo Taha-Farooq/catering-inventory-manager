@@ -1,7 +1,11 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
+import * as XLSX from 'xlsx';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
-import { save } from '../utils/storage.js';
+import { save, today } from '../utils/storage.js';
+import { showToast } from '../toastContext.jsx';
+import { logActivity } from '../utils/activity.js';
+import Confirm from '../ui/Confirm.jsx';
 const LazyPriceHistoryChart = lazy(() => import('../charts/PriceHistoryChart.jsx'));
 
 function Btn({ className='', children, ...p }) {
@@ -13,6 +17,14 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
   const [confirmId,setConfirmId]=useState(null);
   const selItem=items.find(i=>i.id===selId);
   const hist=useMemo(()=>priceHistory.filter(h=>h.itemId===selId).sort((a,b)=>a.date.localeCompare(b.date)),[selId,priceHistory]);
+
+  const recentChanges = useMemo(() => {
+    return [...priceHistory]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5)
+      .map(h => ({ ...h, diff: (h.newPrice ?? 0) - (h.oldPrice ?? 0) }));
+  }, [priceHistory]);
+
   const pendingDeleteHistEntry = useMemo(
     () => (confirmId ? priceHistory.find((h) => h.id === confirmId) : null),
     [confirmId, priceHistory]
@@ -30,9 +42,66 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
 
   function delEntry(id){const u=priceHistory.filter(h=>h.id!==id);setPriceHistory(u);save('priceHistory',u);setConfirmId(null);}
 
+  function exportCsv() {
+    const data = selId ? hist : [...priceHistory].sort((a,b)=>a.date.localeCompare(b.date));
+    if (!data.length) { return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Date', 'Item', 'Seller', 'Old Price', 'New Price'];
+    const rows = data.map(h => [h.date, h.itemName || '', h.seller || '', h.oldPrice != null ? +h.oldPrice : '', h.newPrice != null ? +h.newPrice : '']);
+    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'price-history-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Price history exported as CSV.');
+    logActivity('export_csv', `Exported ${data.length} price history rows`);
+  }
+
+  function exportExcel() {
+    const data = selId ? hist : [...priceHistory].sort((a,b)=>a.date.localeCompare(b.date));
+    if (!data.length) { return; }
+    const header = ['Date', 'Item', 'Seller', 'Old Price', 'New Price', 'Change'];
+    const rows = data.map(h => {
+      const diff = (h.newPrice ?? 0) - (h.oldPrice ?? 0);
+      return [h.date, h.itemName || '', h.seller || '', h.oldPrice != null ? +h.oldPrice : '', h.newPrice != null ? +h.newPrice : '', +diff.toFixed(2)];
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Price History');
+    XLSX.writeFile(wb, 'price-history-' + today() + '.xlsx');
+    showToast('Price history exported as Excel.');
+    logActivity('export_xlsx', `Exported ${data.length} price history rows`);
+  }
+
   return (
     <div>
-      <div className="section-title">Price History</div>
+      <div className="flex-between mb-4">
+        <div className="section-title" style={{margin:0}}>Price History</div>
+        {priceHistory.length > 0 && (
+          <>
+            <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
+          </>
+        )}
+      </div>
+      {!selId && recentChanges.length > 0 && (
+        <div className="card mb-4">
+          <div style={{ fontWeight: 600, color: 'var(--brown)', marginBottom: 8, fontSize: 13 }}>Recent Price Changes</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {recentChanges.map(h => (
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                <span style={{ color: '#888', minWidth: 70, flexShrink: 0 }}>{fmtDate(h.date)}</span>
+                <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.itemName}</span>
+                <span style={{ color: '#666', flexShrink: 0 }}>{h.seller}</span>
+                <span style={{ fontWeight: 700, color: h.diff > 0 ? 'var(--danger)' : 'var(--success)', minWidth: 60, textAlign: 'right', flexShrink: 0 }}>
+                  {h.diff > 0 ? '▲' : '▼'} {fmt$(Math.abs(h.diff))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card mb-4">
         <label>Select Item to View Price Trends</label>
         <select className="input" value={selId} onChange={e=>setSelId(e.target.value)}>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, Suspense, lazy, useId } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
+import Confirm from '../ui/Confirm.jsx';
 import { BUSINESSES } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { logActivity, logFailure, today } from '../tabUtils.js';
@@ -38,8 +39,15 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     taxPaid: '',
     notes: ''
   }));
+  const [editId, setEditId] = useState(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [monthF, setMonthF] = useState('');
   const [yearF, setYearF] = useState('');
+  const [bizF, setBizF] = useState('');
+  const [incomeTaxRate, setIncomeTaxRate] = useState(() => {
+    const v = parseFloat(localStorage.getItem('_incomeTaxRate'));
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 22;
+  });
 
   useEffect(() => {
     setForm(f => ({ ...f, business: selectedBusiness || f.business || 'degrill' }));
@@ -53,8 +61,9 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   const filtered = useMemo(() => sorted.filter(r => {
     if (monthF && (r.date || '').slice(5, 7) !== monthF) return false;
     if (yearF && (r.date || '').slice(0, 4) !== yearF) return false;
+    if (bizF && (r.business || '') !== bizF) return false;
     return true;
-  }), [sorted, monthF, yearF]);
+  }), [sorted, monthF, yearF, bizF]);
 
   const totals = useMemo(() => filtered.reduce((acc, r) => {
     acc.income += +(r.income || 0);
@@ -65,7 +74,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   }, { income: 0, expense: 0, salesTaxCollected: 0, taxPaid: 0 }), [filtered]);
 
   const net = +(totals.income - totals.expense).toFixed(2);
-  const estimatedIncomeTax = +(Math.max(net, 0) * 0.22).toFixed(2);
+  const estimatedIncomeTax = +(Math.max(net, 0) * (incomeTaxRate / 100)).toFixed(2);
   const salesTaxDue = +(totals.salesTaxCollected - totals.taxPaid).toFixed(2);
 
   const monthly = useMemo(() => {
@@ -91,8 +100,28 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     return Number.isFinite(n) ? +n.toFixed(2) : 0;
   }
 
+  function openEdit(row) {
+    setEditId(row.id);
+    setForm({ date: row.date, business: row.business || selectedBusiness || 'degrill', income: String(row.income ?? ''), expense: String(row.expense ?? ''), salesTaxCollected: String(row.salesTaxCollected ?? ''), taxPaid: String(row.taxPaid ?? ''), notes: row.notes || '' });
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setForm(f => ({ ...f, income: '', expense: '', salesTaxCollected: '', taxPaid: '', notes: '' }));
+  }
+
   function saveRow() {
     if (!form.date) { showToast('Date is required. [DMG-E006]', 'error'); return; }
+    if (editId) {
+      const next = entries.map(r => r.id !== editId ? r : { ...r, date: form.date, business: form.business || selectedBusiness || 'degrill', income: parseNum(form.income), expense: parseNum(form.expense), salesTaxCollected: parseNum(form.salesTaxCollected), taxPaid: parseNum(form.taxPaid), notes: String(form.notes || '').trim() });
+      setEntries(next);
+      save('_dailyFinanceEntries', next);
+      logActivity('edit_item', `Edited daily finance row ${form.date}`);
+      showToast('Entry updated.');
+      setEditId(null);
+      setForm(f => ({ ...f, income: '', expense: '', salesTaxCollected: '', taxPaid: '', notes: '' }));
+      return;
+    }
     const row = {
       id: crypto.randomUUID(),
       date: form.date,
@@ -116,7 +145,9 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     const next = entries.filter(x => x.id !== id);
     setEntries(next);
     save('_dailyFinanceEntries', next);
+    logActivity('delete_item', `Deleted daily finance row`);
     showToast('Entry deleted.');
+    setPendingDeleteId(null);
   }
 
   function toExcelRows(rows) {
@@ -133,15 +164,35 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     }));
   }
 
+  function exportCsv() {
+    if (!filtered.length) { showToast('No entries to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Date', 'Business', 'Income', 'Expense', 'Net', 'Sales Tax Collected', 'Tax Paid', 'Notes'];
+    const rows = filtered.map(r => [
+      r.date || '', BUSINESSES[r.business]?.name || r.business || '',
+      +(r.income || 0).toFixed(2), +(r.expense || 0).toFixed(2),
+      +((r.income || 0) - (r.expense || 0)).toFixed(2),
+      +(r.salesTaxCollected || 0).toFixed(2), +(r.taxPaid || 0).toFixed(2), r.notes || '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(row => row.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'daily-finance-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Daily finance exported as CSV.');
+    logActivity('export_csv', 'Exported daily income/expense CSV');
+  }
+
   function exportExcel() {
     const wb = XLSX.utils.book_new();
     const dataRows = toExcelRows(filtered);
     const summaryRows = [{
-      Scope: `${yearF || 'All years'} ${monthF ? `month ${monthF}` : ''}`.trim(),
+      Scope: [`${yearF || 'All years'}`, monthF ? `month ${monthF}` : '', bizF ? BUSINESSES[bizF]?.name || bizF : ''].filter(Boolean).join(' · '),
       Income: +totals.income.toFixed(2),
       Expense: +totals.expense.toFixed(2),
       'Net Profit': +net.toFixed(2),
-      'Estimated Income Tax (22%)': +estimatedIncomeTax.toFixed(2),
+      [`Estimated Income Tax (${incomeTaxRate}%)`]: +estimatedIncomeTax.toFixed(2),
       'Sales Tax Collected': +totals.salesTaxCollected.toFixed(2),
       'Tax Paid': +totals.taxPaid.toFixed(2),
       'Sales Tax Due': +salesTaxDue.toFixed(2),
@@ -225,7 +276,8 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={() => importRef.current?.click()}>⬆ Upload Excel (2025/2026)</Btn>
           <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => { importExcel(e.target.files?.[0]); e.target.value = ''; }} />
-          <Btn className="btn-success btn-sm" onClick={exportExcel}>⬇ Export Excel</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-success btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
         </div>
       </div>
       <div className="hint-card">Use this for daily accounting, backfill old records via Excel, and auto-generate tax-ready summaries.</div>
@@ -245,8 +297,9 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           <FI label="Tax Paid" type="number" step="0.01" value={form.taxPaid} onChange={e => setForm(f => ({ ...f, taxPaid: e.target.value }))} />
         </div>
         <FI label="Notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-        <div className="flex" style={{ justifyContent: 'flex-end' }}>
-          <Btn className="btn-primary" onClick={saveRow}>Save Daily Entry</Btn>
+        <div className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
+          {editId && <Btn className="btn-outline" onClick={cancelEdit}>Cancel Edit</Btn>}
+          <Btn className="btn-primary" onClick={saveRow}>{editId ? 'Update Entry' : 'Save Daily Entry'}</Btn>
         </div>
       </div>
 
@@ -263,6 +316,13 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
               {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Business</label>
+            <select className="input" value={bizF} onChange={e => setBizF(e.target.value)}>
+              <option value="">All Businesses</option>
+              {Object.entries(BUSINESSES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+            </select>
+          </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {[
@@ -271,7 +331,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           ].map(([k, label, fn]) => (
             <Btn key={k} className="btn-sm" style={{background:'#eee',color:'#555',borderRadius:12,padding:'2px 10px'}} onClick={fn}>{label}</Btn>
           ))}
-          {(yearF || monthF) && <Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={() => { setYearF(''); setMonthF(''); }}>✕ Clear</Btn>}
+          {(yearF || monthF || bizF) && <Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={() => { setYearF(''); setMonthF(''); setBizF(''); }}>✕ Clear</Btn>}
         </div>
       </div>
 
@@ -280,10 +340,17 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           { v: fmt$(totals.income), l: 'Income' },
           { v: fmt$(totals.expense), l: 'Expense' },
           { v: fmt$(net), l: 'Net Profit' },
-          { v: fmt$(estimatedIncomeTax), l: 'Estimated Income Tax' },
+          { v: fmt$(estimatedIncomeTax), l: `Est. Income Tax (${incomeTaxRate}%)` },
           { v: fmt$(salesTaxDue), l: 'Sales Tax Due' },
           { v: filtered.length, l: 'Daily Entries' }
         ].map((s, i) => <div key={i} className="stat-card"><div className="stat-val">{s.v}</div><div className="stat-lbl">{s.l}</div></div>)}
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,fontSize:12.5,color:'#666'}}>
+        <span>Income tax rate:</span>
+        <input type="number" min="0" max="95" step="0.5" value={incomeTaxRate}
+          className="input" style={{width:70,padding:'3px 6px',fontSize:12}}
+          onChange={e=>{ const v=parseFloat(e.target.value); if(Number.isFinite(v)&&v>=0&&v<=100){setIncomeTaxRate(v);localStorage.setItem('_incomeTaxRate',String(v));} }} />
+        <span>% (estimated federal income tax)</span>
       </div>
 
       {monthly.length > 1 && (
@@ -310,7 +377,10 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
                   <td>{fmt$(r.taxPaid || 0)}</td>
                   <td>{fmt$((r.salesTaxCollected || 0) - (r.taxPaid || 0))}</td>
                   <td>{r.notes || '—'}</td>
-                  <td><Btn className="btn-danger btn-sm" onClick={() => deleteRow(r.id)}>Delete</Btn></td>
+                  <td style={{whiteSpace:'nowrap'}}>
+                    <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={() => openEdit(r)}>Edit</Btn>
+                    <Btn className="btn-danger btn-sm" onClick={() => setPendingDeleteId(r.id)}>Delete</Btn>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
@@ -320,6 +390,15 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           </table>
         </div>
       </div>
+      <Confirm
+        open={!!pendingDeleteId}
+        title="Delete entry?"
+        message="Permanently delete this daily finance entry?"
+        confirmLabel="Delete"
+        confirmClass="btn-danger"
+        onConfirm={() => deleteRow(pendingDeleteId)}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

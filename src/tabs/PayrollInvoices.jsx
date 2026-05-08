@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { BUSINESSES } from '../constants.js';
 import { showToast } from '../toastContext.jsx';
 import { reportError } from '../errors.js';
@@ -25,6 +26,14 @@ function Btn({ className = '', children, ...p }) {
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => crypto.randomUUID();
 
+function calcPeriodEnd(start, periodType) {
+  const d = new Date(start + 'T12:00:00');
+  if (periodType === 'weekly') d.setDate(d.getDate() + 6);
+  else if (periodType === 'biweekly') d.setDate(d.getDate() + 13);
+  else { d.setMonth(d.getMonth() + 1); d.setDate(0); }
+  return d.toISOString().slice(0, 10);
+}
+
 const PAY_PERIODS = [
   { value: 'weekly',    label: 'Weekly (7 days)' },
   { value: 'biweekly',  label: 'Bi-weekly (14 days)' },
@@ -32,12 +41,13 @@ const PAY_PERIODS = [
 ];
 
 function blankForm(selectedBusiness) {
+  const start = today();
   return {
     employeeName: '',
     business: selectedBusiness || 'degrill',
     payPeriod: 'weekly',
-    periodStart: today(),
-    periodEnd: '',
+    periodStart: start,
+    periodEnd: calcPeriodEnd(start, 'weekly'),
     hourlyRate: '',
     regularHours: '',
     overtimeHours: '',
@@ -48,8 +58,8 @@ function blankForm(selectedBusiness) {
 
 function calcPayroll(form) {
   const rate = parseFloat(form.hourlyRate) || 0;
-  const reg = parseFloat(form.regularHours) || 0;
-  const ot = parseFloat(form.overtimeHours) || 0;
+  const reg = Math.max(0, parseFloat(form.regularHours) || 0);
+  const ot = Math.max(0, parseFloat(form.overtimeHours) || 0);
   const total = reg * rate + ot * rate * 1.5;
   return { rate, reg, ot, total };
 }
@@ -127,13 +137,99 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [viewInv, setViewInv] = useState(null);
   const [confirmObj, setConfirmObj] = useState(null);
   const [showAllBiz, setShowAllBiz] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterEmployee, setFilterEmployee] = useState('');
+  const [showSummary, setShowSummary] = useState(false);
 
   const inv = payrollInvoices || [];
 
   const visible = useMemo(() => {
-    const sorted = [...inv].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
-    return showAllBiz ? sorted : sorted.filter(i => !i.business || i.business === selectedBusiness);
-  }, [inv, showAllBiz, selectedBusiness]);
+    let sorted = [...inv].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
+    if (!showAllBiz) sorted = sorted.filter(i => !i.business || i.business === selectedBusiness);
+    if (filterStatus !== 'all') sorted = sorted.filter(i => (i.status || 'unpaid') === filterStatus);
+    const q = filterEmployee.toLowerCase().trim();
+    if (q) sorted = sorted.filter(i => (i.employeeName || '').toLowerCase().includes(q));
+    return sorted;
+  }, [inv, showAllBiz, selectedBusiness, filterStatus, filterEmployee]);
+
+  const outstandingTotal = useMemo(() =>
+    inv.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0),
+    [inv]
+  );
+
+  function exportCsv() {
+    if (!visible.length) { showToast('No payroll records to export.', 'error'); return; }
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Invoice#', 'Employee', 'Period Start', 'Period End', 'Business', 'Status', 'Reg Hours', 'OT Hours', 'Hourly Rate', 'Total', 'Notes'];
+    const rows = visible.map(r => [
+      r.id, r.employeeName, r.periodStart || r.date, r.periodEnd || '', r.business || '',
+      r.status || 'unpaid', r.regularHours || '', r.overtimeHours || '',
+      r.hourlyRate || '', +(r.total || 0).toFixed(2), r.notes || '',
+    ]);
+    const csv = [header.map(esc).join(','), ...rows.map(row => row.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'payroll-invoices-' + today() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Payroll exported as CSV.');
+  }
+
+  function exportExcel() {
+    if (!visible.length) { showToast('No payroll records to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    // Records sheet
+    const header = ['Invoice#', 'Employee', 'Period Start', 'Period End', 'Business', 'Status', 'Reg Hours', 'OT Hours', 'Hourly Rate', 'Total', 'Notes'];
+    const rows = visible.map(r => [
+      r.id, r.employeeName, r.periodStart || r.date, r.periodEnd || '', r.business || '',
+      r.status || 'unpaid', +(r.regularHours || 0), +(r.overtimeHours || 0),
+      +(r.hourlyRate || 0), +(r.total || 0).toFixed(2), r.notes || '',
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Payroll Records');
+    // Monthly summary sheet
+    const byMonth = {};
+    visible.forEach(r => {
+      const m = (r.periodStart || r.date || '').slice(0, 7);
+      if (!m) return;
+      if (!byMonth[m]) byMonth[m] = { month: m, total: 0, regHrs: 0, otHrs: 0, count: 0 };
+      byMonth[m].total += r.total || 0;
+      byMonth[m].regHrs += parseFloat(r.regularHours) || 0;
+      byMonth[m].otHrs += parseFloat(r.overtimeHours) || 0;
+      byMonth[m].count++;
+    });
+    const mRows = Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month))
+      .map(m => [m.month, m.count, +m.regHrs.toFixed(1), +m.otHrs.toFixed(1), +m.total.toFixed(2)]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Month','Records','Reg Hrs','OT Hrs','Total'], ...mRows]), 'Monthly Summary');
+    XLSX.writeFile(wb, 'payroll-invoices-' + today() + '.xlsx');
+    showToast('Payroll exported as Excel.');
+    logActivity('export_xlsx', `Exported ${visible.length} payroll records Excel`);
+  }
+
+  const monthlyPayroll = useMemo(() => {
+    const m = {};
+    inv.forEach(r => {
+      const d = (r.periodStart || r.date || '').slice(0, 7);
+      if (!d) return;
+      if (!m[d]) m[d] = { month: d, total: 0, count: 0 };
+      m[d].total += r.total || 0;
+      m[d].count++;
+    });
+    return Object.values(m).sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6);
+  }, [inv]);
+
+  const employeeSummary = useMemo(() => {
+    const m = {};
+    inv.forEach(r => {
+      const name = r.employeeName || 'Unknown';
+      if (!m[name]) m[name] = { name, totalPay: 0, totalRegHours: 0, totalOtHours: 0, count: 0, unpaidTotal: 0 };
+      m[name].totalPay += r.total || 0;
+      m[name].totalRegHours += parseFloat(r.regularHours) || 0;
+      m[name].totalOtHours += parseFloat(r.overtimeHours) || 0;
+      m[name].count++;
+      if ((r.status || 'unpaid') !== 'paid') m[name].unpaidTotal += r.total || 0;
+    });
+    return Object.values(m).sort((a, b) => b.totalPay - a.totalPay);
+  }, [inv]);
 
   function save(data) {
     setPayrollInvoices(data);
@@ -169,12 +265,14 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   function copyRecord(record) {
     setEditingId(null);
     setViewInv(null);
+    const start = today();
+    const period = record.payPeriod || 'weekly';
     setForm({
       employeeName: record.employeeName || '',
       business: record.business || selectedBusiness,
-      payPeriod: record.payPeriod || 'weekly',
-      periodStart: today(),
-      periodEnd: '',
+      payPeriod: period,
+      periodStart: start,
+      periodEnd: calcPeriodEnd(start, period),
       hourlyRate: String(record.hourlyRate || ''),
       regularHours: String(record.regularHours || ''),
       overtimeHours: String(record.overtimeHours || ''),
@@ -189,6 +287,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     if (!form.employeeName.trim()) { showToast('Employee name is required. [DMG-E006]', 'error'); return; }
     if (!form.periodStart) { showToast('Period start date is required. [DMG-E006]', 'error'); return; }
     if (!form.periodEnd) { showToast('Period end date is required. [DMG-E006]', 'error'); return; }
+    if (form.periodEnd < form.periodStart) { showToast('Period end must be on or after period start. [DMG-E006]', 'error'); return; }
     if (!(parseFloat(form.hourlyRate) > 0)) { showToast('Hourly rate must be greater than 0. [DMG-E006]', 'error'); return; }
     if (!(parseFloat(form.regularHours) >= 0)) { showToast('Regular hours must be 0 or more. [DMG-E006]', 'error'); return; }
 
@@ -281,8 +380,75 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
             <input type="checkbox" checked={showAllBiz} onChange={e => setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
+          <select className="input" style={{ width: 'auto' }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
+          <input className="input" style={{ width: 160 }} placeholder="Search employee…" value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)} />
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary" onClick={openNew}>+ New Payroll Invoice</Btn>
         </div>
+      </div>
+
+      {outstandingTotal > 0 && (
+        <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13.5, color: '#92400E', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 700 }}>⚠ Outstanding:</span>
+          {fmt$(outstandingTotal)} unpaid across {inv.filter(i => i.status !== 'paid').length} payroll record{inv.filter(i => i.status !== 'paid').length !== 1 ? 's' : ''}
+        </div>
+      )}
+
+      {monthlyPayroll.length > 0 && (
+        <div className="card mb-4">
+          <div className="section-title" style={{ marginBottom: 10 }}>Monthly Payroll (Last 6 Months)</div>
+          {(() => {
+            const maxV = Math.max(...monthlyPayroll.map(m => m.total), 1);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {monthlyPayroll.map(m => (
+                  <div key={m.month} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <div style={{ width: 52, color: '#888', textAlign: 'right', flexShrink: 0 }}>{m.month.slice(5) + '/' + m.month.slice(2, 4)}</div>
+                    <div style={{ flex: 1, background: '#F5ECD7', borderRadius: 4, overflow: 'hidden', height: 16 }}>
+                      <div style={{ width: `${m.total / maxV * 100}%`, background: 'var(--brown)', height: '100%', borderRadius: 4 }} />
+                    </div>
+                    <div style={{ width: 68, fontWeight: 600, color: 'var(--brown)', flexShrink: 0 }}>{fmt$(m.total)}</div>
+                    <div style={{ width: 40, color: '#888', textAlign: 'right', fontSize: 11, flexShrink: 0 }}>{m.count} rec</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      <div className="card mb-4" style={{padding:0}}>
+        <button
+          style={{width:'100%',padding:'12px 16px',background:'none',border:'none',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontWeight:700,color:'var(--brown)',fontSize:14}}
+          onClick={()=>setShowSummary(v=>!v)}
+        >
+          <span>👥 Employee Summary ({employeeSummary.length} employee{employeeSummary.length!==1?'s':''})</span>
+          <span>{showSummary?'▲':'▼'}</span>
+        </button>
+        {showSummary && (
+          <div className="tbl-wrap" style={{borderTop:'1px solid #EED9B0'}}>
+            <table>
+              <thead><tr><th>Employee</th><th>Periods</th><th>Reg Hrs</th><th>OT Hrs</th><th>Total Pay</th><th>Unpaid</th></tr></thead>
+              <tbody>
+                {employeeSummary.map(e => (
+                  <tr key={e.name}>
+                    <td style={{fontWeight:600}}>{e.name}</td>
+                    <td style={{color:'#777'}}>{e.count}</td>
+                    <td>{e.totalRegHours.toFixed(1)}</td>
+                    <td>{e.totalOtHours.toFixed(1)}</td>
+                    <td style={{fontWeight:700,color:'var(--brown)'}}>{fmt$(e.totalPay)}</td>
+                    <td style={{color:e.unpaidTotal>0?'#DC2626':'#15803D',fontWeight:e.unpaidTotal>0?600:400}}>{e.unpaidTotal>0?fmt$(e.unpaidTotal):'Paid'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {visible.length === 0 ? (
@@ -337,7 +503,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
           </FS>
         </div>
         <div className="grid-2 mb-3">
-          <FS label="Pay Period Type" value={form.payPeriod} onChange={e => setForm(f => ({ ...f, payPeriod: e.target.value }))}>
+          <FS label="Pay Period Type" value={form.payPeriod} onChange={e => setForm(f => ({ ...f, payPeriod: e.target.value, periodEnd: f.periodStart ? calcPeriodEnd(f.periodStart, e.target.value) : f.periodEnd }))}>
             {PAY_PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
           </FS>
           <FS label="Status" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
@@ -346,7 +512,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
           </FS>
         </div>
         <div className="grid-2 mb-3">
-          <FI label="Period Start *" type="date" value={form.periodStart} onChange={e => setForm(f => ({ ...f, periodStart: e.target.value }))} />
+          <FI label="Period Start *" type="date" value={form.periodStart} onChange={e => setForm(f => ({ ...f, periodStart: e.target.value, periodEnd: e.target.value ? calcPeriodEnd(e.target.value, f.payPeriod) : f.periodEnd }))} />
           <FI label="Period End *" type="date" value={form.periodEnd} onChange={e => setForm(f => ({ ...f, periodEnd: e.target.value }))} />
         </div>
         <div className="grid-2 mb-3">

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { fmt$, sellerKey, safePrice } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
@@ -10,14 +11,20 @@ function Btn({ className='', children, ...p }) {
 
 export default function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
   const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('');
   const [edits, setEdits] = useState({});
   const sellerEditKey = (itemId, sellerName, sellerIdx) => itemId+'|'+sellerKey(sellerName)+'|'+sellerIdx;
 
+  const allCategories = useMemo(() => [...new Set(items.map(i => i.category).filter(Boolean))].sort(), [items]);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return items;
-    const q = search.toLowerCase();
-    return items.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
-  }, [items, search]);
+    const q = search.toLowerCase().trim();
+    return items.filter(i => {
+      if (catFilter && i.category !== catFilter) return false;
+      if (!q) return true;
+      return i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q);
+    });
+  }, [items, search, catFilter]);
 
   function setPrice(itemId, sellerName, val, sellerIdx) {
     setEdits(prev => ({ ...prev, [sellerEditKey(itemId, sellerName, sellerIdx)]: val }));
@@ -60,13 +67,108 @@ export default function PriceUpdater({ items, setItems, priceHistory, setPriceHi
     showToast('Prices saved for ' + item.name);
   }
 
+  const pendingCount = useMemo(() => filtered.filter(i => hasChanges(i)).length, [filtered, edits]);
+
+  function saveAll() {
+    const changed = filtered.filter(i => hasChanges(i));
+    if (!changed.length) return;
+    let valid = true;
+    let nextItems = [...items];
+    const allNewHist = [];
+    const remainingEdits = { ...edits };
+    changed.forEach(item => {
+      const newSellers = item.sellers.map((s, sellerIdx) => {
+        const key = sellerEditKey(item.id, s.name, sellerIdx);
+        if (edits[key] !== undefined) {
+          const val = edits[key];
+          if (val !== '' && safePrice(val) === null) { showToast('Invalid price for ' + s.name + ' [DMG-E006]', 'error'); valid = false; return s; }
+          return { ...s, price: val==='' ? null : safePrice(val) };
+        }
+        return s;
+      });
+      if (!valid) return;
+      item.sellers.forEach((s, sellerIdx) => {
+        const key = sellerEditKey(item.id, s.name, sellerIdx);
+        if (edits[key] !== undefined) {
+          const newPrice = edits[key]==='' ? null : safePrice(edits[key]);
+          const oldPrice = s.price !== undefined ? s.price : null;
+          if (oldPrice !== newPrice && oldPrice !== null && newPrice !== null)
+            allNewHist.push({ id: uid(), itemId: item.id, itemName: item.name, seller: s.name, oldPrice, newPrice, date: today() });
+        }
+      });
+      nextItems = nextItems.map(i => i.id === item.id ? { ...i, sellers: newSellers } : i);
+      Object.keys(remainingEdits).forEach(k => { if (k.startsWith(item.id+'|')) delete remainingEdits[k]; });
+      logActivity('update_prices', item.name);
+    });
+    if (!valid) return;
+    if (allNewHist.length) { const h = [...priceHistory, ...allNewHist]; setPriceHistory(h); save('priceHistory', h); }
+    setItems(nextItems); save('items', nextItems);
+    setEdits(remainingEdits);
+    showToast(`Saved prices for ${changed.length} item${changed.length !== 1 ? 's' : ''}.`);
+  }
+
+  function buildPriceRows() {
+    const rows = [];
+    items.forEach(item => {
+      if (!item.sellers || item.sellers.length === 0) {
+        rows.push([item.name, item.category || '', item.unit || '', '(no suppliers)', '']);
+      } else {
+        item.sellers.forEach(s => {
+          rows.push([item.name, item.category || '', item.unit || '', s.name || '', s.price != null ? s.price : '']);
+        });
+      }
+    });
+    return rows;
+  }
+  const PRICE_HEADER = ['Item Name', 'Category', 'Unit', 'Supplier', 'Price'];
+
+  function exportPriceCsv() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const esc = v => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s; };
+    const csv = [PRICE_HEADER.map(esc).join(','), ...buildPriceRows().map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `price-list-${today()}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    logActivity('export_csv', `Exported price list CSV (${items.length} items)`);
+    showToast('Price list exported as CSV.');
+  }
+
+  function exportPriceExcel() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const ws = XLSX.utils.aoa_to_sheet([PRICE_HEADER, ...buildPriceRows()]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Price List');
+    XLSX.writeFile(wb, `price-list-${today()}.xlsx`);
+    logActivity('export_xlsx', `Exported price list Excel (${items.length} items)`);
+    showToast('Price list exported as Excel.');
+  }
+
   return (
     <div>
       <div className="section-title">💰 Price Updater</div>
       <div style={{background:'#dbeafe',color:'#1d4ed8',borderRadius:8,padding:'12px 16px',marginBottom:16,fontSize:13.5,lineHeight:1.6}}>
         Update prices for each supplier below. Changed fields are highlighted. Click <strong>Save Prices</strong> to save an item's changes — price history is recorded automatically.
       </div>
-      <input className="input mb-4" placeholder="Search items by name or category…" value={search} onChange={e=>setSearch(e.target.value)} />
+      <div className="flex gap-2 mb-4 flex-wrap" style={{alignItems:'center'}}>
+        <input className="input" style={{flex:'3 1 200px'}} placeholder="Search items by name or category…" value={search} onChange={e=>setSearch(e.target.value)} />
+        <select className="input" style={{flex:'1 1 130px'}} value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {allCategories.map(c=><option key={c}>{c}</option>)}
+        </select>
+        {(search||catFilter) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');}}>✕ Clear</Btn>}
+        <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+          {items.length > 0 && <>
+            <Btn className="btn-outline btn-sm" onClick={exportPriceCsv}>⬇ CSV</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportPriceExcel}>⬇ Excel</Btn>
+          </>}
+          {pendingCount > 0 && (
+            <Btn className="btn-primary btn-sm" onClick={saveAll}>
+              💾 Save All ({pendingCount})
+            </Btn>
+          )}
+        </div>
+      </div>
       {items.length===0 && <div className="card empty-state">No items yet. Use the Add Items tab to add items first.</div>}
       {items.length>0 && filtered.length===0 && <div className="card empty-state">No items match your search.</div>}
       {filtered.map(item=>(
