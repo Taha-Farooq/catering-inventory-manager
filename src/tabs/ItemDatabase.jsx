@@ -299,6 +299,31 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     logActivity('export_items_csv', `Exported ${items.length} items`);
   }
 
+  function exportItemsExcel() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    const mainHeader = ['Name','Category','Unit','Case Size','UPC',
+      ...LOCATIONS.flatMap(l => [l+' Qty', l+' Min Qty']),
+      'Notes'];
+    const mainRows = items.map(item => [
+      item.name, item.category, item.unit, item.caseSize || '', item.upc || '',
+      ...LOCATIONS.flatMap(l => [
+        item.locQty?.[l.toLowerCase()] ?? '',
+        item.locMinQty?.[l.toLowerCase()] ?? '',
+      ]),
+      item.notes || '',
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mainHeader, ...mainRows]), 'Items');
+    const sellersHeader = ['Item Name','Seller','Price'];
+    const sellersRows = items.flatMap(item =>
+      (item.sellers || []).map(s => [item.name, s.name || '', s.price != null ? +Number(s.price).toFixed(2) : ''])
+    );
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sellersHeader, ...sellersRows]), 'Sellers');
+    XLSX.writeFile(wb, 'items-' + today() + '.xlsx');
+    showToast(`Exported ${items.length} items as Excel.`);
+    logActivity('export_items_xlsx', `Exported ${items.length} items`);
+  }
+
   function handleImportFile(file) {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -386,7 +411,8 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           {isAdmin && <Btn className="btn-outline" onClick={cleanupInternalSellers}>🧹 Clean Seller List</Btn>}
           {isAdmin && (
             <>
-              <Btn className="btn-outline" onClick={exportItemsCsv}>⬇ Export CSV</Btn>
+              <Btn className="btn-outline" onClick={exportItemsCsv}>⬇ CSV</Btn>
+              <Btn className="btn-outline" onClick={exportItemsExcel}>⬇ Excel</Btn>
               <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }} />
               <Btn className="btn-outline" onClick={() => importFileRef.current?.click()}>⬆ Import CSV</Btn>

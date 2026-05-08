@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useId } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
@@ -250,6 +251,34 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     showToast('Margin report exported.');
   }
+  function exportMenuExcel() {
+    if (!menuItems.length) { showToast('No menu items to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    const itemHeader = ['Name', 'Category', 'Type', 'Unit', 'Base Price', 'Price (DeGrill)', 'Price (Parathas)', 'Price (Dera)', 'Notes'];
+    const itemRows = menuItems.map(item => [
+      item.name || '', item.category || '', item.menuType || '', item.defaultUnit || 'each',
+      item.basePrice != null ? +Number(item.basePrice).toFixed(2) : '',
+      item.pricing?.degrill != null ? +Number(item.pricing.degrill).toFixed(2) : '',
+      item.pricing?.parathas != null ? +Number(item.pricing.parathas).toFixed(2) : '',
+      item.pricing?.dera != null ? +Number(item.pricing.dera).toFixed(2) : '',
+      item.notes || '',
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([itemHeader, ...itemRows]), 'Menu Items');
+    if (rows.length) {
+      const store = bizF === 'all' ? selectedBusiness : bizF;
+      const mHeader = ['Menu Item','Type','Store','Price','Current Cost','Current Margin %','Recommended Price','Low Margin'];
+      const mRows = rows.map(r => [
+        r.menu.name, r.menu.menuType, store,
+        +Number(r.metrics.price).toFixed(2), +Number(r.metrics.costNow).toFixed(2),
+        +Number(r.metrics.marginNow).toFixed(2), +Number(r.metrics.recommended).toFixed(2),
+        r.metrics.marginNow < Number(targetMargin||0) ? 'YES' : 'NO'
+      ]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mHeader, ...mRows]), 'Margins');
+    }
+    XLSX.writeFile(wb, 'menu-items-' + today() + '.xlsx');
+    showToast('Menu items exported as Excel.');
+  }
+
   function applyRecommendedPrice(menu, metrics) {
     const store = bizF === 'all' ? selectedBusiness : bizF;
     const rounded = +Number(metrics.recommended || 0).toFixed(2);
@@ -275,8 +304,9 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Menu Costing & Margin Analytics</div>
         <div className="flex gap-2">
-          <Btn className="btn-outline btn-sm" onClick={exportMarginsCsv}>⬇ Export Margin CSV</Btn>
-          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportMarginsCsv}>⬇ Margin CSV</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportMenuExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary btn-sm" onClick={()=>{resetMenuForm();setShowMenuForm(true);}}>+ Add Menu Item</Btn>
         </div>
       </div>

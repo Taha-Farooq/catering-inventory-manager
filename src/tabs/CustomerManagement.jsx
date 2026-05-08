@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useId } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -79,6 +80,20 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
     logActivity('export_csv', `Exported ${customers.length} customers`);
   }
 
+  function exportCustomersExcel() {
+    if (!customers.length) { showToast('No customers to export.', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    const header = ['Name', 'Phone', 'Email', 'Address', 'Invoices', 'Total Revenue', 'Notes'];
+    const rows = customers.map(c => {
+      const cm = custRevMap[c.id] || { count: 0, rev: 0 };
+      return [c.name, c.phone || '', c.email || '', c.address || '', cm.count, +cm.rev.toFixed(2), c.notes || ''];
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Customers');
+    XLSX.writeFile(wb, 'customers-' + today() + '.xlsx');
+    showToast('Customer list exported as Excel.');
+    logActivity('export_xlsx', `Exported ${customers.length} customers Excel`);
+  }
+
   const pendingDeleteCustomer = useMemo(
     () => (confirmId ? customers.find(c => c.id === confirmId) : null),
     [confirmId, customers]
@@ -126,7 +141,8 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
       <div className="flex-between mb-4 flex-wrap gap-2">
         <div className="section-title" style={{ margin: 0 }}>Customers ({customers.length})</div>
         <div className="flex gap-2 flex-wrap" style={{ alignItems: 'center' }}>
-          <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
+          <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline" onClick={exportCustomersExcel}>⬇ Excel</Btn>
           <Btn className="btn-primary" onClick={() => { setForm(blank()); setEditId(null); setShowForm(true); }}>+ Add Customer</Btn>
         </div>
       </div>
@@ -224,6 +240,18 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
             w.document.write(html); w.document.close(); w.focus(); w.print();
           }
 
+          function exportStatementExcel() {
+            const wb = XLSX.utils.book_new();
+            const header = ['Invoice #','Date','Event','Total','Balance Due','Status'];
+            const rows = sorted.map(inv => [
+              inv.id, inv.useRange ? `${inv.dateStart} – ${inv.dateEnd}` : (inv.date || ''),
+              inv.eventType || '', +(inv.grandTotal||0).toFixed(2), +(inv.balanceDue||0).toFixed(2), inv.status || ''
+            ]);
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Statement');
+            XLSX.writeFile(wb, `statement-${viewCust.name.replace(/\s+/g,'-')}-${today()}.xlsx`);
+            showToast('Statement exported as Excel.');
+          }
+
           function exportStatementCsv() {
             const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
             const rows = sorted.map(inv => [
@@ -275,7 +303,8 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
                     </table>
                   </div>
                   <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:12}}>
-                    <button className="btn btn-outline btn-sm" onClick={exportStatementCsv}>⬇ Export CSV</button>
+                    <button className="btn btn-outline btn-sm" onClick={exportStatementCsv}>⬇ CSV</button>
+                    <button className="btn btn-outline btn-sm" onClick={exportStatementExcel}>⬇ Excel</button>
                     <button className="btn btn-outline btn-sm" onClick={printStatement}>🖨 Print Statement</button>
                   </div>
                 </>
