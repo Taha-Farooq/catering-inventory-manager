@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { showToast } from '../toastContext.jsx';
 import { fmt$, sellerKey, safePrice } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
@@ -10,14 +10,20 @@ function Btn({ className='', children, ...p }) {
 
 export default function PriceUpdater({ items, setItems, priceHistory, setPriceHistory }) {
   const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('');
   const [edits, setEdits] = useState({});
   const sellerEditKey = (itemId, sellerName, sellerIdx) => itemId+'|'+sellerKey(sellerName)+'|'+sellerIdx;
 
+  const allCategories = useMemo(() => [...new Set(items.map(i => i.category).filter(Boolean))].sort(), [items]);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return items;
-    const q = search.toLowerCase();
-    return items.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
-  }, [items, search]);
+    const q = search.toLowerCase().trim();
+    return items.filter(i => {
+      if (catFilter && i.category !== catFilter) return false;
+      if (!q) return true;
+      return i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q);
+    });
+  }, [items, search, catFilter]);
 
   function setPrice(itemId, sellerName, val, sellerIdx) {
     setEdits(prev => ({ ...prev, [sellerEditKey(itemId, sellerName, sellerIdx)]: val }));
@@ -60,13 +66,34 @@ export default function PriceUpdater({ items, setItems, priceHistory, setPriceHi
     showToast('Prices saved for ' + item.name);
   }
 
+  const pendingCount = useMemo(() => filtered.filter(i => hasChanges(i)).length, [filtered, edits]);
+
+  function saveAll() {
+    const changed = filtered.filter(i => hasChanges(i));
+    if (!changed.length) return;
+    changed.forEach(i => saveItem(i));
+    showToast(`Saved prices for ${changed.length} item${changed.length !== 1 ? 's' : ''}.`);
+  }
+
   return (
     <div>
       <div className="section-title">💰 Price Updater</div>
       <div style={{background:'#dbeafe',color:'#1d4ed8',borderRadius:8,padding:'12px 16px',marginBottom:16,fontSize:13.5,lineHeight:1.6}}>
         Update prices for each supplier below. Changed fields are highlighted. Click <strong>Save Prices</strong> to save an item's changes — price history is recorded automatically.
       </div>
-      <input className="input mb-4" placeholder="Search items by name or category…" value={search} onChange={e=>setSearch(e.target.value)} />
+      <div className="flex gap-2 mb-4 flex-wrap" style={{alignItems:'center'}}>
+        <input className="input" style={{flex:'3 1 200px'}} placeholder="Search items by name or category…" value={search} onChange={e=>setSearch(e.target.value)} />
+        <select className="input" style={{flex:'1 1 130px'}} value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {allCategories.map(c=><option key={c}>{c}</option>)}
+        </select>
+        {(search||catFilter) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');}}>✕ Clear</Btn>}
+        {pendingCount > 0 && (
+          <Btn className="btn-primary btn-sm" style={{marginLeft:'auto'}} onClick={saveAll}>
+            💾 Save All ({pendingCount})
+          </Btn>
+        )}
+      </div>
       {items.length===0 && <div className="card empty-state">No items yet. Use the Add Items tab to add items first.</div>}
       {items.length>0 && filtered.length===0 && <div className="card empty-state">No items match your search.</div>}
       {filtered.map(item=>(

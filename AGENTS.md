@@ -234,6 +234,16 @@ import { BrandMark } from '../ui/BrandMark.jsx';
 ```
 Exception: `getInvoiceBranding` remains in `App.jsx` (depends on `BRANDING` constant + `mergeBrandingWithOverrides`) and is passed as a prop to invoice tabs.
 
+## cateringInvoices schema note (Slice 46 / BL-102)
+
+`cateringInvoices` records now support an optional `payments` array for multiple partial payments:
+
+```js
+payments: [{ id, date, amount, note }]   // Slice 46 — replaces single `deposit` field
+```
+
+Backward-compatible: records without `payments` (legacy `deposit` field) continue to work. New payment records appended via "+ Record Payment" button; `markPaid` also appends a payment entry. Payment History block shown in the view modal.
+
 ## Item schema (Slice 19 + Slice 44 additions)
 
 `items` records now carry optional per-location fields in addition to the legacy scalar fields:
@@ -381,6 +391,21 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 **Slice 43 (BL-94–95):** Analytics monthly net-profit inline bar chart (revenue minus expenses per month, green/red bars, respects date filter); Dashboard upcoming/overdue invoices card (purchase invoices with dueDate within 14 days or past due).
 
 **Slice 44 (BL-96–99):** Unit type system — `PURCHASE_UNITS`, `CASE_UNITS`, `WEIGHT_UNITS` added to `constants.js`; ItemDatabase unit field replaced with dropdown + custom-input fallback + conditional `caseSize` field; seller price placeholder shows "$/unit"; saveItem now allows price-only seller entries (empty name is valid, no silent data loss); PurchaseInvoices + CateringInvoices + ShoppingList all use unit dropdown; ShoppingList unit column is a select with auto-price conversion on case↔unit switch; price auto-fill logic improved (`.trim()` on name match, price>0 guard, empty-unit fill fixed). Bug fix: seller price was silently dropped when seller name was blank — now saved with empty-string name so price lookup via `sellers[0]` fallback still works.
+
+## Slices 45–46 — Invoice improvements, activity log, UI gaps (2026-05)
+
+**Slice 45:**
+- BL-103: PurchaseInvoices bulk mark-paid (checkboxes, select-all, blue action bar, price back-propagation batch)
+- BL-106: CateringInvoices view modal — "By Category" subtotal breakdown of line items
+- ActivityLog: action-type dropdown filter, keyword search field, pagination (50/page), bulk_mark_paid label
+- PriceHistory: fixed missing Confirm import (crashed on delete)
+- ShoppingList: current stock column at selected location (green/red/grey)
+- Dashboard: daily `_inventorySnapshots` (BL-104 simplified); 7-day sparkline in inventory value stat card
+
+**Slice 46:**
+- BL-102: CateringInvoices multiple partial payments — `payments: [{id, date, amount, note}]` array; backward-compatible with legacy `deposit` field; Payment History block in view modal; "+ Record Payment" button; markPaid appends payment record
+- ItemDatabase: `filterLow` state + toggle button to show only low-stock items
+- TransferInvoices: date-range filter (filterDateFrom/filterDateTo); price auto-fill from item DB in setLine; logActivity on mark-paid inline button
 
 ## Price auto-fill (Slice 19 + Slice 44 improvements)
 

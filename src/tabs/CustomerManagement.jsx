@@ -186,32 +186,82 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
         </div>
       </Modal>
 
-      <Modal open={!!viewCust} onClose={() => setViewId(null)} title={`${viewCust?.name || ''} — Invoice History`} wide closeOnBackdrop>
-        {viewCust && (
-          <div>
-            <div style={{ padding: '10px 14px', background: 'var(--cream)', borderRadius: 6, marginBottom: 16, fontSize: 14 }}>
-              {viewCust.phone && <div>📞 {viewCust.phone}</div>}
-              {viewCust.email && <div>✉️ {viewCust.email}</div>}
-              {viewCust.address && <div>📍 {viewCust.address}</div>}
-              {viewCust.notes && <div style={{ color: '#888', marginTop: 4 }}>📝 {viewCust.notes}</div>}
-            </div>
-            {custInvs.length === 0
-              ? <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>No invoices for this customer yet.</p>
-              : (() => {
-                  const totalRevenue = custInvs.reduce((s, inv) => s + (inv.grandTotal || inv.total || 0), 0);
-                  const outstanding = custInvs.filter(inv => inv.status !== 'paid').reduce((s, inv) => s + (inv.balanceDue || 0), 0);
-                  return (
-                <>
-                  <div style={{display:'flex', gap:16, marginBottom:8, fontSize:13, color:'#555', flexWrap:'wrap'}}>
+      <Modal open={!!viewCust} onClose={() => setViewId(null)} title={`${viewCust?.name || ''} — Account Statement`} wide closeOnBackdrop>
+        {viewCust && (() => {
+          const totalRevenue = custInvs.reduce((s, inv) => s + (inv.grandTotal || inv.total || 0), 0);
+          const outstanding = custInvs.filter(inv => inv.status !== 'paid').reduce((s, inv) => s + (inv.balanceDue || 0), 0);
+          const sorted = [...custInvs].sort((a, b) => (b.date || b.dateStart || '').localeCompare(a.date || a.dateStart || ''));
+          const lastDate = sorted[0]?.date || sorted[0]?.dateStart;
+
+          function printStatement() {
+            const rows = sorted.map(inv => `<tr>
+              <td>${inv.id}</td>
+              <td>${inv.useRange ? `${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}` : fmtDate(inv.date)}</td>
+              <td>${inv.eventType || ''}</td>
+              <td style="text-align:right">${fmt$(inv.grandTotal)}</td>
+              <td style="text-align:right;color:${inv.balanceDue > 0 ? '#DC2626' : '#15803D'}">${fmt$(inv.balanceDue)}</td>
+              <td>${inv.status}</td>
+            </tr>`).join('');
+            const html = `<!DOCTYPE html><html><head><title>Statement — ${viewCust.name}</title><style>
+              body{font-family:Arial,sans-serif;font-size:13px;padding:20px;color:#333}
+              h2{color:#8B4513;margin-bottom:4px} .meta{color:#666;font-size:12px;margin-bottom:16px}
+              table{border-collapse:collapse;width:100%} th{background:#FFF0D4;padding:7px 10px;text-align:left;border-bottom:2px solid #D2691E}
+              td{padding:6px 10px;border-bottom:1px solid #eee} .totals{text-align:right;margin-top:14px;font-size:14px}
+              @media print{body{padding:0}}
+            </style></head><body>
+              <h2>${viewCust.name}</h2>
+              <div class="meta">${viewCust.phone ? `📞 ${viewCust.phone}  ` : ''}${viewCust.email ? `✉ ${viewCust.email}  ` : ''}${viewCust.address ? `📍 ${viewCust.address}` : ''}</div>
+              <table><thead><tr><th>Invoice #</th><th>Date</th><th>Event</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead>
+              <tbody>${rows}</tbody></table>
+              <div class="totals">
+                Total Invoiced: <strong>${fmt$(totalRevenue)}</strong> &nbsp;|&nbsp;
+                Outstanding: <strong style="color:${outstanding > 0 ? '#DC2626' : '#15803D'}">${fmt$(outstanding)}</strong>
+              </div>
+              <div style="margin-top:20px;font-size:11px;color:#aaa">Printed ${new Date().toLocaleString()}</div>
+            </body></html>`;
+            const w = window.open('', '_blank');
+            if (!w) { showToast('Pop-up blocked. Allow pop-ups for printing.', 'error'); return; }
+            w.document.write(html); w.document.close(); w.focus(); w.print();
+          }
+
+          function exportStatementCsv() {
+            const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            const rows = sorted.map(inv => [
+              inv.id, inv.useRange ? `${inv.dateStart} – ${inv.dateEnd}` : (inv.date || ''),
+              inv.eventType || '', +(inv.grandTotal||0).toFixed(2), +(inv.balanceDue||0).toFixed(2), inv.status || ''
+            ]);
+            const csv = [['Invoice #','Date','Event','Total','Balance Due','Status'].map(esc).join(','),
+              ...rows.map(r => r.map(esc).join(','))].join('\n');
+            const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `statement-${viewCust.name.replace(/\s+/g,'-')}-${today()}.csv`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            showToast('Statement exported as CSV.');
+          }
+
+          return (
+            <div>
+              <div style={{ padding: '10px 14px', background: 'var(--cream)', borderRadius: 6, marginBottom: 14, fontSize: 14 }}>
+                {viewCust.phone && <div>📞 {viewCust.phone}</div>}
+                {viewCust.email && <div>✉️ {viewCust.email}</div>}
+                {viewCust.address && <div>📍 {viewCust.address}</div>}
+                {viewCust.notes && <div style={{ color: '#888', marginTop: 4 }}>📝 {viewCust.notes}</div>}
+              </div>
+              {custInvs.length === 0
+                ? <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>No invoices for this customer yet.</p>
+                : <>
+                  <div style={{display:'flex', gap:16, marginBottom:10, fontSize:13, color:'#555', flexWrap:'wrap'}}>
                     <span>Total invoiced: <strong style={{color:'var(--brown)'}}>{fmt$(totalRevenue)}</strong></span>
                     <span>Outstanding: <strong style={{color: outstanding > 0 ? '#DC2626' : '#16A34A'}}>{fmt$(outstanding)}</strong></span>
                     <span>{custInvs.length} invoice{custInvs.length!==1?'s':''}</span>
+                    {lastDate && <span>Last order: <strong>{fmtDate(lastDate)}</strong></span>}
                   </div>
                   <div className="tbl-wrap">
                     <table>
                       <thead><tr><th>Invoice #</th><th>Date</th><th>Event</th><th>Total</th><th>Balance</th><th>Status</th></tr></thead>
                       <tbody>
-                        {[...custInvs].reverse().map(inv => (
+                        {sorted.map(inv => (
                           <tr key={inv.id}>
                             <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{inv.id}</td>
                             <td>{inv.useRange ? `${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}` : fmtDate(inv.date)}</td>
@@ -224,12 +274,15 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
                       </tbody>
                     </table>
                   </div>
+                  <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:12}}>
+                    <button className="btn btn-outline btn-sm" onClick={exportStatementCsv}>⬇ Export CSV</button>
+                    <button className="btn btn-outline btn-sm" onClick={printStatement}>🖨 Print Statement</button>
+                  </div>
                 </>
-                  );
-                })()
-            }
-          </div>
-        )}
+              }
+            </div>
+          );
+        })()}
       </Modal>
 
       <Confirm
