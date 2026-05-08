@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useId } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
 import { LOCATIONS, INVENTORY_ADJUSTMENTS_KEY } from '../constants.js';
@@ -54,6 +55,8 @@ export default function InventoryAdjustments({ items, setItems }) {
   const [filterName, setFilterName] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
   const [filterReason, setFilterReason] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const itemNameSuggestions = useMemo(() => {
@@ -200,18 +203,31 @@ export default function InventoryAdjustments({ items, setItems }) {
     showToast('Adjustments exported.');
   }
 
+  function exportExcel() {
+    if (!filtered.length) { showToast('No adjustments to export.', 'error'); return; }
+    const header = ['Date','Item','Location','Qty Change','Reason','Notes'];
+    const rows = filtered.map(a => [a.date, a.itemName, a.location, a.delta > 0 ? `+${a.delta}` : String(a.delta), a.reason, a.notes || '']);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Adjustments');
+    XLSX.writeFile(wb, 'inventory-adjustments-' + today() + '.xlsx');
+    showToast('Adjustments exported as Excel.');
+  }
+
   const filtered = useMemo(() => {
     const q = filterName.toLowerCase();
     return adjustments.filter(a => {
       if (q && !a.itemName.toLowerCase().includes(q)) return false;
       if (filterLocation && a.location !== filterLocation) return false;
       if (filterReason && a.reason !== filterReason) return false;
+      if (filterDateFrom && a.date < filterDateFrom) return false;
+      if (filterDateTo && a.date > filterDateTo) return false;
       return true;
     }).sort((a, b) => {
       if (b.date !== a.date) return b.date.localeCompare(a.date);
       return b.createdAt.localeCompare(a.createdAt);
     });
-  }, [adjustments, filterName, filterLocation, filterReason]);
+  }, [adjustments, filterName, filterLocation, filterReason, filterDateFrom, filterDateTo]);
 
   const pendingDelete = adjustments.find(a => a.id === confirmDeleteId);
 
@@ -314,22 +330,28 @@ export default function InventoryAdjustments({ items, setItems }) {
             Adjustment Log <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>({adjustments.length})</span>
           </div>
           <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
-            <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
             <input
               className="input"
-              style={{ width: 160 }}
+              style={{ width: 140 }}
               placeholder="Filter by item…"
               value={filterName}
               onChange={e => setFilterName(e.target.value)}
             />
-            <select className="input" style={{ width: 140 }} value={filterLocation} onChange={e => setFilterLocation(e.target.value)}>
+            <select className="input" style={{ width: 130 }} value={filterLocation} onChange={e => setFilterLocation(e.target.value)}>
               <option value="">All Locations</option>
               {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
-            <select className="input" style={{ width: 160 }} value={filterReason} onChange={e => setFilterReason(e.target.value)}>
+            <select className="input" style={{ width: 150 }} value={filterReason} onChange={e => setFilterReason(e.target.value)}>
               <option value="">All Reasons</option>
               {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
+            <input className="input" type="date" style={{width:'auto'}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
+            <input className="input" type="date" style={{width:'auto'}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
+            {(filterName||filterLocation||filterReason||filterDateFrom||filterDateTo) && (
+              <Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterName('');setFilterLocation('');setFilterReason('');setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear</Btn>
+            )}
           </div>
         </div>
 

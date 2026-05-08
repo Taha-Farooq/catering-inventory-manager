@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { showToast } from '../toastContext.jsx';
 import { fmt$, sellerKey, safePrice } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
@@ -71,7 +71,38 @@ export default function PriceUpdater({ items, setItems, priceHistory, setPriceHi
   function saveAll() {
     const changed = filtered.filter(i => hasChanges(i));
     if (!changed.length) return;
-    changed.forEach(i => saveItem(i));
+    let valid = true;
+    let nextItems = [...items];
+    const allNewHist = [];
+    const remainingEdits = { ...edits };
+    changed.forEach(item => {
+      const newSellers = item.sellers.map((s, sellerIdx) => {
+        const key = sellerEditKey(item.id, s.name, sellerIdx);
+        if (edits[key] !== undefined) {
+          const val = edits[key];
+          if (val !== '' && safePrice(val) === null) { showToast('Invalid price for ' + s.name + ' [DMG-E006]', 'error'); valid = false; return s; }
+          return { ...s, price: val==='' ? null : safePrice(val) };
+        }
+        return s;
+      });
+      if (!valid) return;
+      item.sellers.forEach((s, sellerIdx) => {
+        const key = sellerEditKey(item.id, s.name, sellerIdx);
+        if (edits[key] !== undefined) {
+          const newPrice = edits[key]==='' ? null : safePrice(edits[key]);
+          const oldPrice = s.price !== undefined ? s.price : null;
+          if (oldPrice !== newPrice && oldPrice !== null && newPrice !== null)
+            allNewHist.push({ id: uid(), itemId: item.id, itemName: item.name, seller: s.name, oldPrice, newPrice, date: today() });
+        }
+      });
+      nextItems = nextItems.map(i => i.id === item.id ? { ...i, sellers: newSellers } : i);
+      Object.keys(remainingEdits).forEach(k => { if (k.startsWith(item.id+'|')) delete remainingEdits[k]; });
+      logActivity('update_prices', item.name);
+    });
+    if (!valid) return;
+    if (allNewHist.length) { const h = [...priceHistory, ...allNewHist]; setPriceHistory(h); save('priceHistory', h); }
+    setItems(nextItems); save('items', nextItems);
+    setEdits(remainingEdits);
     showToast(`Saved prices for ${changed.length} item${changed.length !== 1 ? 's' : ''}.`);
   }
 
