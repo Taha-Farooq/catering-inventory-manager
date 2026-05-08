@@ -235,6 +235,20 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     <div>
       <div className="section-title">Dashboard</div>
 
+      {/* Quick Actions */}
+      {setTab && (
+        <div className="card mb-4">
+          <div style={{fontWeight:700,color:'var(--brown)',marginBottom:10,fontSize:14}}>Quick Actions</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <button className="btn btn-primary btn-sm" onClick={()=>setTab('catering')}>🍽 New Catering Invoice</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('purchase')}>📋 New Purchase Invoice</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('shopping')}>🛒 Shopping List</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('invadj')}>📝 Log Adjustment</button>
+            <button className="btn btn-outline btn-sm" onClick={()=>setTab('items')}>📦 Item Database</button>
+          </div>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="stat-grid">
         <div
