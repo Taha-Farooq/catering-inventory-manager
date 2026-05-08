@@ -668,6 +668,8 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-123 | transferCalc.test.js: 7 tests for transfer invoice 15% commission calculation | **Done** — Slice 58 |
 | BL-124 | TransferInvoices/CateringInvoices/PurchaseInvoices: deduplicate getInvoiceBranding() (4→1 per render via IIFE); TransferInvoices add Status column to list table | **Done** — Slice 59 |
 | BL-125 | PayrollInvoices: blankForm initializes periodEnd from calcPeriodEnd; calcPayroll adds Math.max(0) guard on reg/ot hours | **Done** — Slice 59 |
+| BL-126 | itemImportUtils.test.js: 13 tests for normalizeImportHeaders (alias mapping, location columns, case insensitivity) | **Done** — Slice 60 |
+| BL-127 | dailyFinanceUtils.test.js: 18 tests for parseNum, calcTotals, calcSummary, buildMonthlyData | **Done** — Slice 60 |
 
 ---
 
