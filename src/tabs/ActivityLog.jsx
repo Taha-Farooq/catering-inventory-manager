@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
 
@@ -26,15 +26,20 @@ const ACTION_LABELS = {
   update_stock_from_invoice: 'Updated Stock from Invoice',
   add_custom_category: 'Added Custom Category',
   remove_custom_category: 'Removed Custom Category',
+  bulk_mark_paid: 'Bulk Marked Paid',
 };
 const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase() + a.slice(1) : '');
 
 export default function ActivityLog({ save }) {
   const [log, setLog] = useState(() => load('_activityLog', []));
   const [userF, setUserF] = useState('all');
+  const [actionF, setActionF] = useState('all');
+  const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showClearLogConfirm, setShowClearLogConfirm] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
 
   function refresh() { setLog(load('_activityLog', [])); showToast('Log refreshed'); }
 
@@ -63,15 +68,22 @@ export default function ActivityLog({ save }) {
     showToast('Activity log exported.');
   }
 
-  const users = useMemo(() => [...new Set(log.map(e => e.username))], [log]);
+  useEffect(() => { setPage(1); }, [userF, actionF, search, dateFrom, dateTo]);
+
+  const users = useMemo(() => [...new Set(log.map(e => e.username))].filter(Boolean).sort(), [log]);
+  const actions = useMemo(() => [...new Set(log.map(e => e.action))].filter(Boolean).sort(), [log]);
 
   const filtered = useMemo(() => {
     let r = [...log].reverse();
     if (userF !== 'all') r = r.filter(e => e.username === userF);
+    if (actionF !== 'all') r = r.filter(e => e.action === actionF);
+    if (search.trim()) { const q = search.toLowerCase(); r = r.filter(e => (e.details||'').toLowerCase().includes(q) || (e.username||'').toLowerCase().includes(q)); }
     if (dateFrom) r = r.filter(e => e.timestamp && e.timestamp.slice(0, 10) >= dateFrom);
     if (dateTo)   r = r.filter(e => e.timestamp && e.timestamp.slice(0, 10) <= dateTo);
     return r;
-  }, [log, userF, dateFrom, dateTo]);
+  }, [log, userF, actionF, search, dateFrom, dateTo]);
+
+  const paginated = useMemo(() => filtered.slice((page-1)*pageSize, page*pageSize), [filtered, page]);
 
   return (
     <div>
@@ -96,14 +108,22 @@ export default function ActivityLog({ save }) {
             {users.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
         </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label>Action Type</label>
+          <select className="input" value={actionF} onChange={e => setActionF(e.target.value)}>
+            <option value="all">All Actions</option>
+            {actions.map(a => <option key={a} value={a}>{fmtAction(a)}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ margin: 0 }}><label>Search Details</label><input className="input" placeholder="Keyword…" value={search} onChange={e => setSearch(e.target.value)} /></div>
         <div className="field" style={{ margin: 0 }}><label>From Date</label><input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
         <div className="field" style={{ margin: 0 }}><label>To Date</label><input className="input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
       </div>
 
       <div style={{ fontSize: 13, color: '#666', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span>Showing <strong>{filtered.length}</strong> of {log.length} entries</span>
-        {(userF !== 'all' || dateFrom || dateTo) && (
-          <Btn className="btn-sm" style={{ background: '#eee', color: '#666' }} onClick={() => { setUserF('all'); setDateFrom(''); setDateTo(''); }}>✕ Clear Filters</Btn>
+        {(userF !== 'all' || actionF !== 'all' || search || dateFrom || dateTo) && (
+          <Btn className="btn-sm" style={{ background: '#eee', color: '#666' }} onClick={() => { setUserF('all'); setActionF('all'); setSearch(''); setDateFrom(''); setDateTo(''); }}>✕ Clear Filters</Btn>
         )}
       </div>
 
@@ -115,7 +135,7 @@ export default function ActivityLog({ save }) {
             <table>
               <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead>
               <tbody>
-                {filtered.map((e, i) => (
+                {paginated.map((e, i) => (
                   <tr key={e.id || i}>
                     <td style={{ fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap' }}>{e.timestamp ? new Date(e.timestamp).toLocaleString() : ''}</td>
                     <td><span className={`badge badge-${e.username === 'admin' ? 'admin' : 'user'}`}>{e.username}</span></td>
@@ -128,6 +148,13 @@ export default function ActivityLog({ save }) {
           </div>
         </div>
       )}
+      {(() => { const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize)); return totalPages > 1 ? (
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginTop:12,fontSize:13}}>
+          <Btn className="btn-outline btn-sm" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>← Prev</Btn>
+          <span style={{color:'#666'}}>Page <strong>{Math.min(page,totalPages)}</strong> of <strong>{totalPages}</strong></span>
+          <Btn className="btn-outline btn-sm" disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next →</Btn>
+        </div>
+      ) : null; })()}
 
       <Confirm
         open={showClearLogConfirm}

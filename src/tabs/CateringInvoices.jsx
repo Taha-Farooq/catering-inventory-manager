@@ -476,6 +476,29 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
             </div>
             {viewInv.notes&&<div style={{marginTop:8,fontSize:13,color:'#666',fontStyle:'italic'}}>Notes: {viewInv.notes}</div>}
             {items.length > 0 && (() => {
+              const catMap = {};
+              (viewInv.lineItems || []).forEach(l => {
+                const desc = (l.description || '').trim();
+                const it = items.find(i => i.name.toLowerCase() === desc.toLowerCase());
+                const cat = it?.category || null;
+                if (!cat) return;
+                const total = safeQty(l.qty ?? l.quantity) * (parseFloat(l.price ?? l.unitPrice) || 0);
+                catMap[cat] = (catMap[cat] || 0) + total;
+              });
+              const cats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+              if (cats.length < 2) return null;
+              return (
+                <div style={{marginTop:12,padding:'8px 12px',background:'#FDF6EE',border:'1px solid #EDD9B0',borderRadius:6,fontSize:12.5}}>
+                  <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6}}>By Category</div>
+                  {cats.map(([cat, sub]) => (
+                    <div key={cat} style={{display:'flex',justifyContent:'space-between',padding:'2px 0',borderBottom:'1px solid #F0E4CC'}}>
+                      <span style={{color:'#5a3010'}}>{cat}</span><span style={{fontWeight:600}}>{fmt$(+sub.toFixed(2))}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {items.length > 0 && (() => {
               let estCost = 0; let matched = 0;
               (viewInv.lineItems || []).forEach(l => {
                 const desc = (l.description || '').trim();

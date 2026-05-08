@@ -339,7 +339,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
             <div className="card" style={{padding:0}}>
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th style={{width:36}}>✓</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
+                  <thead><tr><th title="Drag to reorder" aria-label="Reorder" style={{width:36}}>⋮⋮</th><th style={{width:36}}>✓</th><th>Item</th><th>UPC</th><th>Seller</th><th>Qty</th><th>Unit</th><th>Stock</th><th>Unit Price</th><th>Total</th><th>Notes</th><th></th></tr></thead>
                   <tbody>
                     {shoppingList.map((e, idx)=>{
                       const lt=safeQty(e.quantity)*(e.price??0);
@@ -410,6 +410,13 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
                               {e.unit && !PURCHASE_UNITS.includes(e.unit) && <option value={e.unit}>{e.unit}</option>}
                             </select>
                           </td>
+                          {(() => {
+                            const dbItem = items.find(i => i.id === e.itemId);
+                            const qty = dbItem?.locQty?.[shoppingLoc.toLowerCase()];
+                            const qtyNum = parseFloat(qty);
+                            const color = qty == null || qty === '' ? '#999' : qtyNum <= 0 ? '#DC2626' : '#15803D';
+                            return <td style={{fontSize:12,color,fontWeight:qtyNum>0?600:undefined}}>{qty != null && qty !== '' ? qty : '—'}</td>;
+                          })()}
                           <td>
                             {e.price!=null ? (
                               <span title={`$${e.price}/${e.unit||'unit'}`}>{fmt$(e.price)}<span style={{fontSize:10,color:'#999',marginLeft:2}}>/{e.unit||'ea'}</span></span>

@@ -2,6 +2,7 @@ import React, { useState, useMemo, lazy, Suspense } from 'react';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
+import Confirm from '../ui/Confirm.jsx';
 const LazyPriceHistoryChart = lazy(() => import('../charts/PriceHistoryChart.jsx'));
 
 function Btn({ className='', children, ...p }) {

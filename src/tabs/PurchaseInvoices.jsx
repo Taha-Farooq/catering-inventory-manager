@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId } from 'react';
+import React, { useState, useMemo, useId, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
@@ -225,6 +225,38 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     showToast('Purchase invoice marked paid.');
   }
 
+  function bulkMarkPaid() {
+    if (!selectedIds.size) return;
+    const toMark = purchaseInvoices.filter(i => selectedIds.has(i.id) && i.status !== 'paid');
+    if (!toMark.length) { showToast('All selected invoices are already paid.'); setSelectedIds(new Set()); return; }
+    let nextItems = [...items];
+    let priceUpdates = 0;
+    toMark.forEach(inv => {
+      const supplierLc = (inv.supplier || '').toLowerCase().trim();
+      (inv.lineItems || []).forEach(l => {
+        const desc = (l.description || '').trim();
+        const price = parseFloat(l.unitPrice ?? l.price);
+        if (!desc || isNaN(price) || price <= 0) return;
+        const matchIdx = nextItems.findIndex(it => it.name.toLowerCase() === desc.toLowerCase());
+        if (matchIdx < 0) return;
+        const match = nextItems[matchIdx];
+        const sellers = Array.isArray(match.sellers) ? match.sellers.map(s => ({...s})) : [];
+        const selIdx = supplierLc ? sellers.findIndex(s => (s.name||'').toLowerCase() === supplierLc) : -1;
+        if (selIdx >= 0 && sellers[selIdx].price !== price) {
+          sellers[selIdx] = { ...sellers[selIdx], price };
+          priceUpdates++;
+          nextItems = [...nextItems.slice(0, matchIdx), { ...match, sellers }, ...nextItems.slice(matchIdx + 1)];
+        }
+      });
+    });
+    const u = purchaseInvoices.map(i => selectedIds.has(i.id) && i.status !== 'paid' ? {...i, status: 'paid'} : i);
+    setPurchaseInvoices(u); save('purchaseInvoices', u);
+    if (priceUpdates > 0 && setItems) { setItems(nextItems); save('items', nextItems); }
+    logActivity('bulk_mark_paid', `Bulk marked ${toMark.length} purchase invoices as paid${priceUpdates > 0 ? `, updated ${priceUpdates} prices` : ''}`);
+    showToast(`${toMark.length} invoice${toMark.length !== 1 ? 's' : ''} marked paid${priceUpdates > 0 ? ` · ${priceUpdates} price${priceUpdates !== 1 ? 's' : ''} updated` : ''}.`);
+    setSelectedIds(new Set());
+  }
+
   function buildStockMatches(inv) {
     return (inv.lineItems || []).map(l => {
       const desc = (l.description || '').trim();
@@ -274,6 +306,8 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [receivedQtys, setReceivedQtys] = useState({});
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  useEffect(() => { setSelectedIds(new Set()); }, [filterStatus, filterSupplier, filterDateFrom, filterDateTo, showAllBiz]);
 
   const visiblePurchase = useMemo(() => {
     let list = showAllBiz ? [...purchaseInvoices] : purchaseInvoices.filter(i => !i.business || i.business === selectedBusiness);
@@ -369,16 +403,28 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8,padding:'8px 14px',marginBottom:12,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{fontWeight:600,color:'#1D4ED8'}}>{selectedIds.size} invoice{selectedIds.size!==1?'s':''} selected</span>
+          <Btn className="btn-success btn-sm" onClick={bulkMarkPaid}>✓ Mark All Paid</Btn>
+          <Btn className="btn-outline btn-sm" onClick={()=>setSelectedIds(new Set())}>Clear</Btn>
+        </div>
+      )}
+
       {visiblePurchase.length===0
         ? <div className="card empty-state">{purchaseInvoices.length===0 ? 'No purchase invoices yet. Click "+ New Invoice" to create one.' : 'No invoices for this business. Use "All businesses" to see others.'}</div>
         : (
           <div className="card" style={{padding:0}}>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Invoice #</th><th>Supplier</th><th>Date</th><th>Due Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr>
+                  <th style={{width:36}}><input type="checkbox" checked={selectedIds.size>0&&visiblePurchase.every(i=>selectedIds.has(i.id))} onChange={e=>{setSelectedIds(e.target.checked?new Set(visiblePurchase.map(i=>i.id)):new Set());}} /></th>
+                  <th>Invoice #</th><th>Supplier</th><th>Date</th><th>Due Date</th><th>Business</th><th>Total</th><th>Status</th><th>Actions</th>
+                </tr></thead>
                 <tbody>
                   {visiblePurchase.map(inv=>(
                     <tr key={inv.id}>
+                      <td><input type="checkbox" checked={selectedIds.has(inv.id)} onChange={()=>setSelectedIds(prev=>{const n=new Set(prev);n.has(inv.id)?n.delete(inv.id):n.add(inv.id);return n;})} /></td>
                       <td style={{fontFamily:'monospace',fontWeight:700}}>{inv.id}</td>
                       <td style={{fontWeight:600}}>{inv.supplier}</td>
                       <td>{fmtDate(inv.date)}</td>
@@ -386,7 +432,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
                         {inv.dueDate ? fmtDate(inv.dueDate) : '—'}
                         {inv.dueDate && inv.dueDate < today() && inv.status !== 'paid' ? ' ⚠' : ''}
                       </td>
-                      <td style={{fontSize:12,color:'#777'}}>{inv._type==='transfer'?'P&P Internal Transfer':BUSINESSES[inv.business]?.name}</td>
+                      <td style={{fontSize:12,color:'#777'}}>{BUSINESSES[inv.business]?.name}</td>
                       <td style={{fontWeight:600}}>{fmt$(inv.total)}</td>
                       <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
                       <td style={{whiteSpace:'nowrap'}}>

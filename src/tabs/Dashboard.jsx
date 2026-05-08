@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
@@ -49,6 +49,20 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
 
     return { totalItems, lowStock, inventoryValue, outstanding };
   }, [items, cateringInvoices]);
+
+  useEffect(() => {
+    const todayStr = today();
+    const snaps = load('_inventorySnapshots', []);
+    if (!snaps.find(s => s.date === todayStr)) {
+      const updated = [...snaps, { date: todayStr, value: stats.inventoryValue }].slice(-30);
+      save('_inventorySnapshots', updated);
+    }
+  }, [stats.inventoryValue]);
+
+  const snapshots = useMemo(() => {
+    const snaps = load('_inventorySnapshots', []);
+    return [...snaps].sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+  }, []);
 
   const lowStockRows = useMemo(() => {
     const rows = [];
@@ -240,6 +254,18 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
         </div>
         <div className="stat-card">
           <div className="stat-val">{fmt$(stats.inventoryValue)}</div>
+          {snapshots.length >= 2 && (() => {
+            const max = Math.max(...snapshots.map(s => s.value), 1);
+            return (
+              <div style={{display:'flex',alignItems:'flex-end',gap:2,height:28,marginTop:6}}>
+                {snapshots.map((s, i) => (
+                  <div key={s.date} title={`${fmtDate(s.date)}: ${fmt$(s.value)}`}
+                    style={{flex:1,background:i===snapshots.length-1?'var(--brown)':'#D2691E55',
+                      height:Math.max(3, (s.value/max)*28)+'px',borderRadius:'2px 2px 0 0',minWidth:6}} />
+                ))}
+              </div>
+            );
+          })()}
           <div className="stat-lbl">Inventory Value</div>
         </div>
         <div className="stat-card">
