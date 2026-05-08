@@ -173,6 +173,29 @@ export default function HelpCenter({
         </div>
       </div>
       <div className="card mb-3">
+        <div style={{ fontWeight: 700, color: 'var(--brown)', marginBottom: 8 }}>Feature Overview</div>
+        <div style={{ fontSize: 13, lineHeight: 1.9, color: '#555' }}>
+          <strong>📦 Items</strong> — Full item database with per-location stock levels, reorder points, and bulk CSV/Excel import.<br />
+          <strong>📝 Inv. Log</strong> — Manual inventory adjustment log: received, waste, correction, and inter-location transfers with full history export.<br />
+          <strong>🛒 Shopping</strong> — Shopping list with per-seller subtotals, location context, and Excel export. Auto-populates from low-stock items.<br />
+          <strong>💰 Price Updater</strong> — Edit all supplier prices in one place. Changes are recorded in Price History automatically. Export as CSV or Excel.<br />
+          <strong>📋 Purchase Inv.</strong> — Purchase invoices from suppliers. Mark as paid, receive stock directly from invoice, export list.<br />
+          <strong>🍽️ Catering Inv.</strong> — Catering event invoices with CC fee, tax, deposit tracking, and copy to new event.<br />
+          <strong>🚚 Transfer Inv.</strong> — Inter-business transfer invoices with 15% commission calculation.<br />
+          <strong>💼 Payroll Inv.</strong> — Payroll records with regular/overtime hours, pay rates, and monthly summary export.<br />
+          <strong>👥 Customers</strong> — Customer contact list with catering invoice history and balance statements.<br />
+          <strong>🏪 Suppliers</strong> — Supplier contact directory with spend stats, item linkage, and CSV/Excel export.<br />
+          <strong>📊 Analytics</strong> — Catering revenue analytics with date presets, top customers, event types, and monthly net profit.<br />
+          <strong>🧾 Daily Income &amp; Expense</strong> — Day-by-day finance entries with configurable income tax rate and Excel export.<br />
+          <strong>🗂️ Archive</strong> — Paginated view of all invoice types with cross-type filtering and Excel export.<br />
+          <strong>📈 Price History</strong> — Chronological log of all price changes recorded when using Price Updater.<br />
+          <strong>💹 Menu Margins</strong> — Recipe costing lab: map ingredients to menu items, compute cost, margin, and recommended price.<br />
+          <strong>🔍 Activity Log</strong> — Auditable log of every user action (logins, edits, exports, stock changes).<br />
+          <strong>🏠 Dashboard</strong> — Overview: low-stock alerts, stat cards, monthly revenue/spending trends, top suppliers, and recent activity.
+        </div>
+      </div>
+
+      <div className="card mb-3">
         <div style={{ fontWeight: 700, color: 'var(--brown)', marginBottom: 8 }}>Check In / Out</div>
         <div style={{ fontSize: 13, lineHeight: 1.8, color: '#555' }}>
           1) Scan the live work QR code.

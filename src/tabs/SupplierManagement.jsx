@@ -33,7 +33,7 @@ function FS({ label, children, ...props }) {
   );
 }
 
-const blank = () => ({ name: '', phone: '', email: '', website: '', notes: '', paymentTerms: '' });
+const blank = () => ({ name: '', phone: '', email: '', address: '', website: '', notes: '', paymentTerms: '' });
 
 export default function SupplierManagement({ suppliers, setSuppliers, items = [], purchaseInvoices = [] }) {
   const [showForm, setShowForm] = useState(false);
@@ -105,7 +105,7 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
   }, [suppliers, search, sortBy, supplierStats]);
 
   function openEdit(s) {
-    setForm({ name: s.name, phone: s.phone || '', email: s.email || '', website: s.website || '', notes: s.notes || '', paymentTerms: s.paymentTerms || '' });
+    setForm({ name: s.name, phone: s.phone || '', email: s.email || '', address: s.address || '', website: s.website || '', notes: s.notes || '', paymentTerms: s.paymentTerms || '' });
     setEditId(s.id);
     setShowForm(true);
   }
@@ -153,10 +153,10 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
   function exportCsv() {
     if (!suppliers.length) { showToast('No suppliers to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['Name', 'Phone', 'Email', 'Website', 'Payment Terms', 'Total Spend', 'Orders', 'Items Supplied', 'Notes'];
+    const header = ['Name', 'Phone', 'Email', 'Address', 'Website', 'Payment Terms', 'Total Spend', 'Orders', 'Items Supplied', 'Notes'];
     const rows = suppliers.map(s => {
       const st = statsFor(s);
-      return [s.name, s.phone || '', s.email || '', s.website || '', s.paymentTerms || '', +st.spend.toFixed(2), st.orders, st.itemCount, s.notes || ''];
+      return [s.name, s.phone || '', s.email || '', s.address || '', s.website || '', s.paymentTerms || '', +st.spend.toFixed(2), st.orders, st.itemCount, s.notes || ''];
     });
     const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -170,10 +170,10 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
   function exportExcel() {
     if (!suppliers.length) { showToast('No suppliers to export.', 'error'); return; }
     const wb = XLSX.utils.book_new();
-    const header = ['Name', 'Phone', 'Email', 'Website', 'Payment Terms', 'Total Spend', 'Orders', 'Items Supplied', 'Notes'];
+    const header = ['Name', 'Phone', 'Email', 'Address', 'Website', 'Payment Terms', 'Total Spend', 'Orders', 'Items Supplied', 'Notes'];
     const rows = suppliers.map(s => {
       const st = statsFor(s);
-      return [s.name, s.phone || '', s.email || '', s.website || '', s.paymentTerms || '', +st.spend.toFixed(2), st.orders, st.itemCount, s.notes || ''];
+      return [s.name, s.phone || '', s.email || '', s.address || '', s.website || '', s.paymentTerms || '', +st.spend.toFixed(2), st.orders, st.itemCount, s.notes || ''];
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Suppliers');
     XLSX.writeFile(wb, 'suppliers-' + today() + '.xlsx');
@@ -256,6 +256,7 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
           <FI label="Phone" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(555) 123-4567" />
           <FI label="Email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="orders@supplier.com" />
         </div>
+        <FI label="Address" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="123 Main St, City, State" />
         <div className="grid-2">
           <FI label="Website" value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://..." />
           <FS label="Payment Terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}>
@@ -278,6 +279,7 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
               <div>
                 {viewSup.phone && <div>📞 {viewSup.phone}</div>}
                 {viewSup.email && <div>✉️ <a href={`mailto:${viewSup.email}`} style={{ color: 'var(--brown)' }}>{viewSup.email}</a></div>}
+                {viewSup.address && <div>📍 {viewSup.address}</div>}
                 {viewSup.website && <div>🌐 <a href={viewSup.website} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brown)' }}>{viewSup.website}</a></div>}
                 {viewSup.paymentTerms && <div>💳 {viewSup.paymentTerms}</div>}
                 {viewSup.notes && <div style={{ color: '#888', marginTop: 4 }}>📝 {viewSup.notes}</div>}

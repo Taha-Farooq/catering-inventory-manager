@@ -680,6 +680,16 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-135 | MenuMarginsLab: Excel export with Menu Items + Margins sheets | **Done** — Slice 63 |
 | BL-136 | PriceHistory: Excel export button (single sheet, same columns as CSV) | **Done** — Slice 64 |
 | BL-137 | Analytics: Excel export with Summary, Top Customers, Event Types, Monthly Net Profit sheets | **Done** — Slice 64 |
+| BL-138 | ActivityLog: Excel export button (single sheet, same columns as CSV) | **Done** — Slice 65 |
+| BL-139 | Dashboard: logActivity on low-stock CSV export and "Add all to Shopping List" | **Done** — Slice 65 |
+| BL-140 | SupplierManagement: new tab for supplier contacts, spend stats, Discover, CSV + Excel export | **Done** — Slice 66 |
+| BL-141 | Backup/restore coverage: add `_suppliers` to SettingsModal ZIP payload (v2.4) and restore handler | **Done** — Slice 67 |
+| BL-142 | NAV_GROUPS_ADMIN: add `suppliers` to 'people' group so it appears in top nav | **Done** — Slice 67 |
+| BL-143 | PriceUpdater: CSV + Excel export of current price list (item, category, unit, supplier, price) | **Done** — Slice 67 |
+| BL-144 | HelpCenter: Feature Overview card listing all 17+ tabs with brief description | **Done** — Slice 67 |
+| BL-145 | SupplierManagement: add `address` field to blank form, Add/Edit modal, view modal, CSV + Excel export | **Done** — Slice 67 |
+| BL-146 | PurchaseInvoices: supplier contact card (phone/email/address) shown in invoice view modal when supplier is registered; supplier suggestions include registered suppliers | **Done** — Slice 67 |
+| BL-147 | Dashboard: fix broken "View All Invoices →" link (`'purchases'` → `'purchase'`) | **Done** — Slice 67 |
 
 ---
 

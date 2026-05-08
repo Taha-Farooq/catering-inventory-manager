@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { fmt$, sellerKey, safePrice } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
@@ -106,6 +107,43 @@ export default function PriceUpdater({ items, setItems, priceHistory, setPriceHi
     showToast(`Saved prices for ${changed.length} item${changed.length !== 1 ? 's' : ''}.`);
   }
 
+  function buildPriceRows() {
+    const rows = [];
+    items.forEach(item => {
+      if (!item.sellers || item.sellers.length === 0) {
+        rows.push([item.name, item.category || '', item.unit || '', '(no suppliers)', '']);
+      } else {
+        item.sellers.forEach(s => {
+          rows.push([item.name, item.category || '', item.unit || '', s.name || '', s.price != null ? s.price : '']);
+        });
+      }
+    });
+    return rows;
+  }
+  const PRICE_HEADER = ['Item Name', 'Category', 'Unit', 'Supplier', 'Price'];
+
+  function exportPriceCsv() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const esc = v => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s; };
+    const csv = [PRICE_HEADER.map(esc).join(','), ...buildPriceRows().map(r => r.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `price-list-${today()}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    logActivity('export_csv', `Exported price list CSV (${items.length} items)`);
+    showToast('Price list exported as CSV.');
+  }
+
+  function exportPriceExcel() {
+    if (!items.length) { showToast('No items to export.', 'error'); return; }
+    const ws = XLSX.utils.aoa_to_sheet([PRICE_HEADER, ...buildPriceRows()]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Price List');
+    XLSX.writeFile(wb, `price-list-${today()}.xlsx`);
+    logActivity('export_xlsx', `Exported price list Excel (${items.length} items)`);
+    showToast('Price list exported as Excel.');
+  }
+
   return (
     <div>
       <div className="section-title">💰 Price Updater</div>
@@ -119,11 +157,17 @@ export default function PriceUpdater({ items, setItems, priceHistory, setPriceHi
           {allCategories.map(c=><option key={c}>{c}</option>)}
         </select>
         {(search||catFilter) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');}}>✕ Clear</Btn>}
-        {pendingCount > 0 && (
-          <Btn className="btn-primary btn-sm" style={{marginLeft:'auto'}} onClick={saveAll}>
-            💾 Save All ({pendingCount})
-          </Btn>
-        )}
+        <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+          {items.length > 0 && <>
+            <Btn className="btn-outline btn-sm" onClick={exportPriceCsv}>⬇ CSV</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportPriceExcel}>⬇ Excel</Btn>
+          </>}
+          {pendingCount > 0 && (
+            <Btn className="btn-primary btn-sm" onClick={saveAll}>
+              💾 Save All ({pendingCount})
+            </Btn>
+          )}
+        </div>
       </div>
       {items.length===0 && <div className="card empty-state">No items yet. Use the Add Items tab to add items first.</div>}
       {items.length>0 && filtered.length===0 && <div className="card empty-state">No items match your search.</div>}

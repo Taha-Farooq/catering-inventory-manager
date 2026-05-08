@@ -324,7 +324,7 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
               </tbody>
             </table>
           </div>
-          {setTab && <div style={{textAlign:'right',marginTop:8}}><button className="btn btn-outline btn-sm" onClick={()=>setTab('purchases')}>View All Invoices →</button></div>}
+          {setTab && <div style={{textAlign:'right',marginTop:8}}><button className="btn btn-outline btn-sm" onClick={()=>setTab('purchase')}>View All Invoices →</button></div>}
         </div>
       )}
 

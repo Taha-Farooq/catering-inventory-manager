@@ -96,7 +96,7 @@ export const INTERNAL_SELLER_NAME_KEYS = new Set([
 export const NAV_GROUPS_ADMIN = [
   { id: 'ops', label: 'Stock', tabs: ['dashboard', 'items', 'invadj', 'shopping', 'pricer'] },
   { id: 'inv', label: 'Invoices', tabs: ['purchase', 'catering', 'transfer', 'payroll', 'archive'] },
-  { id: 'people', label: 'Staff', tabs: ['checkio', 'customers', 'actlog'] },
+  { id: 'people', label: 'Staff', tabs: ['checkio', 'customers', 'suppliers', 'actlog'] },
   { id: 'finance', label: 'Money', tabs: ['analytics', 'dailyfin', 'margins', 'history'] },
   { id: 'admin', label: 'Tools', tabs: ['scanbeta', 'help'] },
 ];

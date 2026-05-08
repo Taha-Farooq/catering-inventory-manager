@@ -471,7 +471,17 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 
 **Slice 62:** Dashboard — payroll outstanding stat card (red, clickable → payroll tab, shown only when > 0); fixed `payrollInv` undefined reference → `payrollInvoices`. InventoryAdjustments — paginate log at 50 rows/page (`PAGE_SIZE = 50`); `useEffect` resets page to 1 on any filter change; Prev/Next controls with "Page X of Y (N records)" display.
 
-## New localStorage keys (Slices 52–62)
+**Slice 63:** Excel export parity sweep — ItemDatabase (Items + Sellers sheets), CustomerManagement (customer list + per-customer statement modal), MenuMarginsLab (Menu Items + Margins sheets). All three gained "⬇ CSV" + "⬇ Excel" buttons.
+
+**Slice 64:** PriceHistory — `importExcel`, `logActivity`, `showToast` added; ⬇ CSV + ⬇ Excel buttons with `<>…</>` fragment wrapper (fixes JSX build error from two adjacent `<Btn>` in `{}`). Analytics — Excel export with 4 sheets (Summary, Top Customers, Event Types, Monthly Net Profit); `showToast` + `logActivity` added to CSV export too.
+
+**Slice 65:** ActivityLog — Excel export (single sheet, same columns as CSV); "⬇ CSV" + "⬇ Excel" buttons. Dashboard — `logActivity` added to `exportLowStockCsv` and `addLowStockToShoppingList`.
+
+**Slice 66 (new tab):** `src/tabs/SupplierManagement.jsx` — full supplier contact management tab (~310 lines). Props: `{ suppliers, setSuppliers, items, purchaseInvoices }`. Features: add/edit/delete modal, view modal (order history + items supplied), Discover modal (bulk-add unregistered supplier names found in item sellers and purchase invoices), CSV + Excel export. Computed data: `supplierStats` (spend/orders per supplier from purchase invoices), `allKnownNames` (unregistered names from items/invoices). Storage key: `_suppliers`. Added `{ id: 'suppliers', label: '🏪 Suppliers' }` to `TABS_ADMIN` in `constants.js`.
+
+**Slice 67:** Backup coverage + nav fix — `_suppliers` added to SettingsModal backup payload (version bumped to `'2.4'`) and restore handler; `suppliers`/`setSuppliers` threaded through `appState`. `suppliers` added to `NAV_GROUPS_ADMIN` 'people' group. PriceUpdater — CSV + Excel export of current price list (item, category, unit, supplier, price); buttons appear when items exist. HelpCenter — added Feature Overview card listing all 17+ tabs with brief descriptions.
+
+## New localStorage keys (Slices 52–67)
 
 | Key | Type | Owner | Purpose |
 |-----|------|-------|---------|
@@ -479,6 +489,7 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 | `INVENTORY_ADJUSTMENTS_KEY` (`_inventoryAdjustments`) | array | InventoryAdjustments | Inventory adjustment log records |
 | `_inventorySnapshots` | object | Dashboard | Daily stock snapshots for sparkline (BL-104) |
 | `_customCategories` | array | ItemDatabase | Admin-defined custom categories (BL-38) |
+| `_suppliers` | array | SupplierManagement | Registered supplier contact records (BL-138) |
 
 ## Known technical debt
 

@@ -42,7 +42,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap }) {
+export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [] }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),dueDate:'',taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
@@ -51,7 +51,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const descListId = useId();
   const unitLineListId = useId();
 
-  const supplierSuggestions = useMemo(()=>uniqSuggestions(...purchaseInvoices.map(i=>i.supplier)),[purchaseInvoices]);
+  const supplierSuggestions = useMemo(()=>uniqSuggestions(...purchaseInvoices.map(i=>i.supplier),...suppliers.map(s=>s.name)),[purchaseInvoices, suppliers]);
   const lineDescSuggestions = useMemo(()=>{
     const fromInv = purchaseInvoices.flatMap(i=>(i.lineItems||[]).map(l=>(l.description||'').trim()).filter(Boolean));
     const names = items.map(i=>i.name);
@@ -532,6 +532,17 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
                 <div><strong>Invoice #:</strong> {viewInv.id}</div>
                 <div><strong>Date:</strong> {fmtDate(viewInv.date)}</div>
                 <div><strong>Supplier:</strong> {viewInv.supplier}</div>
+                {(() => {
+                  const sup = suppliers.find(s => s.name.toLowerCase() === (viewInv.supplier||'').toLowerCase());
+                  if (!sup) return null;
+                  return (
+                    <div style={{marginTop:6,fontSize:12,color:'#555',lineHeight:1.7}}>
+                      {sup.phone && <div>📞 {sup.phone}</div>}
+                      {sup.email && <div>✉ {sup.email}</div>}
+                      {sup.address && <div>📍 {sup.address}</div>}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div className="tbl-wrap" style={{marginBottom:14}}>
