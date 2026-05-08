@@ -1,6 +1,6 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
 import * as XLSX from 'xlsx';
-import { CHART_COLORS } from '../constants.js';
+import { CHART_COLORS, BUSINESSES } from '../constants.js';
 import { fmt$ } from '../formatters.js';
 import { showToast } from '../toastContext.jsx';
 import { logActivity } from '../utils/activity.js';
@@ -12,6 +12,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
   const [preset, setPreset] = useState('');
+  const [filterBiz, setFilterBiz] = useState('');
 
   function applyPreset(p) {
     const now = new Date();
@@ -28,22 +29,25 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     const d=i.date||i.dateStart||i.createdAt||'';
     if(filterFrom&&d<filterFrom)return false;
     if(filterTo&&d>filterTo)return false;
+    if(filterBiz&&(i.business||'')!==filterBiz)return false;
     return true;
-  }),[cateringInvoices,filterFrom,filterTo]);
+  }),[cateringInvoices,filterFrom,filterTo,filterBiz]);
 
   const filteredPurchase=useMemo(()=>purchaseInvoices.filter(i=>{
     const d=i.date||i.createdAt||'';
     if(filterFrom&&d<filterFrom)return false;
     if(filterTo&&d>filterTo)return false;
+    if(filterBiz&&(i.business||'')!==filterBiz)return false;
     return true;
-  }),[purchaseInvoices,filterFrom,filterTo]);
+  }),[purchaseInvoices,filterFrom,filterTo,filterBiz]);
 
   const filteredDaily=useMemo(()=>dailyFinanceEntries.filter(i=>{
     const d=i.date||'';
     if(filterFrom&&d<filterFrom)return false;
     if(filterTo&&d>filterTo)return false;
+    if(filterBiz&&(i.business||'')!==filterBiz)return false;
     return true;
-  }),[dailyFinanceEntries,filterFrom,filterTo]);
+  }),[dailyFinanceEntries,filterFrom,filterTo,filterBiz]);
 
   const totalRevenue=useMemo(()=>filteredCatering.reduce((s,i)=>s+(i.grandTotal||0),0),[filteredCatering]);
   const totalSpending=useMemo(()=>filteredPurchase.reduce((s,i)=>s+(i.total||0),0),[filteredPurchase]);
@@ -93,7 +97,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   },[filteredCatering,filteredPurchase,filteredDaily]);
 
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
-  const isFiltered=filterFrom||filterTo;
+  const isFiltered=filterFrom||filterTo||filterBiz;
 
   function exportExcel() {
     const wb = XLSX.utils.book_new();
@@ -178,6 +182,10 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
           <input className="input" type="date" style={{width:'auto'}} value={filterFrom} onChange={e=>{setFilterFrom(e.target.value);setPreset('');}} title="From date" />
           <span style={{fontSize:12,color:'#888'}}>to</span>
           <input className="input" type="date" style={{width:'auto'}} value={filterTo} onChange={e=>{setFilterTo(e.target.value);setPreset('');}} title="To date" />
+          <select className="input" style={{width:'auto',minWidth:160}} value={filterBiz} onChange={e=>setFilterBiz(e.target.value)} title="Filter by business">
+            <option value="">All Businesses</option>
+            {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
+          </select>
         </div>
         <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
           {[['7d','Last 7d'],['30d','Last 30d'],['month','This Month'],['lastmonth','Last Month'],['year','This Year']].map(([k,label])=>(
@@ -185,7 +193,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
           ))}
           {isFiltered&&<button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>applyPreset('')}>✕ All time</button>}
         </div>
-        {isFiltered&&<div style={{fontSize:12,color:'#888',marginTop:6}}>Showing {filteredCatering.length} catering · {filteredPurchase.length} purchase · {filteredDaily.length} daily records</div>}
+        {isFiltered&&<div style={{fontSize:12,color:'#888',marginTop:6}}>Showing {filteredCatering.length} catering · {filteredPurchase.length} purchase · {filteredDaily.length} daily records{filterBiz?` for ${BUSINESSES[filterBiz]?.name||filterBiz}`:''}</div>}
       </div>
       <div className="stat-grid">
         {[

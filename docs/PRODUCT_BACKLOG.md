@@ -690,6 +690,11 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-145 | SupplierManagement: add `address` field to blank form, Add/Edit modal, view modal, CSV + Excel export | **Done** — Slice 67 |
 | BL-146 | PurchaseInvoices: supplier contact card (phone/email/address) shown in invoice view modal when supplier is registered; supplier suggestions include registered suppliers | **Done** — Slice 67 |
 | BL-147 | Dashboard: fix broken "View All Invoices →" link (`'purchases'` → `'purchase'`) | **Done** — Slice 67 |
+| BL-148 | Dashboard: "Upcoming Catering Events — Next 30 Days" card with event date, customer, type, total, status | **Done** — Slice 68 |
+| BL-149 | SupplierManagement: "Create Purchase Invoice" button in view modal; navigates to purchase tab with form pre-filled | **Done** — Slice 68 |
+| BL-150 | Analytics: per-business filter dropdown (All Businesses / DeGrill / Parathas / Dera) alongside date range filters | **Done** — Slice 69 |
+| BL-151 | ItemDatabase: duplicate item button (⧉) — opens Add form pre-filled with copy of item, name gets " (Copy)" suffix | **Done** — Slice 69 |
+| BL-152 | CateringInvoices: guest count field; per-head cost shown in view modal; Guests column in CSV + Excel exports | **Done** — Slice 69 |
 
 ---
 

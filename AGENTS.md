@@ -481,6 +481,10 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 
 **Slice 67:** Backup coverage + nav fix — `_suppliers` added to SettingsModal backup payload (version bumped to `'2.4'`) and restore handler; `suppliers`/`setSuppliers` threaded through `appState`. `suppliers` added to `NAV_GROUPS_ADMIN` 'people' group. PriceUpdater — CSV + Excel export of current price list (item, category, unit, supplier, price); buttons appear when items exist. HelpCenter — added Feature Overview card listing all 17+ tabs with brief descriptions.
 
+**Slice 68:** Upcoming events + supplier-invoice integration — Dashboard adds "Upcoming Catering Events — Next 30 Days" card (green, sorted by date, links to catering tab). SupplierManagement adds "Create Purchase Invoice" button in view modal; App.jsx wires `purchasePreset` state through `onCreateInvoice` callback. PurchaseInvoices adds `initialSupplier` + `onConsumeInitialSupplier` props with `useEffect` to open form pre-filled.
+
+**Slice 69:** Analytics, ItemDatabase, CateringInvoices enhancements — Analytics: business filter dropdown (All Businesses / DeGrill / Parathas / Dera Masala Grill) applied to all three data sources (catering, purchase, daily); `isFiltered` includes `filterBiz`. ItemDatabase: duplicate item button (⧉) opens Add form pre-filled from existing item with `" (Copy)"` suffix and blank stock quantities. CateringInvoices: `guestCount` optional field; per-head cost shown in view modal; Guests column added to both CSV and Excel exports.
+
 ## New localStorage keys (Slices 52–67)
 
 | Key | Type | Owner | Purpose |

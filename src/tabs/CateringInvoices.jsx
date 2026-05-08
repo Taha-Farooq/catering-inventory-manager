@@ -49,7 +49,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   const blankF = () => ({
     customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:'',
     useRange:false,date:today(),dateStart:today(),dateEnd:today(),
-    eventType:'Catering',business:selectedBusiness,
+    eventType:'Catering',business:selectedBusiness,guestCount:'',
     lineItems:[{description:'',quantity:'1',unitPrice:''}],
     ccFeeEnabled:false,taxEnabled:true,deposit:'',notes:''
   });
@@ -127,6 +127,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
       dateEnd: inv.dateEnd || today(),
       eventType: inv.eventType || 'Catering',
       business: inv.business || selectedBusiness,
+      guestCount: inv.guestCount != null ? String(inv.guestCount) : '',
       lineItems: lines,
       ccFeeEnabled: !!inv.ccFeeEnabled,
       taxEnabled: inv.taxEnabled !== false,
@@ -155,6 +156,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
       dateEnd: today(),
       eventType: inv.eventType || 'Catering',
       business: inv.business || selectedBusiness,
+      guestCount: inv.guestCount != null ? String(inv.guestCount) : '',
       lineItems: lines,
       ccFeeEnabled: !!inv.ccFeeEnabled,
       taxEnabled: inv.taxEnabled !== false,
@@ -185,7 +187,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
         ...prev,
         customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,customerAddress:form.customerAddress||'',
         useRange:form.useRange,date:form.useRange?null:form.date,dateStart:form.useRange?form.dateStart:null,dateEnd:form.useRange?form.dateEnd:null,
-        eventType:form.eventType,lineItems:valid,subtotal:T.sub,
+        eventType:form.eventType,guestCount:form.guestCount?parseInt(form.guestCount)||null:null,lineItems:valid,subtotal:T.sub,
         ccFeeEnabled:form.ccFeeEnabled,ccFee:T.cc,taxEnabled:form.taxEnabled,taxRate:T.fb.taxRate,taxAmount:T.taxAmt,
         grandTotal:T.grand,deposit:T.dep,balanceDue:T.balance,status,notes:form.notes,business:form.business||selectedBusiness
       };
@@ -200,7 +202,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
       id:nextId('catering'),type:'catering',business:form.business||selectedBusiness,
       customerId:custId,customerName:form.customerName,customerPhone:form.customerPhone,customerEmail:form.customerEmail,customerAddress:form.customerAddress||'',
       useRange:form.useRange,date:form.useRange?null:form.date,dateStart:form.useRange?form.dateStart:null,dateEnd:form.useRange?form.dateEnd:null,
-      eventType:form.eventType,lineItems:valid,subtotal:T.sub,
+      eventType:form.eventType,guestCount:form.guestCount?parseInt(form.guestCount)||null:null,lineItems:valid,subtotal:T.sub,
       ccFeeEnabled:form.ccFeeEnabled,ccFee:T.cc,taxEnabled:form.taxEnabled,taxRate:T.fb.taxRate,taxAmount:T.taxAmt,
       grandTotal:T.grand,deposit:T.dep,balanceDue:T.balance,status,notes:form.notes,createdAt:today()
     };
@@ -275,9 +277,11 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   function exportCsv() {
     if (!visibleCatering.length) { showToast('No invoices to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['Invoice#', 'Customer', 'Date', 'Event', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Deposit', 'Balance Due', 'Notes'];
+    const header = ['Invoice#', 'Customer', 'Date', 'Event', 'Guests', 'Business', 'Status', 'Subtotal', 'Tax', 'Total', 'Deposit', 'Balance Due', 'Notes'];
     const rows = visibleCatering.map(inv => [
-      inv.id, inv.customerName || '', inv.date || '', inv.eventType || '', inv.business || '',
+      inv.id, inv.customerName || '', inv.date || '', inv.eventType || '',
+      inv.guestCount != null ? inv.guestCount : '',
+      inv.business || '',
       inv.status || '', +(inv.subtotal || 0).toFixed(2), +(inv.taxAmount || 0).toFixed(2),
       +(inv.grandTotal || inv.total || 0).toFixed(2), +(inv.deposit || 0).toFixed(2),
       +(inv.balanceDue || 0).toFixed(2), inv.notes || '',
@@ -296,9 +300,11 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     if (!visibleCatering.length) { showToast('No invoices to export.', 'error'); return; }
     const wb = XLSX.utils.book_new();
     // Summary sheet
-    const sumHeader = ['Invoice#', 'Customer', 'Date', 'Event', 'Business', 'Status', 'Subtotal', 'CC Fee', 'Tax', 'Grand Total', 'Total Paid', 'Balance Due', 'Notes'];
+    const sumHeader = ['Invoice#', 'Customer', 'Date', 'Event', 'Guests', 'Business', 'Status', 'Subtotal', 'CC Fee', 'Tax', 'Grand Total', 'Total Paid', 'Balance Due', 'Notes'];
     const sumRows = visibleCatering.map(inv => [
-      inv.id, inv.customerName || '', inv.date || '', inv.eventType || '', inv.business || '',
+      inv.id, inv.customerName || '', inv.date || '', inv.eventType || '',
+      inv.guestCount != null ? inv.guestCount : '',
+      inv.business || '',
       inv.status || '', +(inv.subtotal || 0).toFixed(2), +(inv.ccFee || 0).toFixed(2),
       +(inv.taxAmount || 0).toFixed(2), +(inv.grandTotal || 0).toFixed(2),
       +totalPaidFor(inv).toFixed(2), +balanceFor(inv).toFixed(2), inv.notes || '',
@@ -437,6 +443,9 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
             {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
           </FS>
         </div>
+        <div className="mb-3">
+          <FI label="Guest Count (optional)" type="number" min="1" step="1" value={form.guestCount} onChange={e=>setForm(f=>({...f,guestCount:e.target.value}))} placeholder="e.g. 150" />
+        </div>
         <div className="mb-4">
           <div className="mb-2"><Toggle checked={form.useRange} onChange={v=>setForm(f=>({...f,useRange:v}))} label="Date range (multi-day event)" /></div>
           <div className="grid-2">
@@ -516,6 +525,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
                 <div style={{fontSize:18,fontWeight:700,color:'var(--brown)'}}>{viewInv.id}</div>
                 <div>{viewInv.useRange?`${fmtDate(viewInv.dateStart)} – ${fmtDate(viewInv.dateEnd)}`:fmtDate(viewInv.date)}</div>
                 <div><strong>Event:</strong> {viewInv.eventType}</div>
+                {viewInv.guestCount&&<div><strong>Guests:</strong> {viewInv.guestCount} · <strong>Per head:</strong> {fmt$(viewInv.grandTotal/viewInv.guestCount)}</div>}
               </div>
             </div>
             <div style={{padding:'10px 14px',background:'var(--cream)',borderRadius:6,marginBottom:16,fontSize:14}}>

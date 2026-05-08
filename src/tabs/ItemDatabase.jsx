@@ -201,6 +201,21 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       setPurchaseSuggest(null);
     }
   }
+  function duplicateItem(item) {
+    const sellers = (item.sellers || []).map(s => ({ ...s }));
+    const locQtyBlank2 = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
+    setForm({
+      ...item, id: uid(), name: item.name + ' (Copy)',
+      sellers: sellers.length ? sellers : [{ name: '', price: '' }],
+      locQty: { ...locQtyBlank2 },
+      locMinQty: { ...locQtyBlank2, ...(item.locMinQty || {}) },
+      caseSize: item.caseSize || '',
+      createdAt: today(),
+    });
+    setEditId(null);
+    setPurchaseSuggest(null);
+    setShowForm(true);
+  }
   function setSeller(i,f2,v) { setForm(f=>{const s=[...f.sellers];s[i]={...s[i],[f2]:v};return{...f,sellers:s};}); }
 
   function saveItem() {
@@ -514,6 +529,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
                       {isAdmin&&(
                         <td style={{whiteSpace:'nowrap'}}>
                           <Btn className="btn-outline btn-sm" style={{marginRight:5}} onClick={() => setHistoryItem(item)}>History</Btn>
+                          <Btn className="btn-outline btn-sm" style={{marginRight:5}} onClick={()=>duplicateItem(item)} title="Duplicate this item">⧉</Btn>
                           <Btn className="btn-secondary btn-sm" style={{marginRight:5}} onClick={()=>openEdit(item)}>Edit</Btn>
                           <Btn className="btn-danger btn-sm" onClick={()=>setConfirmId(item.id)}>Delete</Btn>
                         </td>
