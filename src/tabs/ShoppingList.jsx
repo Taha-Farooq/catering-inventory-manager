@@ -135,6 +135,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
     showToast(`Added ${added} low-stock item${added!==1?'s':''}${updated?` (${updated} already on list)`:''}.`);
   }
 
+  function removeBought() {
+    const count = boughtIds.size;
+    const next = shoppingList.filter(s => !boughtIds.has(s.id));
+    setShoppingList(next);
+    save('shoppingList', next);
+    setBoughtIds(new Set());
+    showToast(`Removed ${count} bought item${count !== 1 ? 's' : ''} from list.`);
+  }
+
   function clearAll() {
     setShowClearListConfirm(true);
   }
@@ -295,9 +304,14 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
           <Btn className="btn-outline" onClick={exportCsv}>⬇ Export CSV</Btn>
           <Btn className="btn-success" onClick={exportXlsx}>⬇ Export Excel</Btn>
           {boughtIds.size > 0 && (
-            <button className="btn btn-outline btn-sm" onClick={() => setBoughtIds(new Set())}>
-              Clear {boughtIds.size} bought
-            </button>
+            <>
+              <button className="btn btn-outline btn-sm" onClick={() => setBoughtIds(new Set())} title="Unmark all bought items (keep them on list)">
+                Unmark {boughtIds.size}
+              </button>
+              <button className="btn btn-danger btn-sm" onClick={removeBought} title="Remove bought items from shopping list">
+                ✕ Remove {boughtIds.size} bought
+              </button>
+            </>
           )}
           <Btn className="btn-danger" onClick={clearAll}>🗑 Clear All</Btn>
         </div>
