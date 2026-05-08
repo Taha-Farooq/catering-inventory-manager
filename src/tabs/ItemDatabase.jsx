@@ -285,6 +285,22 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     logActivity('edit_item', `Stock ${delta > 0 ? '+' : ''}${delta} ${loc}: ${item?.name}`);
   }
 
+  function downloadImportTemplate() {
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['name','category','unit','case size','upc','seller','price',
+      ...LOCATIONS.flatMap(l => [l.toLowerCase()+'_qty', l.toLowerCase()+'_min']),
+      'notes'];
+    const example = ['Chicken Breast','Meat','lb','','','Sysco','4.50',
+      ...LOCATIONS.flatMap(() => ['','']),''];
+    const csv = [headers.map(esc).join(','), example.map(esc).join(',')].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'items-import-template.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Import template downloaded.');
+  }
+
   function exportItemsCsv() {
     if (!items.length) { showToast('No items to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -431,6 +447,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
               <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }} />
               <Btn className="btn-outline" onClick={() => importFileRef.current?.click()}>⬆ Import CSV</Btn>
+              <Btn className="btn-outline" onClick={downloadImportTemplate} title="Download a blank CSV template with the correct column headers">📋 Template</Btn>
             </>
           )}
           <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>

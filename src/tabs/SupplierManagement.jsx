@@ -292,26 +292,62 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
               </div>
             </div>
 
-            {viewInvoices.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Recent Purchase Orders</div>
-                <div className="tbl-wrap">
-                  <table>
-                    <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {viewInvoices.slice(0, 10).map(inv => (
-                        <tr key={inv.id}>
-                          <td style={{ fontFamily: 'monospace' }}>{inv.id}</td>
-                          <td>{fmtDate(inv.date)}</td>
-                          <td style={{ fontWeight: 600 }}>{fmt$(inv.total)}</td>
-                          <td><span className={`badge badge-${inv.status || 'unpaid'}`}>{inv.status || 'unpaid'}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            {viewInvoices.length > 0 && (() => {
+              const totalSpent = viewInvoices.reduce((s, i) => s + (i.total || 0), 0);
+              const unpaid = viewInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0);
+              function exportSupplierCsv() {
+                const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+                const header = ['Invoice #', 'Date', 'Due Date', 'Total', 'Status', 'Notes'];
+                const rows = viewInvoices.map(i => [i.id, i.date || '', i.dueDate || '', +(i.total || 0).toFixed(2), i.status || '', i.notes || '']);
+                const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `orders-${viewSup.name.replace(/\s+/g, '-')}-${today()}.csv`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                showToast('Purchase orders exported as CSV.');
+              }
+              function exportSupplierExcel() {
+                const wb = XLSX.utils.book_new();
+                const header = ['Invoice #', 'Date', 'Due Date', 'Total', 'Status', 'Notes'];
+                const rows = viewInvoices.map(i => [i.id, i.date || '', i.dueDate || '', +(i.total || 0).toFixed(2), i.status || '', i.notes || '']);
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Purchase Orders');
+                XLSX.writeFile(wb, `orders-${viewSup.name.replace(/\s+/g, '-')}-${today()}.xlsx`);
+                showToast('Purchase orders exported as Excel.');
+              }
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      Purchase Orders ({viewInvoices.length})
+                      <span style={{ fontWeight: 400, color: '#777', marginLeft: 8, fontSize: 12 }}>Total: {fmt$(totalSpent)}{unpaid > 0 ? ` · Unpaid: ${fmt$(unpaid)}` : ''}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Btn className="btn-outline btn-sm" onClick={exportSupplierCsv}>⬇ CSV</Btn>
+                      <Btn className="btn-outline btn-sm" onClick={exportSupplierExcel}>⬇ Excel</Btn>
+                    </div>
+                  </div>
+                  <div className="tbl-wrap">
+                    <table>
+                      <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {viewInvoices.slice(0, 15).map(inv => (
+                          <tr key={inv.id}>
+                            <td style={{ fontFamily: 'monospace' }}>{inv.id}</td>
+                            <td>{fmtDate(inv.date)}</td>
+                            <td style={{ fontWeight: 600 }}>{fmt$(inv.total)}</td>
+                            <td><span className={`badge badge-${inv.status || 'unpaid'}`}>{inv.status || 'unpaid'}</span></td>
+                          </tr>
+                        ))}
+                        {viewInvoices.length > 15 && (
+                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#888', fontSize: 12 }}>…and {viewInvoices.length - 15} more. Export CSV/Excel for full list.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {viewItems.length > 0 && (
               <div>

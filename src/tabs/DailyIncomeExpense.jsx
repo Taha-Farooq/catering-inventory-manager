@@ -43,6 +43,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [monthF, setMonthF] = useState('');
   const [yearF, setYearF] = useState('');
+  const [bizF, setBizF] = useState('');
   const [incomeTaxRate, setIncomeTaxRate] = useState(() => {
     const v = parseFloat(localStorage.getItem('_incomeTaxRate'));
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 22;
@@ -60,8 +61,9 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
   const filtered = useMemo(() => sorted.filter(r => {
     if (monthF && (r.date || '').slice(5, 7) !== monthF) return false;
     if (yearF && (r.date || '').slice(0, 4) !== yearF) return false;
+    if (bizF && (r.business || '') !== bizF) return false;
     return true;
-  }), [sorted, monthF, yearF]);
+  }), [sorted, monthF, yearF, bizF]);
 
   const totals = useMemo(() => filtered.reduce((acc, r) => {
     acc.income += +(r.income || 0);
@@ -186,7 +188,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     const wb = XLSX.utils.book_new();
     const dataRows = toExcelRows(filtered);
     const summaryRows = [{
-      Scope: `${yearF || 'All years'} ${monthF ? `month ${monthF}` : ''}`.trim(),
+      Scope: [`${yearF || 'All years'}`, monthF ? `month ${monthF}` : '', bizF ? BUSINESSES[bizF]?.name || bizF : ''].filter(Boolean).join(' · '),
       Income: +totals.income.toFixed(2),
       Expense: +totals.expense.toFixed(2),
       'Net Profit': +net.toFixed(2),
@@ -314,6 +316,13 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
               {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Business</label>
+            <select className="input" value={bizF} onChange={e => setBizF(e.target.value)}>
+              <option value="">All Businesses</option>
+              {Object.entries(BUSINESSES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+            </select>
+          </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {[
@@ -322,7 +331,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           ].map(([k, label, fn]) => (
             <Btn key={k} className="btn-sm" style={{background:'#eee',color:'#555',borderRadius:12,padding:'2px 10px'}} onClick={fn}>{label}</Btn>
           ))}
-          {(yearF || monthF) && <Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={() => { setYearF(''); setMonthF(''); }}>✕ Clear</Btn>}
+          {(yearF || monthF || bizF) && <Btn className="btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={() => { setYearF(''); setMonthF(''); setBizF(''); }}>✕ Clear</Btn>}
         </div>
       </div>
 

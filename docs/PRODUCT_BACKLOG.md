@@ -695,6 +695,14 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-150 | Analytics: per-business filter dropdown (All Businesses / DeGrill / Parathas / Dera) alongside date range filters | **Done** — Slice 69 |
 | BL-151 | ItemDatabase: duplicate item button (⧉) — opens Add form pre-filled with copy of item, name gets " (Copy)" suffix | **Done** — Slice 69 |
 | BL-152 | CateringInvoices: guest count field; per-head cost shown in view modal; Guests column in CSV + Excel exports | **Done** — Slice 69 |
+| BL-153 | DailyIncomeExpense: per-business filter dropdown alongside Year/Month filters; Clear resets all three filters; Excel summary Scope label includes business name | **Done** — Slice 70 |
+| BL-154 | CustomerManagement: "Send Reminder" mailto button in account statement modal when customer has email + outstanding balance | **Done** — Slice 70 |
+| BL-155 | CateringInvoices: date range validation — save rejects if dateEnd < dateStart for multi-day events | **Done** — Slice 70 |
+| BL-156 | SupplierManagement: purchase orders export (CSV + Excel) from supplier view modal; total spend + unpaid summary line; show up to 15 recent orders with "X more" overflow notice | **Done** — Slice 70 |
+| BL-157 | PriceHistory: "Recent Price Changes" card showing last 5 price changes (date, item, seller, ±diff) displayed when no item is selected | **Done** — Slice 70 |
+| BL-158 | ItemDatabase: "📋 Template" button downloads a blank CSV import template with correct column headers + one example row | **Done** — Slice 70 |
+| BL-159 | dailyFinanceUtils.test.js: 8 new tests for filterEntries business/year/month filter logic | **Done** — Slice 70 |
+| BL-160 | cateringUtils.test.js: 5 new tests for isDateRangeValid (date range boundary conditions) | **Done** — Slice 70 |
 
 ---
 

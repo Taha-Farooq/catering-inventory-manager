@@ -17,6 +17,14 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
   const [confirmId,setConfirmId]=useState(null);
   const selItem=items.find(i=>i.id===selId);
   const hist=useMemo(()=>priceHistory.filter(h=>h.itemId===selId).sort((a,b)=>a.date.localeCompare(b.date)),[selId,priceHistory]);
+
+  const recentChanges = useMemo(() => {
+    return [...priceHistory]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5)
+      .map(h => ({ ...h, diff: (h.newPrice ?? 0) - (h.oldPrice ?? 0) }));
+  }, [priceHistory]);
+
   const pendingDeleteHistEntry = useMemo(
     () => (confirmId ? priceHistory.find((h) => h.id === confirmId) : null),
     [confirmId, priceHistory]
@@ -76,6 +84,24 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
           </>
         )}
       </div>
+      {!selId && recentChanges.length > 0 && (
+        <div className="card mb-4">
+          <div style={{ fontWeight: 600, color: 'var(--brown)', marginBottom: 8, fontSize: 13 }}>Recent Price Changes</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {recentChanges.map(h => (
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                <span style={{ color: '#888', minWidth: 70, flexShrink: 0 }}>{fmtDate(h.date)}</span>
+                <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.itemName}</span>
+                <span style={{ color: '#666', flexShrink: 0 }}>{h.seller}</span>
+                <span style={{ fontWeight: 700, color: h.diff > 0 ? 'var(--danger)' : 'var(--success)', minWidth: 60, textAlign: 'right', flexShrink: 0 }}>
+                  {h.diff > 0 ? '▲' : '▼'} {fmt$(Math.abs(h.diff))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card mb-4">
         <label>Select Item to View Price Trends</label>
         <select className="input" value={selId} onChange={e=>setSelId(e.target.value)}>

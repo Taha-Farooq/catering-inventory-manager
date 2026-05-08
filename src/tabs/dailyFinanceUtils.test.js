@@ -195,3 +195,65 @@ describe('buildMonthlyData', () => {
     expect(result[0].tax).toBe(60);
   });
 });
+
+// Replicates filtered useMemo from DailyIncomeExpense.jsx
+function filterEntries(entries, { monthF = '', yearF = '', bizF = '' } = {}) {
+  return entries.filter(r => {
+    if (monthF && (r.date || '').slice(5, 7) !== monthF) return false;
+    if (yearF && (r.date || '').slice(0, 4) !== yearF) return false;
+    if (bizF && (r.business || '') !== bizF) return false;
+    return true;
+  });
+}
+
+describe('filterEntries (business/year/month filters)', () => {
+  const entries = [
+    { date: '2026-01-10', business: 'degrill', income: 100 },
+    { date: '2026-01-20', business: 'parathas', income: 200 },
+    { date: '2026-02-05', business: 'degrill', income: 300 },
+    { date: '2025-12-01', business: 'degrill', income: 50 },
+  ];
+
+  it('returns all entries when no filters applied', () => {
+    expect(filterEntries(entries)).toHaveLength(4);
+  });
+
+  it('filters by business', () => {
+    const result = filterEntries(entries, { bizF: 'parathas' });
+    expect(result).toHaveLength(1);
+    expect(result[0].income).toBe(200);
+  });
+
+  it('filters by year', () => {
+    const result = filterEntries(entries, { yearF: '2025' });
+    expect(result).toHaveLength(1);
+    expect(result[0].income).toBe(50);
+  });
+
+  it('filters by month', () => {
+    const result = filterEntries(entries, { monthF: '02' });
+    expect(result).toHaveLength(1);
+    expect(result[0].income).toBe(300);
+  });
+
+  it('filters by year and month combined', () => {
+    const result = filterEntries(entries, { yearF: '2026', monthF: '01' });
+    expect(result).toHaveLength(2);
+  });
+
+  it('filters by business and year combined', () => {
+    const result = filterEntries(entries, { bizF: 'degrill', yearF: '2026' });
+    expect(result).toHaveLength(2);
+    expect(result.every(r => r.business === 'degrill')).toBe(true);
+  });
+
+  it('returns empty when business matches nothing', () => {
+    expect(filterEntries(entries, { bizF: 'nonexistent' })).toHaveLength(0);
+  });
+
+  it('handles entries with missing business field', () => {
+    const e = [{ date: '2026-03-01', income: 10 }];
+    expect(filterEntries(e, { bizF: 'degrill' })).toHaveLength(0);
+    expect(filterEntries(e, { bizF: '' })).toHaveLength(1);
+  });
+});

@@ -105,3 +105,33 @@ describe('balanceFor', () => {
     expect(balanceFor(inv)).toBe(300);
   });
 });
+
+// Replicates date-range validation from CateringInvoices.jsx saveInvoice
+function isDateRangeValid(form) {
+  if (!form.useRange) return true;
+  if (!form.dateStart || !form.dateEnd) return true;
+  return form.dateEnd >= form.dateStart;
+}
+
+describe('isDateRangeValid', () => {
+  it('always valid when useRange is false', () => {
+    expect(isDateRangeValid({ useRange: false, dateStart: '2026-06-01', dateEnd: '2026-05-01' })).toBe(true);
+  });
+
+  it('valid when dateStart equals dateEnd (same-day range)', () => {
+    expect(isDateRangeValid({ useRange: true, dateStart: '2026-06-01', dateEnd: '2026-06-01' })).toBe(true);
+  });
+
+  it('valid when dateEnd is after dateStart', () => {
+    expect(isDateRangeValid({ useRange: true, dateStart: '2026-06-01', dateEnd: '2026-06-05' })).toBe(true);
+  });
+
+  it('invalid when dateEnd is before dateStart', () => {
+    expect(isDateRangeValid({ useRange: true, dateStart: '2026-06-05', dateEnd: '2026-06-01' })).toBe(false);
+  });
+
+  it('valid when either date is missing', () => {
+    expect(isDateRangeValid({ useRange: true, dateStart: '', dateEnd: '2026-06-05' })).toBe(true);
+    expect(isDateRangeValid({ useRange: true, dateStart: '2026-06-05', dateEnd: '' })).toBe(true);
+  });
+});

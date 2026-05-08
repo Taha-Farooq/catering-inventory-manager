@@ -302,10 +302,16 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
                       </tbody>
                     </table>
                   </div>
-                  <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:12}}>
+                  <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:12,flexWrap:'wrap'}}>
                     <button className="btn btn-outline btn-sm" onClick={exportStatementCsv}>⬇ CSV</button>
                     <button className="btn btn-outline btn-sm" onClick={exportStatementExcel}>⬇ Excel</button>
                     <button className="btn btn-outline btn-sm" onClick={printStatement}>🖨 Print Statement</button>
+                    {viewCust.email && outstanding > 0 && (() => {
+                      const invList = sorted.filter(i => i.status !== 'paid').map(i => `  • ${i.id} (${i.useRange ? i.dateStart : i.date}): ${fmt$(i.balanceDue)} due`).join('\n');
+                      const subj = encodeURIComponent(`Payment Reminder — ${viewCust.name}`);
+                      const body = encodeURIComponent(`Dear ${viewCust.name},\n\nThis is a friendly reminder that you have an outstanding balance of ${fmt$(outstanding)}.\n\nUnpaid invoices:\n${invList}\n\nPlease contact us to arrange payment at your earliest convenience.\n\nThank you,\nThe Team`);
+                      return <a className="btn btn-outline btn-sm" href={`mailto:${viewCust.email}?subject=${subj}&body=${body}`}>✉ Send Reminder</a>;
+                    })()}
                   </div>
                 </>
               }
