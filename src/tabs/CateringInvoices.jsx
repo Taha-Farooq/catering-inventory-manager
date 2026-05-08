@@ -626,7 +626,15 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
                 </div>
               );
             })()}
-            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
+            <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16,flexWrap:'wrap'}}>
+              {viewInv.customerEmail && balanceFor(viewInv) > 0 && (() => {
+                const bal = balanceFor(viewInv);
+                const subj = encodeURIComponent(`Payment Reminder: Invoice ${viewInv.id}`);
+                const body = encodeURIComponent(
+                  `Dear ${viewInv.customerName},\n\nThis is a friendly reminder that invoice ${viewInv.id} has an outstanding balance of $${bal.toFixed(2)}.\n\nEvent: ${viewInv.eventType || 'Catering'} on ${viewInv.date || (viewInv.dateStart + (viewInv.dateEnd ? ' – ' + viewInv.dateEnd : ''))}\n\nPlease remit payment at your earliest convenience.\n\nThank you.`
+                );
+                return <a className="btn btn-outline btn-sm" href={`mailto:${viewInv.customerEmail}?subject=${subj}&body=${body}`}>✉ Send Reminder</a>;
+              })()}
               <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openCateringEdit(v);}}>Edit</Btn>
