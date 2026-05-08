@@ -23,6 +23,7 @@ export const TABS_ADMIN = [
   { id: 'catering', label: '🍽️ Catering Inv.' },
   { id: 'payroll', label: '💼 Payroll Inv.' },
   { id: 'customers', label: '👥 Customers' },
+  { id: 'suppliers', label: '🏪 Suppliers' },
   { id: 'analytics', label: '📊 Analytics' },
   { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
   { id: 'archive', label: '🗂️ Archive' },

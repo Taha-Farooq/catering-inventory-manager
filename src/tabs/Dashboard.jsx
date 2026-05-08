@@ -3,6 +3,7 @@ import { LOCATIONS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
 import { showToast } from '../toastContext.jsx';
+import { logActivity } from '../utils/activity.js';
 
 const ACTION_LABELS = {
   login: 'Logged In', logout: 'Logged Out', view_tab: 'Viewed Page',
@@ -201,6 +202,7 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     a.href = url; a.download = 'low-stock-' + today() + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     showToast('Low-stock list exported.');
+    logActivity('export_csv', `Exported ${lowStockRows.length} low-stock items`);
   }
 
   function addLowStockToShoppingList() {
@@ -233,6 +235,7 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     setShoppingList(nextList);
     save('shoppingList', nextList);
     showToast(`Added ${added} item${added !== 1 ? 's' : ''} to shopping list${skipped ? ` (${skipped} already there)` : ''}.`);
+    if (added > 0) logActivity('add_item', `Added ${added} low-stock items to shopping list from Dashboard`);
   }
 
   return (

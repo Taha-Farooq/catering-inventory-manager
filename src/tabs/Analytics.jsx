@@ -2,6 +2,8 @@ import React, { useState, useMemo, lazy, Suspense } from 'react';
 import * as XLSX from 'xlsx';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$ } from '../formatters.js';
+import { showToast } from '../toastContext.jsx';
+import { logActivity } from '../utils/activity.js';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
 const fmtD = d => d.toISOString().slice(0, 10);
@@ -131,6 +133,8 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
       ]), 'Monthly Net Profit');
     }
     XLSX.writeFile(wb, `analytics-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    showToast('Analytics exported as Excel.');
+    logActivity('export_xlsx', 'Exported analytics Excel');
   }
 
   function exportCsv() {
@@ -158,6 +162,8 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     const a = document.createElement('a');
     a.href = url; a.download = `analytics-${new Date().toISOString().slice(0,10)}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Analytics exported as CSV.');
+    logActivity('export_csv', 'Exported analytics CSV');
   }
 
   return (
