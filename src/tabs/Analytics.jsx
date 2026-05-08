@@ -96,6 +96,14 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([k,v])=>{const net=+(v.rev-v.spend).toFixed(2);return{label:k.slice(5)+'/'+k.slice(2,4),net,positive:net>=0};});
   },[filteredCatering,filteredPurchase,filteredDaily]);
 
+  const repeatCustomers=useMemo(()=>{
+    const m={};
+    filteredCatering.forEach(i=>{const c=i.customerName||'Unknown';m[c]=(m[c]||0)+1;});
+    const total=Object.keys(m).length;
+    const repeat=Object.values(m).filter(v=>v>1).length;
+    return{total,repeat,pct:total>0?+((repeat/total)*100).toFixed(0):0};
+  },[filteredCatering]);
+
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
   const isFiltered=filterFrom||filterTo||filterBiz;
 
@@ -206,6 +214,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
           {v:filteredCatering.length,l:'Catering Invoices'},
           {v:filteredPurchase.length,l:'Purchase Orders'},
           {v:filteredCatering.length>0?fmt$(totalRevenue/filteredCatering.length):'—',l:'Avg Invoice Value'},
+          {v:repeatCustomers.total>0?`${repeatCustomers.repeat}/${repeatCustomers.total} (${repeatCustomers.pct}%)`:'—',l:'Repeat Customers'},
         ].map((s,i)=>(
           <div key={i} className="stat-card">
             <div className="stat-val" style={s.color?{color:s.color}:{}}>{s.v}</div>

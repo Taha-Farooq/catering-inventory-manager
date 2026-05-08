@@ -364,8 +364,14 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
         <input className="input" style={{flex:'1 1 160px'}} placeholder="Filter by customer…" value={filterCustomer} onChange={e=>setFilterCustomer(e.target.value)} />
         <input className="input" type="date" style={{width:'auto'}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
         <input className="input" type="date" style={{width:'auto'}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
+        {[
+          ['upcoming','Upcoming',()=>{setFilterDateFrom(today());setFilterDateTo('');}],
+          ['thismonth','This Month',()=>{const n=new Date();setFilterDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`);setFilterDateTo(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(new Date(n.getFullYear(),n.getMonth()+1,0).getDate()).padStart(2,'0')}`);}],
+        ].map(([k,label,fn])=>(
+          <button key={k} className="btn btn-sm" style={{background:'#eee',color:'#555',borderRadius:12,padding:'2px 10px'}} onClick={fn}>{label}</button>
+        ))}
         {(filterCustomer||filterDateFrom||filterDateTo) && (
-          <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterCustomer('');setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear filters</button>
+          <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterCustomer('');setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear</button>
         )}
         <div style={{marginLeft:'auto',fontSize:13,color:'#888'}}>{visibleCatering.length} of {cateringInvoices.length}</div>
       </div>
@@ -427,7 +433,12 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
             <option value="">— New Customer —</option>
             {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
           </FS>
-          <FI label="Customer Name *" value={form.customerName} onChange={e=>setForm(f=>({...f,customerName:e.target.value,customerId:''}))} placeholder="Full name" />
+          <FI label="Customer Name *" value={form.customerName} onChange={e=>{
+            const name=e.target.value;
+            const match=customers.find(c=>c.name.toLowerCase()===name.toLowerCase());
+            if(match)setForm(f=>({...f,customerName:name,customerId:match.id,customerPhone:f.customerPhone||match.phone||'',customerEmail:f.customerEmail||match.email||'',customerAddress:f.customerAddress||match.address||''}));
+            else setForm(f=>({...f,customerName:name,customerId:''}));
+          }} placeholder="Full name" suggestions={customers.map(c=>c.name)} />
         </div>
         <div className="grid-2 mb-3">
           <FI label="Phone" value={form.customerPhone} onChange={e=>setForm(f=>({...f,customerPhone:e.target.value}))} />

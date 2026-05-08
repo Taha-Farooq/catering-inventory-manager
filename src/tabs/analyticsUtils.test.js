@@ -178,3 +178,53 @@ describe('grossMargin', () => {
     expect(grossMargin(300, 100)).toBe(66.7);
   });
 });
+
+// Replicates repeatCustomers useMemo from Analytics.jsx
+function calcRepeatCustomers(cateringInvoices) {
+  const m = {};
+  cateringInvoices.forEach(i => { const c = i.customerName || 'Unknown'; m[c] = (m[c] || 0) + 1; });
+  const total = Object.keys(m).length;
+  const repeat = Object.values(m).filter(v => v > 1).length;
+  return { total, repeat, pct: total > 0 ? +((repeat / total) * 100).toFixed(0) : 0 };
+}
+
+describe('calcRepeatCustomers', () => {
+  it('returns zeros for empty invoices', () => {
+    const r = calcRepeatCustomers([]);
+    expect(r).toEqual({ total: 0, repeat: 0, pct: 0 });
+  });
+
+  it('counts unique customers', () => {
+    const invs = [
+      { customerName: 'Alice', grandTotal: 100 },
+      { customerName: 'Bob', grandTotal: 200 },
+    ];
+    expect(calcRepeatCustomers(invs).total).toBe(2);
+    expect(calcRepeatCustomers(invs).repeat).toBe(0);
+  });
+
+  it('identifies repeat customers', () => {
+    const invs = [
+      { customerName: 'Alice', grandTotal: 100 },
+      { customerName: 'Alice', grandTotal: 200 },
+      { customerName: 'Bob', grandTotal: 300 },
+    ];
+    const r = calcRepeatCustomers(invs);
+    expect(r.total).toBe(2);
+    expect(r.repeat).toBe(1);
+    expect(r.pct).toBe(50);
+  });
+
+  it('calculates pct correctly when all are repeats', () => {
+    const invs = [
+      { customerName: 'A', grandTotal: 100 },
+      { customerName: 'A', grandTotal: 100 },
+      { customerName: 'B', grandTotal: 100 },
+      { customerName: 'B', grandTotal: 100 },
+    ];
+    const r = calcRepeatCustomers(invs);
+    expect(r.total).toBe(2);
+    expect(r.repeat).toBe(2);
+    expect(r.pct).toBe(100);
+  });
+});

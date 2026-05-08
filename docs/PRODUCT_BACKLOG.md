@@ -703,6 +703,11 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-158 | ItemDatabase: "📋 Template" button downloads a blank CSV import template with correct column headers + one example row | **Done** — Slice 70 |
 | BL-159 | dailyFinanceUtils.test.js: 8 new tests for filterEntries business/year/month filter logic | **Done** — Slice 70 |
 | BL-160 | cateringUtils.test.js: 5 new tests for isDateRangeValid (date range boundary conditions) | **Done** — Slice 70 |
+| BL-161 | Analytics: event count + avg per event added to Top Customers and Event Types bars; Excel exports include Events + Avg columns | **Done** — Slice 71 |
+| BL-162 | Analytics: Repeat Customers stat card (X/Y total, pct%) + calcRepeatCustomers tests | **Done** — Slice 71 |
+| BL-163 | CateringInvoices: customer name typed match auto-fills phone/email/address from existing customer record | **Done** — Slice 71 |
+| BL-164 | CateringInvoices: "Upcoming" and "This Month" quick filter preset buttons in filter bar | **Done** — Slice 71 |
+| BL-165 | PurchaseInvoices: markPaid records paidAt + payment.date (today) on quick Mark Paid; shown in view modal | **Done** — Slice 71 |
 
 ---
 

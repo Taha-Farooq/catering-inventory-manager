@@ -202,7 +202,8 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
   function markPaid(id) {
     const inv = purchaseInvoices.find(x => x.id === id);
-    const u = purchaseInvoices.map(x => x.id === id ? {...x, status:'paid'} : x);
+    const paidDate = today();
+    const u = purchaseInvoices.map(x => x.id === id ? {...x, status:'paid', paidAt: paidDate, payment: {...(x.payment||{}), date: x.payment?.date || paidDate}} : x);
     setPurchaseInvoices(u); save('purchaseInvoices', u);
     logActivity('mark_paid', 'Marked purchase invoice paid ' + id);
     // Back-propagate invoice unit prices to matching item sellers
@@ -564,9 +565,9 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
               {viewInv.taxEnabled&&<div>Tax ({(viewInv.taxRate*100).toFixed(3)}%): {fmt$(viewInv.taxAmount)}</div>}
               <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginTop:6}}>Total: {fmt$(viewInv.total)}</div>
             </div>
-            {(viewInv.payment?.account||viewInv.payment?.transactionId||viewInv.payment?.date)&&(
+            {(viewInv.payment?.account||viewInv.payment?.transactionId||viewInv.payment?.date||viewInv.paidAt)&&(
               <div style={{marginTop:14,padding:12,background:'var(--cream)',borderRadius:6,fontSize:13}}>
-                <strong>Payment: </strong>{viewInv.payment.account&&`Account: ${viewInv.payment.account}  `}{viewInv.payment.date&&`Date: ${fmtDate(viewInv.payment.date)}  `}{viewInv.payment.transactionId&&`Txn: ${viewInv.payment.transactionId}`}
+                <strong>Payment: </strong>{viewInv.payment?.account&&`Account: ${viewInv.payment.account}  `}{(viewInv.payment?.date||viewInv.paidAt)&&`Paid: ${fmtDate(viewInv.payment?.date||viewInv.paidAt)}  `}{viewInv.payment?.transactionId&&`Txn: ${viewInv.payment.transactionId}`}
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
