@@ -60,14 +60,14 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
 
   const eventTypeData=useMemo(()=>{
     const m={};
-    filteredCatering.forEach(i=>{const t=i.eventType||'Other';m[t]=(m[t]||0)+(i.grandTotal||0);});
-    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
+    filteredCatering.forEach(i=>{const t=i.eventType||'Other';if(!m[t])m[t]={total:0,count:0};m[t].total+=(i.grandTotal||0);m[t].count++;});
+    return Object.entries(m).sort((a,b)=>b[1].total-a[1].total).slice(0,8).map(([name,v])=>({name,total:+v.total.toFixed(2),count:v.count}));
   },[filteredCatering]);
 
   const topCustomers=useMemo(()=>{
     const m={};
-    filteredCatering.forEach(i=>{const c=i.customerName||'Unknown';m[c]=(m[c]||0)+(i.grandTotal||0);});
-    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,v])=>({name,total:+v.toFixed(2)}));
+    filteredCatering.forEach(i=>{const c=i.customerName||'Unknown';if(!m[c])m[c]={total:0,count:0};m[c].total+=(i.grandTotal||0);m[c].count++;});
+    return Object.entries(m).sort((a,b)=>b[1].total-a[1].total).slice(0,8).map(([name,v])=>({name,total:+v.total.toFixed(2),count:v.count}));
   },[filteredCatering]);
 
   const monthRevenue=useMemo(()=>{
@@ -118,15 +118,15 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     // Top Customers
     if (topCustomers.length) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ['Customer', 'Total Revenue'],
-        ...topCustomers.map(c => [c.name, c.total]),
+        ['Customer', 'Events', 'Total Revenue', 'Avg per Event'],
+        ...topCustomers.map(c => [c.name, c.count, c.total, c.count > 0 ? +(c.total / c.count).toFixed(2) : '']),
       ]), 'Top Customers');
     }
     // Event Types
     if (eventTypeData.length) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ['Event Type', 'Total Revenue'],
-        ...eventTypeData.map(e => [e.name, e.total]),
+        ['Event Type', 'Events', 'Total Revenue', 'Avg per Event'],
+        ...eventTypeData.map(e => [e.name, e.count, e.total, e.count > 0 ? +(e.total / e.count).toFixed(2) : '']),
       ]), 'Event Types');
     }
     // Monthly Net Profit
@@ -230,6 +230,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
                       <div style={{width:`${e.total/maxV*100}%`,background:'#15803D',height:'100%',borderRadius:4}} />
                     </div>
                     <div style={{width:80,fontWeight:600,color:'#15803D',textAlign:'right',flexShrink:0}}>{fmt$(e.total)}</div>
+                    <div style={{width:50,color:'#888',textAlign:'right',flexShrink:0,fontSize:11}}>{e.count} evt{e.count!==1?'s':''}</div>
                   </div>
                 ))}
               </div>
@@ -252,6 +253,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
                       <div style={{width:`${c.total/maxV*100}%`,background:'#1D4ED8',height:'100%',borderRadius:4}} />
                     </div>
                     <div style={{width:80,fontWeight:600,color:'#1D4ED8',textAlign:'right',flexShrink:0}}>{fmt$(c.total)}</div>
+                    <div style={{width:50,color:'#888',textAlign:'right',flexShrink:0,fontSize:11}}>{c.count} event{c.count!==1?'s':''}</div>
                   </div>
                 ))}
               </div>

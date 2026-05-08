@@ -4,14 +4,14 @@ import { describe, it, expect } from 'vitest';
 
 function groupByEventType(cateringInvoices) {
   const m = {};
-  cateringInvoices.forEach(i => { const t = i.eventType || 'Other'; m[t] = (m[t] || 0) + (i.grandTotal || 0); });
-  return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, v]) => ({ name, total: +v.toFixed(2) }));
+  cateringInvoices.forEach(i => { const t = i.eventType || 'Other'; if (!m[t]) m[t] = { total: 0, count: 0 }; m[t].total += (i.grandTotal || 0); m[t].count++; });
+  return Object.entries(m).sort((a, b) => b[1].total - a[1].total).slice(0, 8).map(([name, v]) => ({ name, total: +v.total.toFixed(2), count: v.count }));
 }
 
 function topCustomers(cateringInvoices) {
   const m = {};
-  cateringInvoices.forEach(i => { const c = i.customerName || 'Unknown'; m[c] = (m[c] || 0) + (i.grandTotal || 0); });
-  return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, v]) => ({ name, total: +v.toFixed(2) }));
+  cateringInvoices.forEach(i => { const c = i.customerName || 'Unknown'; if (!m[c]) m[c] = { total: 0, count: 0 }; m[c].total += (i.grandTotal || 0); m[c].count++; });
+  return Object.entries(m).sort((a, b) => b[1].total - a[1].total).slice(0, 8).map(([name, v]) => ({ name, total: +v.total.toFixed(2), count: v.count }));
 }
 
 function filterByDateRange(invoices, fromDate, toDate, dateField = 'date') {
@@ -46,11 +46,25 @@ describe('groupByEventType', () => {
     expect(corp.total).toBe(800);
   });
 
+  it('tracks event count per type', () => {
+    const invs = [
+      { eventType: 'Wedding', grandTotal: 1000 },
+      { eventType: 'Wedding', grandTotal: 500 },
+      { eventType: 'Corporate', grandTotal: 800 },
+    ];
+    const result = groupByEventType(invs);
+    const wedding = result.find(r => r.name === 'Wedding');
+    const corp = result.find(r => r.name === 'Corporate');
+    expect(wedding.count).toBe(2);
+    expect(corp.count).toBe(1);
+  });
+
   it('uses "Other" when eventType is missing', () => {
     const invs = [{ grandTotal: 300 }];
     const result = groupByEventType(invs);
     expect(result[0].name).toBe('Other');
     expect(result[0].total).toBe(300);
+    expect(result[0].count).toBe(1);
   });
 
   it('sorts by total descending', () => {
@@ -88,9 +102,24 @@ describe('topCustomers', () => {
     expect(result[0].name).toBe('Jones');
   });
 
+  it('tracks event count per customer', () => {
+    const invs = [
+      { customerName: 'Smith', grandTotal: 100 },
+      { customerName: 'Smith', grandTotal: 200 },
+      { customerName: 'Jones', grandTotal: 700 },
+    ];
+    const result = topCustomers(invs);
+    const smith = result.find(r => r.name === 'Smith');
+    expect(smith.count).toBe(2);
+    const jones = result.find(r => r.name === 'Jones');
+    expect(jones.count).toBe(1);
+  });
+
   it('uses "Unknown" for missing customerName', () => {
     const invs = [{ grandTotal: 100 }];
-    expect(topCustomers(invs)[0].name).toBe('Unknown');
+    const r = topCustomers(invs)[0];
+    expect(r.name).toBe('Unknown');
+    expect(r.count).toBe(1);
   });
 });
 
