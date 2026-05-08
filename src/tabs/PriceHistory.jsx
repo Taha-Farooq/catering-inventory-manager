@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
+import { showToast } from '../toastContext.jsx';
+import { logActivity } from '../utils/activity.js';
 import Confirm from '../ui/Confirm.jsx';
 const LazyPriceHistoryChart = lazy(() => import('../charts/PriceHistoryChart.jsx'));
 
@@ -44,6 +46,8 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
     const a = document.createElement('a');
     a.href = url; a.download = 'price-history-' + today() + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Price history exported as CSV.');
+    logActivity('export_csv', `Exported ${data.length} price history rows`);
   }
 
   function exportExcel() {
@@ -57,6 +61,8 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Price History');
     XLSX.writeFile(wb, 'price-history-' + today() + '.xlsx');
+    showToast('Price history exported as Excel.');
+    logActivity('export_xlsx', `Exported ${data.length} price history rows`);
   }
 
   return (

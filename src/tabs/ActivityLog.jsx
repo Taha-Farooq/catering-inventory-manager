@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
 
@@ -68,6 +69,21 @@ export default function ActivityLog({ save }) {
     showToast('Activity log exported.');
   }
 
+  function exportExcel() {
+    if (!filtered.length) { showToast('No entries to export.', 'error'); return; }
+    const header = ['Timestamp', 'User', 'Action', 'Details'];
+    const rows = filtered.map(e => [
+      e.timestamp ? new Date(e.timestamp).toLocaleString() : '',
+      e.username || '',
+      fmtAction(e.action),
+      e.details || '',
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Activity Log');
+    XLSX.writeFile(wb, 'activity-log-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    showToast('Activity log exported as Excel.');
+  }
+
   useEffect(() => { setPage(1); }, [userF, actionF, search, dateFrom, dateTo]);
 
   const users = useMemo(() => [...new Set(log.map(e => e.username))].filter(Boolean).sort(), [log]);
@@ -94,7 +110,8 @@ export default function ActivityLog({ save }) {
         </div>
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={refresh}>↻ Refresh</Btn>
-          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+          <Btn className="btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-danger btn-sm" onClick={() => setShowClearLogConfirm(true)}>🗑 Clear Log</Btn>
         </div>
       </div>
