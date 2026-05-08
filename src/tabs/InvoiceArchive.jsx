@@ -227,16 +227,18 @@ export default function InvoiceArchive({ getInvoiceBranding, purchaseInvoices, s
       )}
 
       <Modal open={!!viewInv} onClose={()=>setViewInv(null)} title={`Invoice ${viewInv?.id||''}`} wide closeOnBackdrop>
-        {viewInv&&(
+        {viewInv&&(()=>{
+          const brand = getInvoiceBranding(viewInv, brandingMap);
+          return (
           <div id={`archive-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <BrandMark brand={brand} />
                 <div>
-                  <div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
-                  <div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
-                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#888'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
-                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#888'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                  <div style={{fontWeight:700,fontSize:16,color:'var(--brown)'}}>{brand.name}</div>
+                  <div style={{fontSize:12,color:'#888'}}>{brand.address}</div>
+                  {brand.phone&&<div style={{fontSize:12,color:'#888'}}>Tel: {brand.phone}</div>}
+                  {brand.email&&<div style={{fontSize:12,color:'#888'}}>{brand.email}</div>}
                 </div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}>
@@ -280,7 +282,8 @@ export default function InvoiceArchive({ getInvoiceBranding, purchaseInvoices, s
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
-        )}
+          );
+        })()}
       </Modal>
       <Confirm
         open={!!confirmObj}

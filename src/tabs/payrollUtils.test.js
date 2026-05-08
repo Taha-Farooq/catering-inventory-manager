@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
 
+// Replicates calcPeriodEnd from PayrollInvoices.jsx
+function calcPeriodEnd(start, periodType) {
+  const d = new Date(start + 'T12:00:00');
+  if (periodType === 'weekly') d.setDate(d.getDate() + 6);
+  else if (periodType === 'biweekly') d.setDate(d.getDate() + 13);
+  else { d.setMonth(d.getMonth() + 1); d.setDate(0); }
+  return d.toISOString().slice(0, 10);
+}
+
 // Replicates calcPayroll from PayrollInvoices.jsx as a pure function
 function calcPayroll({ hourlyRate, regularHours, overtimeHours }) {
   const rate = parseFloat(hourlyRate) || 0;
@@ -109,5 +118,28 @@ describe('buildEmployeeSummary', () => {
     const records = [{ total: 200, regularHours: '10', overtimeHours: '0', status: 'paid' }];
     const result = buildEmployeeSummary(records);
     expect(result[0].name).toBe('Unknown');
+  });
+});
+
+describe('calcPeriodEnd', () => {
+  it('weekly period: end is 6 days after start', () => {
+    expect(calcPeriodEnd('2026-01-01', 'weekly')).toBe('2026-01-07');
+  });
+
+  it('biweekly period: end is 13 days after start', () => {
+    expect(calcPeriodEnd('2026-01-01', 'biweekly')).toBe('2026-01-14');
+  });
+
+  it('monthly period: end is last day of start month', () => {
+    expect(calcPeriodEnd('2026-01-15', 'monthly')).toBe('2026-01-31');
+    expect(calcPeriodEnd('2026-02-01', 'monthly')).toBe('2026-02-28');
+  });
+
+  it('monthly period: leap year February', () => {
+    expect(calcPeriodEnd('2024-02-01', 'monthly')).toBe('2024-02-29');
+  });
+
+  it('weekly period crossing month boundary', () => {
+    expect(calcPeriodEnd('2026-01-29', 'weekly')).toBe('2026-02-04');
   });
 });
