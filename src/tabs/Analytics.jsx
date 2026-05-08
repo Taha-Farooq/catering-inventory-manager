@@ -3,9 +3,23 @@ import { CHART_COLORS } from '../constants.js';
 import { fmt$ } from '../formatters.js';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
+const fmtD = d => d.toISOString().slice(0, 10);
+
 export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) {
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
+  const [preset, setPreset] = useState('');
+
+  function applyPreset(p) {
+    const now = new Date();
+    if (p === '7d') { const f = new Date(now); f.setDate(f.getDate() - 6); setFilterFrom(fmtD(f)); setFilterTo(fmtD(now)); }
+    else if (p === '30d') { const f = new Date(now); f.setDate(f.getDate() - 29); setFilterFrom(fmtD(f)); setFilterTo(fmtD(now)); }
+    else if (p === 'month') { setFilterFrom(fmtD(new Date(now.getFullYear(), now.getMonth(), 1))); setFilterTo(fmtD(new Date(now.getFullYear(), now.getMonth() + 1, 0))); }
+    else if (p === 'lastmonth') { setFilterFrom(fmtD(new Date(now.getFullYear(), now.getMonth() - 1, 1))); setFilterTo(fmtD(new Date(now.getFullYear(), now.getMonth(), 0))); }
+    else if (p === 'year') { setFilterFrom(`${now.getFullYear()}-01-01`); setFilterTo(fmtD(now)); }
+    else { setFilterFrom(''); setFilterTo(''); }
+    setPreset(p === preset ? '' : p);
+  }
 
   const filteredCatering=useMemo(()=>cateringInvoices.filter(i=>{
     const d=i.date||i.dateStart||i.createdAt||'';
@@ -78,17 +92,52 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
   const isFiltered=filterFrom||filterTo;
 
+  function exportCsv() {
+    const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+    const rows = [
+      ['Metric','Value'],
+      ['Total Revenue', (totalRevenue + manualIncome).toFixed(2)],
+      ['Outstanding Balance', outstanding.toFixed(2)],
+      ['Total Expenses', (totalSpending + manualExpense).toFixed(2)],
+      ['Gross Profit', grossProfit.toFixed(2)],
+      ['Gross Margin %', grossMarginPct != null ? grossMarginPct : ''],
+      ['Sales Tax Due', taxDue.toFixed(2)],
+      ['Catering Invoices', filteredCatering.length],
+      ['Purchase Orders', filteredPurchase.length],
+      ['', ''],
+      ['Top Customers', ''],
+      ...topCustomers.map(c => [c.name, c.total.toFixed(2)]),
+      ['', ''],
+      ['Monthly Net Profit', ''],
+      ...monthlyNetProfit.map(m => [m.label, m.net.toFixed(2)]),
+    ];
+    const csv = rows.map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `analytics-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
-        <div className="flex gap-2 flex-wrap" style={{alignItems:'center'}}>
-          <input className="input" type="date" style={{width:'auto'}} value={filterFrom} onChange={e=>setFilterFrom(e.target.value)} title="From date" />
+        <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</button>
+      </div>
+      <div className="card mb-3">
+        <div className="flex gap-2 flex-wrap" style={{alignItems:'center',marginBottom:8}}>
+          <input className="input" type="date" style={{width:'auto'}} value={filterFrom} onChange={e=>{setFilterFrom(e.target.value);setPreset('');}} title="From date" />
           <span style={{fontSize:12,color:'#888'}}>to</span>
-          <input className="input" type="date" style={{width:'auto'}} value={filterTo} onChange={e=>setFilterTo(e.target.value)} title="To date" />
-          {isFiltered&&<button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterFrom('');setFilterTo('');}}>✕ All time</button>}
-          {isFiltered&&<span style={{fontSize:12,color:'#888'}}>Showing {filteredCatering.length}+{filteredPurchase.length}+{filteredDaily.length} records</span>}
+          <input className="input" type="date" style={{width:'auto'}} value={filterTo} onChange={e=>{setFilterTo(e.target.value);setPreset('');}} title="To date" />
         </div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+          {[['7d','Last 7d'],['30d','Last 30d'],['month','This Month'],['lastmonth','Last Month'],['year','This Year']].map(([k,label])=>(
+            <button key={k} className="btn btn-sm" style={{background:preset===k?'var(--brown)':'#eee',color:preset===k?'#fff':'#555',borderRadius:12,padding:'2px 10px'}} onClick={()=>applyPreset(k)}>{label}</button>
+          ))}
+          {isFiltered&&<button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>applyPreset('')}>✕ All time</button>}
+        </div>
+        {isFiltered&&<div style={{fontSize:12,color:'#888',marginTop:6}}>Showing {filteredCatering.length} catering · {filteredPurchase.length} purchase · {filteredDaily.length} daily records</div>}
       </div>
       <div className="stat-grid">
         {[
