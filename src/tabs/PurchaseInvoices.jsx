@@ -4,7 +4,7 @@ import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
 import Modal from '../ui/Modal.jsx';
 import Confirm from '../ui/Confirm.jsx';
-import { BUSINESSES, LOCATIONS } from '../constants.js';
+import { BUSINESSES, LOCATIONS, PURCHASE_UNITS, CASE_UNITS } from '../constants.js';
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
@@ -79,9 +79,17 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
         if (match) {
           const sellers = Array.isArray(match.sellers) ? match.sellers : [];
           const supplierLc = (f.supplier || '').toLowerCase().trim();
-          const sel = sellers.find(s => s.name.toLowerCase() === supplierLc) || sellers[0];
-          if (sel?.price != null && upd.unitPrice === '') upd.unitPrice = String(sel.price);
-          if (match.unit && upd.unit === 'each') upd.unit = match.unit;
+          const sel = sellers.find(s => (s.name || '').toLowerCase().trim() === supplierLc) || sellers[0];
+          if (sel?.price != null && sel.price > 0 && upd.unitPrice === '') upd.unitPrice = String(sel.price);
+          if (match.unit && (upd.unit === 'each' || upd.unit === '')) upd.unit = match.unit;
+          if (match.caseSize) upd._caseSize = match.caseSize;
+        }
+      }
+      if (f2 === 'unit' && CASE_UNITS.has(v) && upd._caseSize && upd.unitPrice) {
+        const pricePerUnit = parseFloat(upd.unitPrice);
+        const cs = parseInt(upd._caseSize);
+        if (!isNaN(pricePerUnit) && !isNaN(cs) && cs > 0) {
+          upd.unitPrice = String(+(pricePerUnit * cs).toFixed(2));
         }
       }
       l[i] = upd;
@@ -421,8 +429,15 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             <div key={i} className="flex gap-2 mb-2" style={{alignItems:'center',flexWrap:'wrap'}}>
               <input className="input" placeholder="Description *" value={l.description} onChange={e=>setLine(i,'description',e.target.value)} style={{flex:'3 1 160px'}} list={descListId} />
               <input className="input" placeholder="Qty" type="number" min="0" step="0.01" value={l.quantity} onChange={e=>setLine(i,'quantity',e.target.value)} style={{flex:'1 1 60px'}} />
-              <input className="input" placeholder="Unit" value={l.unit} onChange={e=>setLine(i,'unit',e.target.value)} style={{flex:'1 1 60px'}} list={unitLineListId} />
+              <select className="input" style={{flex:'1 1 80px'}} value={PURCHASE_UNITS.includes(l.unit)?l.unit:'custom'} onChange={e=>{if(e.target.value!=='custom')setLine(i,'unit',e.target.value);else setLine(i,'unit','');}}>
+                {PURCHASE_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                <option value="custom">other…</option>
+              </select>
+              {!PURCHASE_UNITS.includes(l.unit)&&<input className="input" placeholder="unit" value={l.unit} onChange={e=>setLine(i,'unit',e.target.value)} style={{flex:'0 0 60px'}} />}
               <input className="input" placeholder="Unit $" type="number" min="0" step="0.01" value={l.unitPrice} onChange={e=>setLine(i,'unitPrice',e.target.value)} style={{flex:'1 1 70px'}} />
+              {l._caseSize && CASE_UNITS.has(l.unit) && (
+                <span style={{fontSize:11,color:'#888',flexShrink:0,alignSelf:'center'}}>1 {l.unit}={l._caseSize} ea</span>
+              )}
               <span style={{minWidth:64,textAlign:'right',fontSize:13,color:'var(--brown)',fontWeight:600}}>{fmt$(T.lines[i]?.total||0)}</span>
               <Btn className="btn-danger btn-sm" onClick={()=>setForm(f=>({...f,lineItems:f.lineItems.filter((_,x)=>x!==i)}))}>✕</Btn>
             </div>

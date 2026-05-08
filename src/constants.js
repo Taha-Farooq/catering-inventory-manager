@@ -67,6 +67,19 @@ export const PAYMENT_TERMS = [
 
 export const MENU_UNITS = ['each', 'oz', 'lb', 'g', 'kg', 'ml', 'l'];
 
+// Standard purchase units for the item database and invoice lines
+export const PURCHASE_UNITS = [
+  'lb', 'oz', 'kg', 'g',       // weight
+  'each', 'dozen',              // count
+  'case', 'bag', 'box', 'flat', // case/bulk
+  'gallon', 'qt', 'pint', 'liter', 'ml', // volume
+  'bunch', 'head',              // produce
+];
+// Which unit values are weight-based (price = per weight unit)
+export const WEIGHT_UNITS = new Set(['lb', 'oz', 'kg', 'g']);
+// Which unit values are case/bulk (case size matters)
+export const CASE_UNITS = new Set(['case', 'bag', 'box', 'flat']);
+
 export const INTERNAL_SELLER_NAME_KEYS = new Set([
   'degrill inc',
   'degrill',

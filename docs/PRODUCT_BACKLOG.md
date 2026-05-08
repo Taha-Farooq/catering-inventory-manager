@@ -630,6 +630,49 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-83 | Purchase invoices: "Add to DB" from unmatched items in stock modal | **Done** — Slice 38 |
 | BL-84 | DailyIncomeExpense: CSV export | **Done** — Slice 39 |
 | BL-85 | ItemDatabase: batch selection + bulk category change | **Done** — Slice 40 |
+| BL-86 | Analytics: top customers by revenue bar chart | **Done** — Slice 41 |
+| BL-87 | PayrollInvoices: collapsible per-employee summary table | **Done** — Slice 41 |
+| BL-88 | PurchaseInvoices: optional due date field + overdue indicator | **Done** — Slice 41 |
+| BL-89 | DailyIncomeExpense: edit existing entries in-place | **Done** — Slice 41 |
+| BL-90 | Analytics: global date-range filter applied to all charts + stats | **Done** — Slice 42 |
+| BL-91 | CateringInvoices: bulk mark-paid (checkbox + batch action bar) | **Done** — Slice 42 |
+| BL-92 | New analyticsUtils.test.js: 20 tests (eventType, topCustomers, dateFilter, margin) | **Done** — Slice 42 |
+| BL-93 | New payrollUtils.test.js: 14 tests (calcPayroll edge cases, employeeSummary) | **Done** — Slice 42 |
+| BL-94 | Analytics: monthly net profit bar chart (green/red bars, respects date filter) | **Done** — Slice 43 |
+| BL-95 | Dashboard: upcoming & overdue purchase invoices card (within 14 days or past due) | **Done** — Slice 43 |
+| BL-96 | ItemDatabase: unit dropdown (PURCHASE_UNITS) + caseSize field for cases/bags | **Done** — Slice 44 |
+| BL-97 | Fix: seller price silently dropped when seller name blank — now saved + retrievable | **Done** — Slice 44 |
+| BL-98 | PurchaseInvoices: unit dropdown + case-size auto-price hint; price auto-fill trim fix | **Done** — Slice 44 |
+| BL-99 | ShoppingList: unit dropdown per row with auto case↔unit price conversion | **Done** — Slice 44 |
+| BL-100 | CateringInvoices: price auto-fill trim fix + price>0 guard + caseSize awareness | **Done** — Slice 44 |
+
+---
+
+### Backlog items (deferred)
+
+**BL-101 — Unit conversion calculator**
+Allow switching between weight units (lb↔kg, oz↔g) with automatic price conversion. E.g., item stored in lb, user entering in kg — show the kg-equivalent price.
+Files: `src/constants.js`, `src/tabs/ItemDatabase.jsx`, `src/tabs/PurchaseInvoices.jsx`
+
+**BL-102 — Catering invoice deposits: scheduled payment plan**
+Add ability to record multiple partial payments against a catering invoice with dates (not just a single "deposit"). Track total paid vs balance due across payments.
+Files: `src/tabs/CateringInvoices.jsx`
+
+**BL-103 — Purchase invoice bulk mark-paid**
+Similar to catering bulk mark-paid (BL-91) — checkboxes + "Mark All Selected Paid" for purchase invoices.
+Files: `src/tabs/PurchaseInvoices.jsx`
+
+**BL-104 — Inventory value trend over time**
+Track total inventory value snapshot (per-location) daily/weekly. Store in `_inventorySnapshots`. Show trend line on Dashboard.
+Files: `src/tabs/Dashboard.jsx`, `src/utils/storage.js`
+
+**BL-105 — Item barcode/UPC scanner integration**
+On mobile/tablet, use the device camera to scan a UPC barcode and look up or add the item. Currently UPC is a manual text field.
+Files: new `src/ui/BarcodeScanner.jsx`, `src/tabs/ItemDatabase.jsx`
+
+**BL-106 — Catering invoice: line-item subtotal breakdown by ingredient category**
+When viewing a catering invoice, group line items by the matched item's category and show subtotals per category.
+Files: `src/tabs/CateringInvoices.jsx`
 
 ---
 

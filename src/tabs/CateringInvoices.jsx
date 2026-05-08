@@ -72,11 +72,14 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
       const l = [...f.lineItems];
       const upd = { ...l[i], [f2]: v };
       if (f2 === 'description' && v) {
-        const match = items.find(it => it.name.toLowerCase() === v.toLowerCase());
+        const match = items.find(it => it.name.toLowerCase().trim() === v.toLowerCase().trim());
         if (match) {
           const sellers = Array.isArray(match.sellers) ? match.sellers : [];
-          const sel = sellers[0];
-          if (sel?.price != null && upd.unitPrice === '') upd.unitPrice = String(sel.price);
+          // try to find a non-empty-name seller first, then fall back to first with a price
+          const sel = sellers.find(s => s.price > 0 && s.name) || sellers.find(s => s.price > 0) || sellers[0];
+          if (sel?.price != null && sel.price > 0 && upd.unitPrice === '') upd.unitPrice = String(sel.price);
+          if (match.unit && (upd.unit === '' || upd.unit == null)) upd.unit = match.unit;
+          if (match.caseSize) upd._caseSize = match.caseSize;
         }
       }
       l[i] = upd;

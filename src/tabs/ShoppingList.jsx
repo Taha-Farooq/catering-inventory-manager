@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { LOCATIONS } from '../constants.js';
+import { LOCATIONS, PURCHASE_UNITS, CASE_UNITS } from '../constants.js';
 import { showToast } from '../toastContext.jsx';
 import { reportError } from '../errors.js';
 import { fmt$, safeQty } from '../formatters.js';
@@ -82,6 +82,29 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
 
   function updateNotes(id, val) {
     const u = shoppingList.map(s => s.id === id ? { ...s, notes: val } : s);
+    setShoppingList(u); save('shoppingList', u);
+  }
+
+  function updateUnit(id, newUnit) {
+    const entry = shoppingList.find(s => s.id === id);
+    if (!entry) return;
+    const dbItem = items.find(i => i.id === entry.itemId);
+    let newPrice = entry.price;
+    // When switching to a case unit and item has caseSize, auto-calc case price
+    if (CASE_UNITS.has(newUnit) && !CASE_UNITS.has(entry.unit) && dbItem?.caseSize) {
+      const cs = parseInt(dbItem.caseSize);
+      if (!isNaN(cs) && cs > 0 && entry.price != null) {
+        newPrice = +(entry.price * cs).toFixed(2);
+      }
+    }
+    // Switching back from case to base unit
+    if (!CASE_UNITS.has(newUnit) && CASE_UNITS.has(entry.unit) && dbItem?.caseSize) {
+      const cs = parseInt(dbItem.caseSize);
+      if (!isNaN(cs) && cs > 0 && entry.price != null) {
+        newPrice = +(entry.price / cs).toFixed(2);
+      }
+    }
+    const u = shoppingList.map(s => s.id === id ? { ...s, unit: newUnit, price: newPrice } : s);
     setShoppingList(u); save('shoppingList', u);
   }
 
@@ -379,8 +402,19 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
                             <input type="number" className="input" style={{width:80,padding:'4px 8px'}} min="0" step="0.5"
                               value={e.quantity} onChange={ev=>updateQty(e.id,ev.target.value)} />
                           </td>
-                          <td>{e.unit}</td>
-                          <td>{e.price!=null?fmt$(e.price):<span style={{color:'#bbb'}}>—</span>}</td>
+                          <td>
+                            <select className="input" style={{padding:'3px 6px',width:'auto',fontSize:13,minWidth:58}}
+                              value={PURCHASE_UNITS.includes(e.unit)?e.unit:(e.unit||'each')}
+                              onChange={ev=>updateUnit(e.id,ev.target.value)}>
+                              {PURCHASE_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                              {e.unit && !PURCHASE_UNITS.includes(e.unit) && <option value={e.unit}>{e.unit}</option>}
+                            </select>
+                          </td>
+                          <td>
+                            {e.price!=null ? (
+                              <span title={`$${e.price}/${e.unit||'unit'}`}>{fmt$(e.price)}<span style={{fontSize:10,color:'#999',marginLeft:2}}>/{e.unit||'ea'}</span></span>
+                            ) : <span style={{color:'#bbb'}}>—</span>}
+                          </td>
                           <td style={{fontWeight:600,color:'var(--brown)'}}>{e.price!=null?fmt$(lt):'—'}</td>
                           <td><input type="text" className="input" style={{width:120, padding:'4px 8px', fontSize:12}} placeholder="notes…" value={e.notes||''} onChange={ev=>updateNotes(e.id, ev.target.value)} /></td>
                           <td><Btn className="btn-danger btn-sm" onClick={()=>removeItem(e.id)}>✕</Btn></td>

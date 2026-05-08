@@ -234,13 +234,14 @@ import { BrandMark } from '../ui/BrandMark.jsx';
 ```
 Exception: `getInvoiceBranding` remains in `App.jsx` (depends on `BRANDING` constant + `mergeBrandingWithOverrides`) and is passed as a prop to invoice tabs.
 
-## Item schema (Slice 19 additions)
+## Item schema (Slice 19 + Slice 44 additions)
 
 `items` records now carry optional per-location fields in addition to the legacy scalar fields:
 
 ```js
 {
   id, name, category, unit, upc, sellers, notes, createdAt,
+  caseSize,                      // Slice 44: units per case (optional; only relevant for case/bag/box/flat units)
   currentQty, minQty,           // legacy scalars — still used for backward compat
   locQty:    { englewood: '', hackensack: '' },   // per-location quantity
   locMinQty: { englewood: '', hackensack: '' },   // per-location reorder point
@@ -370,6 +371,35 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 **Slice 39 (BL-84):** DailyIncomeExpense CSV export added alongside existing Excel export.
 
 **Slice 40 (BL-85):** ItemDatabase batch selection with checkboxes + bulk category change action bar.
+
+**Slices 41–44 feature summary:**
+
+**Slice 41 (BL-86–89):** Analytics top-customers bar chart; PayrollInvoices collapsible per-employee summary table; PurchaseInvoices optional Due Date field (form, list column, overdue red ⚠, CSV/Excel); DailyIncomeExpense edit-row button (populates form for in-place update).
+
+**Slice 42 (BL-90–93):** Analytics global date-range filter (From/To inputs applied to all useMemos — catering, purchase, daily); CateringInvoices bulk mark-paid (checkbox per row + select-all, bulk action bar); 20 new analyticsUtils.test.js tests; 14 new payrollUtils.test.js tests. Total: 141 tests.
+
+**Slice 43 (BL-94–95):** Analytics monthly net-profit inline bar chart (revenue minus expenses per month, green/red bars, respects date filter); Dashboard upcoming/overdue invoices card (purchase invoices with dueDate within 14 days or past due).
+
+**Slice 44 (BL-96–99):** Unit type system — `PURCHASE_UNITS`, `CASE_UNITS`, `WEIGHT_UNITS` added to `constants.js`; ItemDatabase unit field replaced with dropdown + custom-input fallback + conditional `caseSize` field; seller price placeholder shows "$/unit"; saveItem now allows price-only seller entries (empty name is valid, no silent data loss); PurchaseInvoices + CateringInvoices + ShoppingList all use unit dropdown; ShoppingList unit column is a select with auto-price conversion on case↔unit switch; price auto-fill logic improved (`.trim()` on name match, price>0 guard, empty-unit fill fixed). Bug fix: seller price was silently dropped when seller name was blank — now saved with empty-string name so price lookup via `sellers[0]` fallback still works.
+
+## Price auto-fill (Slice 19 + Slice 44 improvements)
+
+`setLine` in `PurchaseInvoices.jsx` and `CateringInvoices.jsx`:
+- Matches description to item name case-insensitively with `.trim()` on both sides
+- For purchase invoices: tries to match `form.supplier` to a seller name first; falls back to `sellers[0]`
+- For catering invoices: prefers sellers with `price > 0` and non-empty name; falls back to first seller with price > 0
+- Price guard: only fills if `sel.price > 0` (prevents filling $0 from blank-price entries)
+- `upd.unit` fill: triggers when unit is `''` or `'each'` (not just `'each'` — catches freshly added lines)
+- `_caseSize` is stored on the line item when the matched item has a `caseSize`; switching to a CASE_UNIT auto-multiplies the unit price
+
+## Unit type constants (Slice 44)
+
+`src/constants.js` exports:
+- `PURCHASE_UNITS`: ordered array of common purchase units — weight (lb/oz/kg/g), count (each/dozen), bulk (case/bag/box/flat), volume (gallon/qt/pint/liter/ml), produce (bunch/head)
+- `WEIGHT_UNITS`: `Set` of weight-based units (lb/oz/kg/g) — currently informational
+- `CASE_UNITS`: `Set` of bulk units where `caseSize` matters (case/bag/box/flat)
+
+`caseSize` on item records: integer string, optional. Represents "units per case/bag/box/flat". Shown as a number input in ItemDatabase form when `CASE_UNITS.has(form.unit)`. Exported in CSV under "case size" column; imported via the same aliases.
 
 ## Known technical debt
 
