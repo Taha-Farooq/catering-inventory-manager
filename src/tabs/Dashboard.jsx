@@ -26,7 +26,7 @@ function isItemLowStock(item) {
   });
 }
 
-export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], setTab, shoppingList = [], setShoppingList }) {
+export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], payrollInvoices = [], setTab, shoppingList = [], setShoppingList }) {
   const stats = useMemo(() => {
     const totalItems = items.length;
 
@@ -47,8 +47,12 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
       .filter(i => i.status !== 'paid')
       .reduce((s, i) => s + (i.balanceDue || 0), 0);
 
-    return { totalItems, lowStock, inventoryValue, outstanding };
-  }, [items, cateringInvoices]);
+    const payrollOutstanding = payrollInvoices
+      .filter(i => (i.status || 'unpaid') !== 'paid')
+      .reduce((s, i) => s + (i.total || 0), 0);
+
+    return { totalItems, lowStock, inventoryValue, outstanding, payrollOutstanding };
+  }, [items, cateringInvoices, payrollInvoices]);
 
   useEffect(() => {
     const todayStr = today();
@@ -282,10 +286,16 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
           })()}
           <div className="stat-lbl">Inventory Value</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-val">{fmt$(stats.outstanding)}</div>
+        <div className="stat-card" onClick={() => setTab && setTab('catering')} style={setTab ? {cursor:'pointer'} : {}} title={setTab ? 'Go to Catering Invoices' : undefined}>
+          <div className="stat-val" style={stats.outstanding > 0 ? {color:'#DC2626'} : {}}>{fmt$(stats.outstanding)}</div>
           <div className="stat-lbl">Outstanding (Catering)</div>
         </div>
+        {stats.payrollOutstanding > 0 && (
+          <div className="stat-card" onClick={() => setTab && setTab('payroll')} style={setTab ? {cursor:'pointer'} : {}} title={setTab ? 'Go to Payroll' : undefined}>
+            <div className="stat-val" style={{color:'#DC2626'}}>{fmt$(stats.payrollOutstanding)}</div>
+            <div className="stat-lbl">Unpaid Payroll</div>
+          </div>
+        )}
       </div>
 
       {upcomingDue.length > 0 && (

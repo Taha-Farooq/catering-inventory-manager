@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId } from 'react';
+import React, { useState, useMemo, useEffect, useId } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
@@ -49,6 +49,8 @@ const blankForm = () => ({
   date: today(),
 });
 
+const PAGE_SIZE = 50;
+
 export default function InventoryAdjustments({ items, setItems }) {
   const [adjustments, setAdjustments] = useState(() => load(INVENTORY_ADJUSTMENTS_KEY, []));
   const [form, setForm] = useState(blankForm());
@@ -58,6 +60,7 @@ export default function InventoryAdjustments({ items, setItems }) {
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [page, setPage] = useState(1);
 
   const itemNameSuggestions = useMemo(() => {
     const seen = new Set();
@@ -229,6 +232,11 @@ export default function InventoryAdjustments({ items, setItems }) {
     });
   }, [adjustments, filterName, filterLocation, filterReason, filterDateFrom, filterDateTo]);
 
+  useEffect(() => { setPage(1); }, [filterName, filterLocation, filterReason, filterDateFrom, filterDateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const pendingDelete = adjustments.find(a => a.id === confirmDeleteId);
 
   return (
@@ -372,7 +380,7 @@ export default function InventoryAdjustments({ items, setItems }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(a => (
+                {paginated.map(a => (
                   <tr key={a.id}>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(a.date)}</td>
                     <td>{a.itemName}</td>
@@ -391,6 +399,13 @@ export default function InventoryAdjustments({ items, setItems }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {totalPages > 1 && (
+          <div className="flex-between" style={{ marginTop: 12, alignItems: 'center' }}>
+            <Btn className="btn-sm btn-outline" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</Btn>
+            <span style={{ fontSize: 13, color: '#666' }}>Page {page} of {totalPages} ({filtered.length} records)</span>
+            <Btn className="btn-sm btn-outline" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next →</Btn>
           </div>
         )}
       </div>
