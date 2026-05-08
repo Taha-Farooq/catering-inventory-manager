@@ -673,6 +673,13 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-128 | CateringInvoices: Excel export with Invoices sheet + Line Items detail sheet | **Done** — Slice 61 |
 | BL-129 | PayrollInvoices: Excel export with Records sheet + Monthly Summary sheet | **Done** — Slice 61 |
 | BL-130 | menuMarginsUtils.test.js: 27 tests for toBase unit conversion, calcMargin, calcRecommendedPrice, getItemLatestCost | **Done** — Slice 61 |
+| BL-131 | Dashboard: payroll outstanding stat card (red, clickable → payroll tab, shown only when > 0) | **Done** — Slice 62 |
+| BL-132 | InventoryAdjustments: paginate log at 50 rows/page with Prev/Next controls; page resets on filter change | **Done** — Slice 62 |
+| BL-133 | ItemDatabase: Excel export with Items + Sellers sheets; ⬇ CSV / ⬇ Excel buttons | **Done** — Slice 63 |
+| BL-134 | CustomerManagement: Excel export for customer list; Excel export for per-customer statement in history modal | **Done** — Slice 63 |
+| BL-135 | MenuMarginsLab: Excel export with Menu Items + Margins sheets | **Done** — Slice 63 |
+| BL-136 | PriceHistory: Excel export button (single sheet, same columns as CSV) | **Done** — Slice 64 |
+| BL-137 | Analytics: Excel export with Summary, Top Customers, Event Types, Monthly Net Profit sheets | **Done** — Slice 64 |
 
 ---
 

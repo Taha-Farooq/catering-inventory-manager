@@ -447,6 +447,39 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 
 `caseSize` on item records: integer string, optional. Represents "units per case/bag/box/flat". Shown as a number input in ItemDatabase form when `CASE_UNITS.has(form.unit)`. Exported in CSV under "case size" column; imported via the same aliases.
 
+## Slices 52–62 — Tests, exports, DX improvements (2026-05)
+
+**Slice 52:** PayrollInvoices employee search filter input; AGENTS.md updated through Slice 51.
+
+**Slice 53:** Analytics — 5 date preset buttons (Last 7d / 30d / This Month / Last Month / This Year with active-state highlight); filter card layout; CSV export of summary + top customers + monthly net profit; filtered record counts when date filter is active.
+
+**Slice 54:** `analyticsDateUtils.test.js` — 13 tests for `buildMonthlyNetProfit` (catering/purchase/daily merge, month grouping, 12-month cap, negative months) and `applyPreset` (all 6 presets). PRODUCT_BACKLOG.md: added BL-117/118/119 as Done. Total: 187 tests.
+
+**Slice 55:** ShoppingList — "✕ Remove N bought" button deletes checked-off items from list (was only possible to unmark them, not delete).
+
+**Slice 56:** DailyIncomeExpense — configurable income tax rate (number input, persisted as `_incomeTaxRate`, default 22%); stat card label and Excel export header update live.
+
+**Slice 57:** `cateringCalc.test.js` — 11 tests for `calcT` (subtotal, CC fee 3.5%, tax on taxBase, deposit/balance, invalid inputs). Total: 198 tests.
+
+**Slice 58:** `transferCalc.test.js` — 7 tests for `calcTransferInvoice` (15% commission, rounding, empty lines, zero filtering, multi-line, fractional qty). Total: 205 tests.
+
+**Slice 59:** Invoice view modal render dedup — `getInvoiceBranding()` was called 4× per render; fixed with IIFE pattern in PurchaseInvoices/CateringInvoices/TransferInvoices (1 call, result cached in closure). TransferInvoices list table gained Status badge column. PayrollInvoices: `blankForm()` now auto-computes `periodEnd` via `calcPeriodEnd`; `calcPayroll` adds `Math.max(0,…)` guard on reg/OT hours.
+
+**Slice 60:** `itemImportUtils.test.js` — 13 tests for `normalizeImportHeaders` (alias mapping: item/item name/supplier/vendor/barcode, location qty columns: `englewood_qty`/`hackensack_min`, case-insensitivity, whitespace, first-wins dedup). `dailyFinanceUtils.test.js` — 18 tests for `parseNum`, `calcTotals`, `calcSummary` (net/estimated income tax/salesTaxDue), `buildMonthlyData`. Total: 241 tests (36 new).
+
+**Slice 61:** CateringInvoices Excel export — 2-sheet workbook (Invoices summary + Line Items). PayrollInvoices Excel export — 2-sheet workbook (Payroll Records + Monthly Summary). `menuMarginsUtils.test.js` — 27 tests for `toBase` (unit conversions), `calcMargin` (margin%, profit), `calcRecommendedPrice`, `getItemLatestCost` (min seller price). Total: 267 tests (26 net new after dedup correction).
+
+**Slice 62:** Dashboard — payroll outstanding stat card (red, clickable → payroll tab, shown only when > 0); fixed `payrollInv` undefined reference → `payrollInvoices`. InventoryAdjustments — paginate log at 50 rows/page (`PAGE_SIZE = 50`); `useEffect` resets page to 1 on any filter change; Prev/Next controls with "Page X of Y (N records)" display.
+
+## New localStorage keys (Slices 52–62)
+
+| Key | Type | Owner | Purpose |
+|-----|------|-------|---------|
+| `_incomeTaxRate` | number | DailyIncomeExpense | User-configurable income tax % (default 22) |
+| `INVENTORY_ADJUSTMENTS_KEY` (`_inventoryAdjustments`) | array | InventoryAdjustments | Inventory adjustment log records |
+| `_inventorySnapshots` | object | Dashboard | Daily stock snapshots for sparkline (BL-104) |
+| `_customCategories` | array | ItemDatabase | Admin-defined custom categories (BL-38) |
+
 ## Known technical debt
 
 - `src/App.jsx` shell (~700 lines after Epic C full extraction); all tabs in `src/tabs/`, UI components in `src/ui/`, utility functions in `src/utils/`, shared auth/backend helpers in `src/authHelpers.js`. Epic C (BL-07) is complete.

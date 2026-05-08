@@ -1,4 +1,5 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
+import * as XLSX from 'xlsx';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$ } from '../formatters.js';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
@@ -92,6 +93,46 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
   const isFiltered=filterFrom||filterTo;
 
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+    // Summary sheet
+    const sumRows = [
+      ['Metric', 'Value'],
+      ['Total Revenue', +(totalRevenue + manualIncome).toFixed(2)],
+      ['Outstanding Balance', +outstanding.toFixed(2)],
+      ['Total Expenses', +(totalSpending + manualExpense).toFixed(2)],
+      ['Gross Profit', grossProfit],
+      ['Gross Margin %', grossMarginPct != null ? grossMarginPct : ''],
+      ['Sales Tax Due', +taxDue.toFixed(2)],
+      ['Catering Invoices', filteredCatering.length],
+      ['Purchase Orders', filteredPurchase.length],
+      ['Avg Invoice Value', filteredCatering.length > 0 ? +(totalRevenue / filteredCatering.length).toFixed(2) : ''],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sumRows), 'Summary');
+    // Top Customers
+    if (topCustomers.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['Customer', 'Total Revenue'],
+        ...topCustomers.map(c => [c.name, c.total]),
+      ]), 'Top Customers');
+    }
+    // Event Types
+    if (eventTypeData.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['Event Type', 'Total Revenue'],
+        ...eventTypeData.map(e => [e.name, e.total]),
+      ]), 'Event Types');
+    }
+    // Monthly Net Profit
+    if (monthlyNetProfit.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['Month', 'Net Profit'],
+        ...monthlyNetProfit.map(m => [m.label, m.net]),
+      ]), 'Monthly Net Profit');
+    }
+    XLSX.writeFile(wb, `analytics-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
   function exportCsv() {
     const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
     const rows = [
@@ -123,7 +164,8 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
-        <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</button>
+        <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</button>
+        <button className="btn btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</button>
       </div>
       <div className="card mb-3">
         <div className="flex gap-2 flex-wrap" style={{alignItems:'center',marginBottom:8}}>

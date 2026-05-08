@@ -1,4 +1,5 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
+import * as XLSX from 'xlsx';
 import { CHART_COLORS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
@@ -45,12 +46,28 @@ export default function PriceHistory({ items, priceHistory, setPriceHistory }) {
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   }
 
+  function exportExcel() {
+    const data = selId ? hist : [...priceHistory].sort((a,b)=>a.date.localeCompare(b.date));
+    if (!data.length) { return; }
+    const header = ['Date', 'Item', 'Seller', 'Old Price', 'New Price', 'Change'];
+    const rows = data.map(h => {
+      const diff = (h.newPrice ?? 0) - (h.oldPrice ?? 0);
+      return [h.date, h.itemName || '', h.seller || '', h.oldPrice != null ? +h.oldPrice : '', h.newPrice != null ? +h.newPrice : '', +diff.toFixed(2)];
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Price History');
+    XLSX.writeFile(wb, 'price-history-' + today() + '.xlsx');
+  }
+
   return (
     <div>
       <div className="flex-between mb-4">
         <div className="section-title" style={{margin:0}}>Price History</div>
         {priceHistory.length > 0 && (
-          <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ Export CSV</Btn>
+          <>
+            <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
+            <Btn className="btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
+          </>
         )}
       </div>
       <div className="card mb-4">
