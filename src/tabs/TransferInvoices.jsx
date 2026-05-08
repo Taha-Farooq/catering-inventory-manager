@@ -342,7 +342,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
         <div className="card">
           <div className="tbl-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Total</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Status</th><th>Total</th><th></th></tr></thead>
               <tbody>
                 {visible.map(inv=>(
                   <tr key={inv.id}>
@@ -350,6 +350,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
                     <td>{fmtDate(inv.date)}</td>
                     <td>{inv.from}</td>
                     <td>{inv.to}</td>
+                    <td><span className={`badge badge-${inv.status||'unpaid'}`}>{inv.status||'unpaid'}</span></td>
                     <td style={{fontWeight:700}}>{fmt$(inv.grandTotal)}</td>
                     <td>
                       <div className="flex gap-2">
@@ -374,16 +375,18 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
       )}
 
       <Modal open={!!viewInv} onClose={()=>setViewId(null)} title={`Transfer Invoice ${viewInv?.id || ''}`} wide maxW={900} closeOnBackdrop>
-        {viewInv && (
+        {viewInv&&(()=>{
+          const brand = getInvoiceBranding(viewInv, brandingMap);
+          return (
           <div id={`transfer-view-${viewInv.id}`}>
             <div className="flex-between mb-4" style={{flexWrap:'wrap',gap:10}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <BrandMark brand={getInvoiceBranding(viewInv, brandingMap)} />
+                <BrandMark brand={brand} />
                 <div>
-                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{getInvoiceBranding(viewInv, brandingMap).name}</div>
-                  <div style={{fontSize:12,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).address}</div>
-                  {getInvoiceBranding(viewInv, brandingMap).phone&&<div style={{fontSize:12,color:'#666'}}>Tel: {getInvoiceBranding(viewInv, brandingMap).phone}</div>}
-                  {getInvoiceBranding(viewInv, brandingMap).email&&<div style={{fontSize:12,color:'#666'}}>{getInvoiceBranding(viewInv, brandingMap).email}</div>}
+                  <div style={{fontWeight:800,fontSize:18,color:'var(--brown)'}}>{brand.name}</div>
+                  <div style={{fontSize:12,color:'#666'}}>{brand.address}</div>
+                  {brand.phone&&<div style={{fontSize:12,color:'#666'}}>Tel: {brand.phone}</div>}
+                  {brand.email&&<div style={{fontSize:12,color:'#666'}}>{brand.email}</div>}
                 </div>
               </div>
               <div style={{textAlign:'right',fontSize:13}}>
@@ -433,7 +436,8 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>
             </div>
           </div>
-        )}
+          );
+        })()}
       </Modal>
 
       <Confirm

@@ -662,6 +662,12 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-117 | Analytics: date range presets (Last 7d/30d/This Month/Last Month/This Year) + CSV export | **Done** — Slice 53 |
 | BL-118 | PayrollInvoices: employee name search filter | **Done** — Slice 52 |
 | BL-119 | analyticsDateUtils.test.js: 13 tests for monthlyNetProfit + applyPreset | **Done** — Slice 54 |
+| BL-120 | ShoppingList: "Remove X bought" button deletes checked items from list; "Unmark X" clears checks only | **Done** — Slice 55 |
+| BL-121 | DailyIncomeExpense: configurable income tax rate (persistent, defaults 22%) replacing hardcoded constant | **Done** — Slice 56 |
+| BL-122 | cateringCalc.test.js: 11 tests for calcT (subtotal, CC fee 3.5%, tax, balance) | **Done** — Slice 57 |
+| BL-123 | transferCalc.test.js: 7 tests for transfer invoice 15% commission calculation | **Done** — Slice 58 |
+| BL-124 | TransferInvoices/CateringInvoices/PurchaseInvoices: deduplicate getInvoiceBranding() (4→1 per render via IIFE); TransferInvoices add Status column to list table | **Done** — Slice 59 |
+| BL-125 | PayrollInvoices: blankForm initializes periodEnd from calcPeriodEnd; calcPayroll adds Math.max(0) guard on reg/ot hours | **Done** — Slice 59 |
 
 ---
 

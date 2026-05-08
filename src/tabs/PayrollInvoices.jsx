@@ -40,12 +40,13 @@ const PAY_PERIODS = [
 ];
 
 function blankForm(selectedBusiness) {
+  const start = today();
   return {
     employeeName: '',
     business: selectedBusiness || 'degrill',
     payPeriod: 'weekly',
-    periodStart: today(),
-    periodEnd: '',
+    periodStart: start,
+    periodEnd: calcPeriodEnd(start, 'weekly'),
     hourlyRate: '',
     regularHours: '',
     overtimeHours: '',
@@ -56,8 +57,8 @@ function blankForm(selectedBusiness) {
 
 function calcPayroll(form) {
   const rate = parseFloat(form.hourlyRate) || 0;
-  const reg = parseFloat(form.regularHours) || 0;
-  const ot = parseFloat(form.overtimeHours) || 0;
+  const reg = Math.max(0, parseFloat(form.regularHours) || 0);
+  const ot = Math.max(0, parseFloat(form.overtimeHours) || 0);
   const total = reg * rate + ot * rate * 1.5;
   return { rate, reg, ot, total };
 }
