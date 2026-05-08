@@ -53,6 +53,8 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   const [viewId, setViewId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
 
   const pendingDeleteTransfer = useMemo(
     () => (confirmId ? transferInvoices.find((i) => i.id === confirmId) : null),
@@ -62,14 +64,24 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   const visible = useMemo(() => {
     let list = sorted;
     if (filterStatus !== 'all') list = list.filter(i => i.status === filterStatus);
+    if (filterDateFrom) list = list.filter(i => (i.date || '') >= filterDateFrom);
+    if (filterDateTo) list = list.filter(i => (i.date || '') <= filterDateTo);
     return list;
-  }, [sorted, filterStatus]);
+  }, [sorted, filterStatus, filterDateFrom, filterDateTo]);
   const viewInv = sorted.find(x => x.id === viewId);
 
   function setLine(i, field, value) {
     setForm(f => {
       const lines = [...f.lineItems];
-      lines[i] = { ...lines[i], [field]: value };
+      const upd = { ...lines[i], [field]: value };
+      if (field === 'item' && value) {
+        const match = items.find(it => it.name.toLowerCase() === value.toLowerCase());
+        if (match) {
+          const sel = (match.sellers || []).find(s => s.price > 0) || match.sellers?.[0];
+          if (sel?.price > 0 && upd.price === '') upd.price = String(sel.price);
+        }
+      }
+      lines[i] = upd;
       return { ...f, lineItems: lines };
     });
   }
@@ -274,6 +286,9 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
             <option value="unpaid">Unpaid only</option>
             <option value="paid">Paid only</option>
           </select>
+          <input className="input" type="date" style={{width:'auto',marginBottom:0}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
+          <input className="input" type="date" style={{width:'auto',marginBottom:0}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
+          {(filterDateFrom||filterDateTo) && <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px',marginBottom:0}} onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}}>✕</button>}
           <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
@@ -343,7 +358,9 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
                         <Btn className="btn-outline btn-sm" onClick={()=>copyTransferInvoice(inv)}>Copy</Btn>
                         {inv.status!=='paid'&&<Btn className="btn-success btn-sm" onClick={()=>{
                           const updated=transferInvoices.map(x=>x.id===inv.id?{...x,status:'paid'}:x);
-                          setTransferInvoices(updated); save('transferInvoices',updated); showToast('Transfer invoice marked paid.');
+                          setTransferInvoices(updated); save('transferInvoices',updated);
+                          logActivity('mark_paid','Marked transfer invoice paid '+inv.id);
+                          showToast('Transfer invoice marked paid.');
                         }}>Paid</Btn>}
                         <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>setConfirmId(inv.id)}>Delete</Btn>
                       </div>

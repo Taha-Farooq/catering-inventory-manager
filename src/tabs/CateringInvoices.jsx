@@ -66,6 +66,8 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [payingInv, setPayingInv] = useState(null);
+  const [payForm, setPayForm] = useState({ amount: '', date: today(), note: '' });
 
   function setLine(i, f2, v) {
     setForm(f => {
@@ -208,7 +210,41 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   }
 
   function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);showToast('Catering invoice deleted.');logActivity('delete_invoice','Deleted catering invoice '+id);}
-  function markPaid(id){const u=cateringInvoices.map(x=>x.id===id?{...x,status:'paid',deposit:x.grandTotal,balanceDue:0}:x);setCateringInvoices(u);save('cateringInvoices',u);showToast('Catering invoice marked paid.');logActivity('mark_paid','Marked catering invoice paid '+id);}
+
+  function totalPaidFor(inv) { return (parseFloat(inv.deposit)||0) + (inv.payments||[]).reduce((s,p) => s+(p.amount||0), 0); }
+  function balanceFor(inv) { return Math.max(0, (inv.grandTotal||0) - totalPaidFor(inv)); }
+
+  function markPaid(id) {
+    const inv = cateringInvoices.find(x => x.id === id);
+    if (!inv) return;
+    const remaining = balanceFor(inv);
+    const payments = remaining > 0
+      ? [...(inv.payments || []), { id: uid(), date: today(), amount: remaining, note: 'Full payment' }]
+      : (inv.payments || []);
+    const updated = { ...inv, payments, status: 'paid', deposit: inv.deposit, balanceDue: 0 };
+    const u = cateringInvoices.map(x => x.id === id ? updated : x);
+    setCateringInvoices(u); save('cateringInvoices', u);
+    showToast('Catering invoice marked paid.');
+    logActivity('mark_paid', 'Marked catering invoice paid ' + id);
+  }
+
+  function recordPayment() {
+    if (!payingInv) return;
+    const amount = parseFloat(payForm.amount);
+    if (isNaN(amount) || amount <= 0) { showToast('Enter a valid payment amount.', 'error'); return; }
+    const payments = [...(payingInv.payments || []), { id: uid(), date: payForm.date || today(), amount, note: payForm.note.trim() }];
+    const newTotalPaid = (parseFloat(payingInv.deposit)||0) + payments.reduce((s,p) => s+(p.amount||0), 0);
+    const newBalance = Math.max(0, (payingInv.grandTotal||0) - newTotalPaid);
+    const newStatus = newBalance <= 0 ? 'paid' : 'partial';
+    const updated = { ...payingInv, payments, balanceDue: newBalance, status: newStatus };
+    const u = cateringInvoices.map(i => i.id === payingInv.id ? updated : i);
+    setCateringInvoices(u); save('cateringInvoices', u);
+    logActivity('mark_paid', `Recorded ${fmt$(amount)} payment on catering invoice ${payingInv.id}`);
+    showToast(`Payment of ${fmt$(amount)} recorded.`);
+    if (viewInv?.id === payingInv.id) setViewInv(updated);
+    setPayingInv(null);
+    setPayForm({ amount: '', date: today(), note: '' });
+  }
 
   const [showAllBiz, setShowAllBiz] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
@@ -471,6 +507,35 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
               {viewInv.deposit>0&&<div style={{color:'var(--success)'}}>Deposit Received: {fmt$(viewInv.deposit)}</div>}
               <div style={{fontWeight:700,color:viewInv.balanceDue>0?'var(--danger)':'var(--success)',fontSize:15}}>Balance Due: {fmt$(viewInv.balanceDue)}</div>
             </div>
+            {(() => {
+              const payments = viewInv.payments || [];
+              const initDep = parseFloat(viewInv.deposit) || 0;
+              const allPayments = [
+                ...(initDep > 0 ? [{ id: '__dep', date: viewInv.createdAt?.slice(0,10) || viewInv.date || '', amount: initDep, note: 'Initial deposit' }] : []),
+                ...payments
+              ];
+              const remaining = balanceFor(viewInv);
+              return (
+                <div style={{marginTop:14,padding:'10px 14px',background:'#F8F3EE',borderRadius:6,fontSize:13}}>
+                  <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span>Payment History</span>
+                    {remaining > 0 && <button className="btn btn-success btn-sm" onClick={()=>{setPayingInv(viewInv);setPayForm({amount:String(+remaining.toFixed(2)),date:today(),note:''});}}>+ Record Payment</button>}
+                  </div>
+                  {allPayments.length === 0 && <div style={{color:'#999',fontSize:12}}>No payments recorded yet.</div>}
+                  {allPayments.map(p => (
+                    <div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px solid #EDD9B0',gap:8}}>
+                      <span style={{color:'#666',fontSize:12}}>{fmtDate(p.date)}{p.note ? ` · ${p.note}` : ''}</span>
+                      <span style={{fontWeight:600,color:'var(--success)'}}>{fmt$(p.amount)}</span>
+                    </div>
+                  ))}
+                  {allPayments.length > 0 && (
+                    <div style={{display:'flex',justifyContent:'space-between',marginTop:6,fontWeight:700}}>
+                      <span>Total Paid</span><span style={{color:'var(--success)'}}>{fmt$(+(totalPaidFor(viewInv)).toFixed(2))}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{marginTop:14,padding:10,background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404'}}>
               <strong>Payment Terms: </strong>{PAYMENT_TERMS.join('  ·  ')}
             </div>
@@ -527,6 +592,25 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>
+        )}
+      </Modal>
+
+      <Modal open={!!payingInv} onClose={()=>setPayingInv(null)} title={`Record Payment — ${payingInv?.id||''}`}>
+        {payingInv && (
+          <>
+            <p style={{fontSize:13,color:'#666',marginBottom:12}}>
+              Grand total: <strong>{fmt$(payingInv.grandTotal)}</strong> · Remaining: <strong style={{color:'var(--danger)'}}>{fmt$(+(balanceFor(payingInv)).toFixed(2))}</strong>
+            </p>
+            <div className="grid-2 mb-3">
+              <div className="field"><label>Amount *</label><input className="input" type="number" min="0.01" step="0.01" value={payForm.amount} onChange={e=>setPayForm(f=>({...f,amount:e.target.value}))} placeholder="0.00" /></div>
+              <div className="field"><label>Payment Date</label><input className="input" type="date" value={payForm.date} onChange={e=>setPayForm(f=>({...f,date:e.target.value}))} /></div>
+            </div>
+            <div className="field mb-3"><label>Note (optional)</label><input className="input" value={payForm.note} onChange={e=>setPayForm(f=>({...f,note:e.target.value}))} placeholder="e.g. Balance payment, Second installment…" /></div>
+            <div className="flex gap-2" style={{justifyContent:'flex-end'}}>
+              <button className="btn btn-outline" onClick={()=>setPayingInv(null)}>Cancel</button>
+              <button className="btn btn-success" onClick={recordPayment}>Record Payment</button>
+            </div>
+          </>
         )}
       </Modal>
 

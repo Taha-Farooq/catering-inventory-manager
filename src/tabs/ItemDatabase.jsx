@@ -75,6 +75,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
   const importFileRef = useRef(null);
   const [purchaseSuggest, setPurchaseSuggest] = useState(null); // { count, avgQty, suggested }
   const [historyItem, setHistoryItem] = useState(null); // item or null
+  const [filterLow, setFilterLow] = useState(false);
   const [sortCol, setSortCol] = useState('name');
   const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -108,10 +109,11 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
     const q=search.toLowerCase();
     return items.filter(i=>{
       if (catFilter && i.category !== catFilter) return false;
+      if (filterLow && !isLowStock(i)) return false;
       const sellerNames = (i.sellers||[]).map(s=>(s.name||'').toLowerCase()).join(' ');
       return i.name.toLowerCase().includes(q)||i.category.toLowerCase().includes(q)||(i.upc||'').includes(q)||sellerNames.includes(q);
     });
-  },[items,search,catFilter]);
+  },[items,search,catFilter,filterLow]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -399,7 +401,10 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
           <option value="">All categories</option>
           {allCategories.map(c=><option key={c}>{c}</option>)}
         </select>
-        {(search||catFilter) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');}}>✕ Clear</Btn>}
+        <Btn className={`btn-sm ${filterLow?'btn-danger':'btn-outline'}`} style={{alignSelf:'center',whiteSpace:'nowrap'}} onClick={()=>setFilterLow(v=>!v)}>
+          {filterLow ? '⚠ Low Stock Only' : '⚠ Low Stock'}
+        </Btn>
+        {(search||catFilter||filterLow) && <Btn className="btn-outline btn-sm" style={{alignSelf:'center'}} onClick={()=>{setSearch('');setCatFilter('');setFilterLow(false);}}>✕ Clear</Btn>}
       </div>
       {!isAdmin && <div style={{background:'#dbeafe',color:'#1d4ed8',padding:'8px 14px',borderRadius:5,marginBottom:14,fontSize:13}}>💡 Tip: You can add new items using the button above. To edit or delete items, contact your admin.</div>}
       {lowStockCount > 0 && (
