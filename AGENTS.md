@@ -407,6 +407,27 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 - ItemDatabase: `filterLow` state + toggle button to show only low-stock items
 - TransferInvoices: date-range filter (filterDateFrom/filterDateTo); price auto-fill from item DB in setLine; logActivity on mark-paid inline button
 
+## Slices 47–51 — Bulk edits, tests, bug fixes (2026-05)
+
+**Slice 47:** PriceUpdater batch save-all (single-batch nextItems accumulator to fix stale-closure bug); added `catFilter` dropdown.
+
+**Slice 48:** Dashboard Quick Actions card (nav buttons: New Catering Invoice, New Purchase Invoice, Shopping List, Log Adjustment, Item Database); shoppingUtils.test.js (26 tests for getSellerTotals, convertPriceForUnit, grandTotal). Total: 155 tests.
+
+**Slice 49 (renumbered in commit as 49):** Committed as Slice 49 — same as Slice 48 above.
+
+**Slice 50:** Bug-fix batch:
+- MenuMarginsLab: added missing `Confirm` import (delete crashed at runtime); fixed exportCsv field names (was `item.type`/`salePrice`/`business` — now `menuType`/`basePrice`/per-store pricing)
+- PayrollInvoices: `calcPeriodEnd()` helper; `copyRecord()` auto-fills periodEnd from period type (was `''`); `periodStart` change auto-updates periodEnd; period type change auto-updates periodEnd; added `periodEnd >= periodStart` validation in `submit()`
+- DailyIncomeExpense: `<Confirm>` dialog before deleting entries (was direct delete); added `logActivity` on delete
+- PRODUCT_BACKLOG.md: fixed stale index (BL-31/32/34/35 still showed Queued); added BL-112–116 as Done
+
+**Slice 51:** Test expansion + InvoiceArchive dedup:
+- cateringUtils.test.js: 14 tests for `totalPaidFor` (legacy deposit, payments array, combined) and `balanceFor` (partial/full/overpaid/empty)
+- payrollUtils.test.js: 5 new tests for `calcPeriodEnd` (weekly/biweekly/monthly/leap year/month boundary)
+- InvoiceArchive: cache `getInvoiceBranding()` result inside view modal (was 4 calls per render → 1)
+- PayrollInvoices: employee name search filter input
+- Total: 174 tests
+
 ## Price auto-fill (Slice 19 + Slice 44 improvements)
 
 `setLine` in `PurchaseInvoices.jsx` and `CateringInvoices.jsx`:

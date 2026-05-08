@@ -136,6 +136,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [confirmObj, setConfirmObj] = useState(null);
   const [showAllBiz, setShowAllBiz] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterEmployee, setFilterEmployee] = useState('');
   const [showSummary, setShowSummary] = useState(false);
 
   const inv = payrollInvoices || [];
@@ -144,8 +145,10 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     let sorted = [...inv].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
     if (!showAllBiz) sorted = sorted.filter(i => !i.business || i.business === selectedBusiness);
     if (filterStatus !== 'all') sorted = sorted.filter(i => (i.status || 'unpaid') === filterStatus);
+    const q = filterEmployee.toLowerCase().trim();
+    if (q) sorted = sorted.filter(i => (i.employeeName || '').toLowerCase().includes(q));
     return sorted;
-  }, [inv, showAllBiz, selectedBusiness, filterStatus]);
+  }, [inv, showAllBiz, selectedBusiness, filterStatus, filterEmployee]);
 
   const outstandingTotal = useMemo(() =>
     inv.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0),
@@ -350,6 +353,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
             <option value="unpaid">Unpaid only</option>
             <option value="paid">Paid only</option>
           </select>
+          <input className="input" style={{ width: 160 }} placeholder="Search employee…" value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)} />
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-primary" onClick={openNew}>+ New Payroll Invoice</Btn>
         </div>
