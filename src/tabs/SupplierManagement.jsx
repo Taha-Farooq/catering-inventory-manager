@@ -35,7 +35,7 @@ function FS({ label, children, ...props }) {
 
 const blank = () => ({ name: '', phone: '', email: '', address: '', website: '', notes: '', paymentTerms: '' });
 
-export default function SupplierManagement({ suppliers, setSuppliers, items = [], purchaseInvoices = [] }) {
+export default function SupplierManagement({ suppliers, setSuppliers, items = [], purchaseInvoices = [], onCreateInvoice }) {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(blank());
@@ -321,6 +321,13 @@ export default function SupplierManagement({ suppliers, setSuppliers, items = []
                     <span key={item.id} style={{ background: '#FFF0D4', padding: '2px 8px', borderRadius: 10, fontSize: 12, color: '#7A3B00' }}>{item.name}</span>
                   ))}
                 </div>
+              </div>
+            )}
+            {onCreateInvoice && viewSup && (
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #eee' }}>
+                <Btn className="btn-primary btn-sm" onClick={() => { setViewId(null); onCreateInvoice(viewSup.name); }}>
+                  📋 Create Purchase Invoice
+                </Btn>
               </div>
             )}
           </div>

@@ -42,7 +42,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [] }) {
+export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [], initialSupplier, onConsumeInitialSupplier }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),dueDate:'',taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
@@ -69,6 +69,15 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [confirmId, setConfirmId] = useState(null);
   const [stockUpdateInv, setStockUpdateInv] = useState(null);
   const [stockUpdateLoc, setStockUpdateLoc] = useState(LOCATIONS[1]);
+
+  useEffect(() => {
+    if (initialSupplier) {
+      setForm(f => ({ ...blankF(), supplier: initialSupplier }));
+      setEditingPurchaseId(null);
+      setShowForm(true);
+      if (onConsumeInitialSupplier) onConsumeInitialSupplier();
+    }
+  }, [initialSupplier]);
 
   function setLine(i, f2, v) {
     setForm(f => {

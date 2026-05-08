@@ -190,6 +190,22 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
       .map(inv => ({ ...inv, isOverdue: inv.dueDate < t }));
   }, [purchaseInvoices]);
 
+  const upcomingEvents = useMemo(() => {
+    const t = today();
+    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return cateringInvoices
+      .filter(inv => {
+        const eventDate = inv.useRange ? inv.dateStart : inv.date;
+        return eventDate && eventDate >= t && eventDate <= thirtyDaysOut;
+      })
+      .sort((a, b) => {
+        const da = (a.useRange ? a.dateStart : a.date) || '';
+        const db = (b.useRange ? b.dateStart : b.date) || '';
+        return da.localeCompare(db);
+      })
+      .slice(0, 10);
+  }, [cateringInvoices]);
+
   function exportLowStockCsv() {
     if (!lowStockRows.length) { showToast('No low-stock items.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -300,6 +316,39 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
           </div>
         )}
       </div>
+
+      {upcomingEvents.length > 0 && (
+        <div className="card mb-4" style={{ borderLeft: '4px solid #15803D' }}>
+          <div className="section-title" style={{ marginBottom: 12, color: '#15803D' }}>
+            🍽️ Upcoming Catering Events — Next 30 Days
+          </div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Event Date</th><th>Customer</th><th>Event Type</th><th>Total</th><th>Status</th></tr></thead>
+              <tbody>
+                {upcomingEvents.map(inv => (
+                  <tr key={inv.id} style={{ background: '#F0FDF4' }}>
+                    <td style={{ fontWeight: 600, color: '#15803D', whiteSpace: 'nowrap' }}>
+                      {inv.useRange
+                        ? `${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}`
+                        : fmtDate(inv.date)}
+                    </td>
+                    <td style={{ fontWeight: 600 }}>{inv.customerName || '—'}</td>
+                    <td style={{ fontSize: 13, color: '#555' }}>{inv.eventType || 'Catering'}</td>
+                    <td style={{ fontWeight: 600 }}>{fmt$(inv.grandTotal || inv.total || 0)}</td>
+                    <td><span className={`badge badge-${inv.status || 'unpaid'}`}>{inv.status || 'unpaid'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {setTab && (
+            <div style={{ textAlign: 'right', marginTop: 8 }}>
+              <button className="btn btn-outline btn-sm" onClick={() => setTab('catering')}>View All Events →</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {upcomingDue.length > 0 && (
         <div className="card mb-4" style={{borderLeft: `4px solid ${upcomingDue.some(i=>i.isOverdue)?'#DC2626':'#F59E0B'}`}}>
