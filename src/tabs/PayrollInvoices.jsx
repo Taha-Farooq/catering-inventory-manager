@@ -25,6 +25,14 @@ function Btn({ className = '', children, ...p }) {
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => crypto.randomUUID();
 
+function calcPeriodEnd(start, periodType) {
+  const d = new Date(start + 'T12:00:00');
+  if (periodType === 'weekly') d.setDate(d.getDate() + 6);
+  else if (periodType === 'biweekly') d.setDate(d.getDate() + 13);
+  else { d.setMonth(d.getMonth() + 1); d.setDate(0); }
+  return d.toISOString().slice(0, 10);
+}
+
 const PAY_PERIODS = [
   { value: 'weekly',    label: 'Weekly (7 days)' },
   { value: 'biweekly',  label: 'Bi-weekly (14 days)' },
@@ -222,12 +230,14 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   function copyRecord(record) {
     setEditingId(null);
     setViewInv(null);
+    const start = today();
+    const period = record.payPeriod || 'weekly';
     setForm({
       employeeName: record.employeeName || '',
       business: record.business || selectedBusiness,
-      payPeriod: record.payPeriod || 'weekly',
-      periodStart: today(),
-      periodEnd: '',
+      payPeriod: period,
+      periodStart: start,
+      periodEnd: calcPeriodEnd(start, period),
       hourlyRate: String(record.hourlyRate || ''),
       regularHours: String(record.regularHours || ''),
       overtimeHours: String(record.overtimeHours || ''),
@@ -242,6 +252,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     if (!form.employeeName.trim()) { showToast('Employee name is required. [DMG-E006]', 'error'); return; }
     if (!form.periodStart) { showToast('Period start date is required. [DMG-E006]', 'error'); return; }
     if (!form.periodEnd) { showToast('Period end date is required. [DMG-E006]', 'error'); return; }
+    if (form.periodEnd < form.periodStart) { showToast('Period end must be on or after period start. [DMG-E006]', 'error'); return; }
     if (!(parseFloat(form.hourlyRate) > 0)) { showToast('Hourly rate must be greater than 0. [DMG-E006]', 'error'); return; }
     if (!(parseFloat(form.regularHours) >= 0)) { showToast('Regular hours must be 0 or more. [DMG-E006]', 'error'); return; }
 
@@ -455,7 +466,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
           </FS>
         </div>
         <div className="grid-2 mb-3">
-          <FS label="Pay Period Type" value={form.payPeriod} onChange={e => setForm(f => ({ ...f, payPeriod: e.target.value }))}>
+          <FS label="Pay Period Type" value={form.payPeriod} onChange={e => setForm(f => ({ ...f, payPeriod: e.target.value, periodEnd: f.periodStart ? calcPeriodEnd(f.periodStart, e.target.value) : f.periodEnd }))}>
             {PAY_PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
           </FS>
           <FS label="Status" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
@@ -464,7 +475,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
           </FS>
         </div>
         <div className="grid-2 mb-3">
-          <FI label="Period Start *" type="date" value={form.periodStart} onChange={e => setForm(f => ({ ...f, periodStart: e.target.value }))} />
+          <FI label="Period Start *" type="date" value={form.periodStart} onChange={e => setForm(f => ({ ...f, periodStart: e.target.value, periodEnd: e.target.value ? calcPeriodEnd(e.target.value, f.payPeriod) : f.periodEnd }))} />
           <FI label="Period End *" type="date" value={form.periodEnd} onChange={e => setForm(f => ({ ...f, periodEnd: e.target.value }))} />
         </div>
         <div className="grid-2 mb-3">

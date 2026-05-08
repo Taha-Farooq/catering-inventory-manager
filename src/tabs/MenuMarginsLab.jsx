@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useId } from 'react';
 import { showToast } from '../toastContext.jsx';
 import Modal from '../ui/Modal.jsx';
+import Confirm from '../ui/Confirm.jsx';
 import { BUSINESSES, MENU_UNITS } from '../constants.js';
 import { fmt$, uniqSuggestions, safePrice } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
@@ -203,13 +204,19 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
   function exportCsv() {
     if (!menuItems.length) { showToast('No menu items to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['Name', 'Type', 'Business', 'Sale Price', 'Target Margin %'];
-    const rows = menuItems.map(item => [
-      item.name || '', item.type || '', item.business || '',
-      item.salePrice != null ? +parseFloat(item.salePrice).toFixed(2) : '',
-      item.targetMargin != null ? item.targetMargin : '',
+    const header = ['Name', 'Category', 'Type', 'Unit', 'Base Price', 'Price (DeGrill)', 'Price (Parathas)', 'Price (Dera)', 'Notes'];
+    const csvRows = menuItems.map(item => [
+      item.name || '',
+      item.category || '',
+      item.menuType || '',
+      item.defaultUnit || 'each',
+      item.basePrice != null ? +Number(item.basePrice).toFixed(2) : '',
+      item.pricing?.degrill != null ? +Number(item.pricing.degrill).toFixed(2) : '',
+      item.pricing?.parathas != null ? +Number(item.pricing.parathas).toFixed(2) : '',
+      item.pricing?.dera != null ? +Number(item.pricing.dera).toFixed(2) : '',
+      item.notes || '',
     ]);
-    const csv = [header.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+    const csv = [header.map(esc).join(','), ...csvRows.map(r => r.map(esc).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

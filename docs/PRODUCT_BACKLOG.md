@@ -298,11 +298,11 @@ Large items that need their own kick-off before breaking into slices.
 | BL-28 | Customer address field on catering invoices | **Done** — Slice 14 |
 | BL-29 | DMG codes on form validation toasts | **Done** — Slice 17 |
 | BL-30 | Vitest coverage for `src/utils/` modules | **Done** — Slice 17 |
-| BL-31 | Item quantity tracking + low-stock alerts | Queued — Slice 18 |
-| BL-32 | Invoice duplicate/copy | Queued — Slice 18 |
+| BL-31 | Item quantity tracking + low-stock alerts | **Done** — Slice 18 |
+| BL-32 | Invoice duplicate/copy | **Done** — Slice 18 |
 | BL-33 | Customer invoice history panel | **Done** — already in CustomerManagement |
-| BL-34 | Date range shortcuts in Archive + Daily Finance | Queued — Slice 18 |
-| BL-35 | Items bulk import from CSV/Excel | Queued — Slice 18 |
+| BL-34 | Date range shortcuts in Archive + Daily Finance | **Done** — Slice 18 |
+| BL-35 | Items bulk import from CSV/Excel | **Done** — Slice 19 |
 
 ---
 
@@ -654,6 +654,11 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-109 | ShoppingList: current stock level column (green/red/grey) at selected location | **Done** — Slice 45 |
 | BL-110 | ItemDatabase: low-stock filter toggle in search bar | **Done** — Slice 46 |
 | BL-111 | TransferInvoices: date-range filter + price auto-fill from item DB + logActivity on paid | **Done** — Slice 46 |
+| BL-112 | PriceUpdater: category filter dropdown + batch save-all (stale-closure fix) | **Done** — Slice 48 |
+| BL-113 | Dashboard: Quick Actions card with nav buttons for common workflows | **Done** — Slice 49 |
+| BL-114 | MenuMarginsLab: fix missing Confirm import (crash on delete) + fix exportCsv field names | **Done** — Slice 50 |
+| BL-115 | PayrollInvoices: auto-compute periodEnd from period type; Period End > Start validation | **Done** — Slice 50 |
+| BL-116 | DailyIncomeExpense: confirmation dialog before deleting entries | **Done** — Slice 50 |
 
 ---
 
@@ -666,10 +671,6 @@ Files: `src/constants.js`, `src/tabs/ItemDatabase.jsx`, `src/tabs/PurchaseInvoic
 **BL-105 — Item barcode/UPC scanner integration**
 On mobile/tablet, use the device camera to scan a UPC barcode and look up or add the item. Currently UPC is a manual text field.
 Files: new `src/ui/BarcodeScanner.jsx`, `src/tabs/ItemDatabase.jsx`
-
-**BL-112 — PriceUpdater: category filter + save all changes**
-Add category dropdown filter to the PriceUpdater tab. Add "Save All Changes" button to save all pending price edits in one click (currently requires saving per item).
-Files: `src/tabs/PriceUpdater.jsx`
 
 ---
 

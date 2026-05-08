@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, Suspense, lazy, useId } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
+import Confirm from '../ui/Confirm.jsx';
 import { BUSINESSES } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { logActivity, logFailure, today } from '../tabUtils.js';
@@ -39,6 +40,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     notes: ''
   }));
   const [editId, setEditId] = useState(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [monthF, setMonthF] = useState('');
   const [yearF, setYearF] = useState('');
 
@@ -137,7 +139,9 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     const next = entries.filter(x => x.id !== id);
     setEntries(next);
     save('_dailyFinanceEntries', next);
+    logActivity('delete_item', `Deleted daily finance row`);
     showToast('Entry deleted.');
+    setPendingDeleteId(null);
   }
 
   function toExcelRows(rows) {
@@ -355,7 +359,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
                   <td>{r.notes || '—'}</td>
                   <td style={{whiteSpace:'nowrap'}}>
                     <Btn className="btn-outline btn-sm" style={{marginRight:4}} onClick={() => openEdit(r)}>Edit</Btn>
-                    <Btn className="btn-danger btn-sm" onClick={() => deleteRow(r.id)}>Delete</Btn>
+                    <Btn className="btn-danger btn-sm" onClick={() => setPendingDeleteId(r.id)}>Delete</Btn>
                   </td>
                 </tr>
               ))}
@@ -366,6 +370,15 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
           </table>
         </div>
       </div>
+      <Confirm
+        open={!!pendingDeleteId}
+        title="Delete entry?"
+        message="Permanently delete this daily finance entry?"
+        confirmLabel="Delete"
+        confirmClass="btn-danger"
+        onConfirm={() => deleteRow(pendingDeleteId)}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }
