@@ -385,7 +385,6 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
             <input type="checkbox" checked={showAllBiz} onChange={e=>setShowAllBiz(e.target.checked)} />
             All businesses
           </label>
-          <input className="input" style={{width:140}} placeholder="Filter supplier…" value={filterSupplier} onChange={e=>setFilterSupplier(e.target.value)} />
           <select className="input" style={{width:'auto'}} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
             <option value="all">All statuses</option>
             <option value="unpaid">Unpaid only</option>
@@ -398,10 +397,17 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
       </div>
 
       <div className="flex gap-2 mb-4 flex-wrap" style={{alignItems:'center'}}>
+        <input className="input" placeholder="Filter by supplier…" style={{flex:'1 1 140px'}} value={filterSupplier} onChange={e=>setFilterSupplier(e.target.value)} />
         <input className="input" type="date" style={{width:'auto'}} value={filterDateFrom} onChange={e=>setFilterDateFrom(e.target.value)} title="From date" />
         <input className="input" type="date" style={{width:'auto'}} value={filterDateTo} onChange={e=>setFilterDateTo(e.target.value)} title="To date" />
-        {(filterDateFrom||filterDateTo) && (
-          <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear dates</button>
+        {[
+          ['thismonth','This Month',()=>{const n=new Date();setFilterDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`);setFilterDateTo(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(new Date(n.getFullYear(),n.getMonth()+1,0).getDate()).padStart(2,'0')}`)}],
+          ['lastmonth','Last Month',()=>{const n=new Date(new Date().getFullYear(),new Date().getMonth()-1,1);setFilterDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`);setFilterDateTo(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(new Date(n.getFullYear(),n.getMonth()+1,0).getDate()).padStart(2,'0')}`)}],
+        ].map(([k,label,fn])=>(
+          <button key={k} className="btn btn-sm" style={{background:'#eee',color:'#555',borderRadius:12,padding:'2px 10px'}} onClick={fn}>{label}</button>
+        ))}
+        {(filterSupplier||filterDateFrom||filterDateTo) && (
+          <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px'}} onClick={()=>{setFilterSupplier('');setFilterDateFrom('');setFilterDateTo('');}}>✕ Clear</button>
         )}
         <div style={{marginLeft:'auto',fontSize:13,color:'#888'}}>{visiblePurchase.length} of {purchaseInvoices.length}</div>
       </div>

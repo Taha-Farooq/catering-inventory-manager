@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import JSZip from 'jszip';
 import { load, save } from '../utils/storage.js';
 import { OfflineBanner, BrowserCapsBanner } from '../ReliabilityBanners.jsx';
 import { resolveAssetUrl } from '../formatters.js';
@@ -25,7 +26,6 @@ import {
   BIZ_CONTACT_KEY,
   ADMIN_RESET_CODE_KEY,
 } from '../constants.js';
-import FirstRunSetup from './FirstRunSetup.jsx';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
   const baseFieldStyle = label ? {} : { marginBottom: 0 };
@@ -41,6 +41,7 @@ function Btn({ className='', children, ...p }) {
 }
 
 export default function LoginScreen({ onLogin, bootWarnings, online }) {
+  // needsSetup = true only when backend is unreachable AND no local credentials exist
   const [needsSetup, setNeedsSetup] = useState(() => load('credentials', null) === null);
   const [checkingSetup, setCheckingSetup] = useState(true);
   const [authApiBase, setAuthApiBase] = useState(() => loadAdminResetApiBase());
@@ -57,6 +58,14 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
   const [resetMsg, setResetMsg] = useState('');
   const [resetErr, setResetErr] = useState('');
   const [rememberDevice, setRememberDevice] = useState(() => !!parseAttendanceParams());
+
+  // Starter file upload (admin bootstrap)
+  const [showStarter, setShowStarter] = useState(false);
+  const [starterMsg, setStarterMsg] = useState('');
+  const [starterErr, setStarterErr] = useState('');
+  const [starterLoading, setStarterLoading] = useState(false);
+  const starterRef = useRef();
+
   const attParams = useMemo(() => parseAttendanceParams(), []);
   const loginBranding = useMemo(() => mergeBrandingWithOverrides(load(LOGO_OVERRIDES_KEY, {}), load(BIZ_CONTACT_KEY, {})), []);
 
@@ -65,13 +74,15 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
     (async () => {
       const st = await getAuthStatus(authApiBase);
       if (cancelled) return;
-      if (st.ok && st.hasUsers) {
+      if (st.ok) {
+        // Backend is reachable — always go straight to login form
         setNeedsSetup(false);
-        setUseCentralAuth(true);
+        setUseCentralAuth(!!st.hasUsers);
         if (st.base) setAuthApiBase(st.base);
         setCheckingSetup(false);
         return;
       }
+      // Backend unavailable — fall back to local credentials
       const localCreds = load('credentials', null);
       if (localCreds && Object.keys(localCreds).length) {
         if (!cancelled) {
@@ -81,6 +92,7 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         }
         return;
       }
+      // No backend, no local creds — show login form but with setup hint
       setNeedsSetup(true);
       setUseCentralAuth(false);
       setCheckingSetup(false);
@@ -106,6 +118,43 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
     }).catch(() => setLoading(false));
   }, []);
 
+  async function importStarter(file) {
+    if (!file) return;
+    setStarterErr('');
+    setStarterMsg('');
+    setStarterLoading(true);
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
+                    'customers','priceHistory','settings','credentials',
+                    '_profiles','_adminPasswordHash','_userPermissions'];
+      let loadedCredentials = false;
+      for (const k of keys) {
+        const f = zip.file(k + '.json');
+        if (!f) continue;
+        const v = JSON.parse(await f.async('string'));
+        if (k === 'settings' && v && v.selectedBusiness) save('_lastBiz', v.selectedBusiness);
+        else save(k, v);
+        if (k === 'credentials' && v && typeof v === 'object' && Object.keys(v).length > 0) loadedCredentials = true;
+      }
+      setStarterLoading(false);
+      if (loadedCredentials) {
+        const creds = load('credentials', {});
+        const syncResult = await syncCredentialsToBackend(creds, authApiBase);
+        if (!syncResult.ok) {
+          logFailure({ area:'setup', action:'sync_credentials_backend', error:syncResult.error });
+        }
+        setStarterMsg('Starter file imported! You can now sign in.');
+        setNeedsSetup(false);
+      } else {
+        setStarterErr('This file is missing login accounts. Ask your admin for a valid backup ZIP.');
+      }
+    } catch (e) {
+      setStarterLoading(false);
+      setStarterErr('Import failed — use a valid app backup ZIP file.');
+    }
+  }
+
   if (checkingSetup) {
     return (
       <div className="login-screen">
@@ -117,7 +166,6 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       </div>
     );
   }
-  if (needsSetup) return <FirstRunSetup apiBase={authApiBase} onDone={() => setNeedsSetup(false)} />;
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -139,7 +187,6 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         if (stored === saltedHash) {
           activeHash = saltedHash;
         } else if (stored === legacyHash) {
-          // Legacy no-salt hash matched — upgrade silently to salted hash
           const upgraded = { ...creds, [key]: { ...creds[key], password: saltedHash } };
           save('credentials', upgraded);
           activeHash = saltedHash;
@@ -221,9 +268,12 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
           <h1>DMG Software Suite</h1>
           <p>DeGrill · Parathas &amp; Platters · Dera Masala Grill</p>
         </div>
-        <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color:'#7a5c00'}}>
-          Tip: Enter the username/password provided by your admin. Most devices will go straight to login. Starter-file import only appears when no central accounts are available yet.
-        </div>
+
+        {needsSetup && (
+          <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color:'#7a5c00'}}>
+            ⚠️ No accounts found on this device. Ask your admin for login credentials, or upload a starter file below.
+          </div>
+        )}
 
         <form onSubmit={handleLogin}>
           <div className="field">
@@ -274,6 +324,28 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
             )}
           </div>
         )}
+
+        {/* Starter file — small admin-only bootstrap link, always accessible */}
+        <div style={{marginTop:18,borderTop:'1px solid #F0E0C8',paddingTop:12,textAlign:'center'}}>
+          <button type="button" onClick={()=>setShowStarter(v=>!v)}
+            style={{background:'none',border:'none',color:'#aaa',fontSize:11.5,cursor:'pointer',textDecoration:'underline'}}>
+            {showStarter ? '▲ Hide setup' : 'Upload starter file (admin setup)'}
+          </button>
+          {showStarter && (
+            <div style={{marginTop:10,textAlign:'left',background:'#F9F4EE',border:'1px solid #E7CFA6',borderRadius:8,padding:'12px 14px'}}>
+              <div style={{fontSize:13,color:'#5a3e00',marginBottom:8}}>
+                Import a backup ZIP from your admin to initialize this device with all accounts and data.
+              </div>
+              <input ref={starterRef} type="file" accept=".zip" style={{display:'none'}}
+                onChange={e=>{importStarter(e.target.files[0]);e.target.value='';}} />
+              <Btn className="btn-outline btn-sm" disabled={starterLoading} onClick={()=>starterRef.current?.click()}>
+                {starterLoading ? 'Importing…' : '⬆ Choose Backup / Starter ZIP'}
+              </Btn>
+              {starterMsg && <div style={{background:'#dcfce7',color:'#166534',padding:'7px 10px',borderRadius:5,marginTop:8,fontSize:13}}>{starterMsg}</div>}
+              {starterErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'7px 10px',borderRadius:5,marginTop:8,fontSize:13}}>{starterErr}</div>}
+            </div>
+          )}
+        </div>
 
       </div>
     </div>
