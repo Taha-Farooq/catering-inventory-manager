@@ -53,7 +53,6 @@ import {
 } from './authHelpers.js';
 import SettingsModal from './ui/SettingsModal.jsx';
 import LoginScreen from './ui/LoginScreen.jsx';
-import FirstRunSetup from './ui/FirstRunSetup.jsx';
 import AdminResetPortal from './ui/AdminResetPortal.jsx';
 import HelpCenter from './HelpCenter.jsx';
 import PayrollInvoices from './tabs/PayrollInvoices.jsx';

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import JSZip from 'jszip';
 import { load, save } from '../utils/storage.js';
 import { logFailure, syncCredentialsToBackend } from '../authHelpers.js';
 
