@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react';
+import JSZip from 'jszip';
 import { load, save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { documentBaseHref } from '../utils/print.js';
@@ -393,16 +394,19 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         customers, priceHistory:priceHist,
         suppliers:(suppliers||[]),
         inventoryAdjustments: load(INVENTORY_ADJUSTMENTS_KEY, []),
+        credentials: load('credentials', {}),
         settings:{
           selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact,
           customCategories,
         },
-        exportDate: new Date().toISOString(), version:'2.4'
+        exportDate: new Date().toISOString(), version:'2.5'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
         'Catering Inventory Manager — Backup\nExported: ' + new Date().toLocaleString() + '\n\n' +
-        'To restore: Open the app → Settings (⚙) → Import Backup → select this ZIP file.'
+        'To restore: Open the app → Settings (⚙) → Import Backup → select this ZIP file.\n\n' +
+        'NOTE: This backup includes hashed staff login credentials for seamless device migration.\n' +
+        'Keep this file secure — do not share it publicly.'
       );
       const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} });
       const url = URL.createObjectURL(blob);
@@ -431,11 +435,11 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
       // Read backup format version (absent in v1.x ZIPs)
       const verFile = zip.file('version.json');
       const backupVersion = verFile ? JSON.parse(await verFile.async('string')) : '1.0';
-      const isLegacy = !backupVersion.startsWith('2.1');
+      const isLegacy = parseFloat(backupVersion) < 2.1;
 
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
                     'transferInvoices','payrollInvoices','dailyFinanceEntries',
-                    'customers','priceHistory','suppliers','inventoryAdjustments','settings'];
+                    'customers','priceHistory','suppliers','inventoryAdjustments','credentials','settings'];
       const entries = await Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
@@ -471,10 +475,13 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         if (k==='inventoryAdjustments') {
           save(INVENTORY_ADJUSTMENTS_KEY, v);
         }
+        if (k==='credentials' && v && typeof v === 'object' && Object.keys(v).length > 0) {
+          save('credentials', v);
+        }
       });
       logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
       showToast('Backup restored! All data has been loaded.');
-      if (isLegacy || !backupVersion.startsWith('2.4')) {
+      if (parseFloat(backupVersion) < 2.4) {
         const missing = [];
         if (!zip.file('transferInvoices.json'))       missing.push('Transfer Invoices');
         if (!zip.file('payrollInvoices.json'))        missing.push('Payroll Invoices');
@@ -833,7 +840,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     <Confirm
       open={!!pendingBackupFile}
       title="Replace all data from backup?"
-      message="This will overwrite items, shopping list, invoices, customers, and price history on this device with the contents of the ZIP file."
+      message="This will overwrite items, shopping list, invoices, customers, price history, and staff credentials on this device with the contents of the ZIP file."
       detail={`File: ${pendingBackupFile?.name || 'backup.zip'}\n\nExport a fresh backup first if you are unsure. This cannot be undone.`}
       dangerCode="DMG-E040 / DMG-E012 — full local restore"
       confirmLabel="Replace all data"
