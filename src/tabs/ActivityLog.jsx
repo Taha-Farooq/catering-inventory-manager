@@ -28,13 +28,27 @@ const ACTION_LABELS = {
   add_custom_category: 'Added Custom Category',
   remove_custom_category: 'Removed Custom Category',
   bulk_mark_paid: 'Bulk Marked Paid',
+  attendance_in: 'Checked In', attendance_out: 'Checked Out',
+  qr_scan_pass: 'QR Scan Verified', qr_gate_restored: 'QR Gate Enforced (Restored Session)',
+  settings_change: 'Settings Changed', export_staff_credentials: 'Exported Staff Credentials',
+  add_user: 'Added Staff User', delete_user: 'Deleted Staff User',
+  edit_employee_rate: 'Edited Employee Pay Rate', remove_employee: 'Removed Employee from Registry',
+  add_payroll: 'Created Payroll Invoice', edit_payroll: 'Edited Payroll Invoice', delete_payroll: 'Deleted Payroll Invoice',
 };
-const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase() + a.slice(1) : '');
+const fmtAction = a => ACTION_LABELS[a] || (a ? a.charAt(0).toUpperCase() + a.slice(1).replace(/_/g,' ') : '');
+
+const PRESETS = [
+  { id: 'attendance', label: '👷 Attendance', actions: new Set(['attendance_in','attendance_out','qr_scan_pass','qr_gate_restored']) },
+  { id: 'security',   label: '🔐 Security',   actions: new Set(['login','logout','qr_scan_pass','qr_gate_restored','export_staff_credentials','add_user','delete_user']) },
+  { id: 'payroll',    label: '💰 Payroll',    actions: new Set(['add_payroll','edit_payroll','delete_payroll','import_payroll','export_xlsx','bulk_mark_paid','edit_employee_rate','remove_employee']) },
+  { id: 'data',       label: '📦 Data',       actions: new Set(['export_backup','restore_backup','import_items','export_items_csv','export_items_excel']) },
+];
 
 export default function ActivityLog({ save }) {
   const [log, setLog] = useState(() => load('_activityLog', []));
   const [userF, setUserF] = useState('all');
   const [actionF, setActionF] = useState('all');
+  const [filterPreset, setFilterPreset] = useState('');
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -84,20 +98,22 @@ export default function ActivityLog({ save }) {
     showToast('Activity log exported as Excel.');
   }
 
-  useEffect(() => { setPage(1); }, [userF, actionF, search, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [userF, actionF, filterPreset, search, dateFrom, dateTo]);
 
   const users = useMemo(() => [...new Set(log.map(e => e.username))].filter(Boolean).sort(), [log]);
   const actions = useMemo(() => [...new Set(log.map(e => e.action))].filter(Boolean).sort(), [log]);
 
+  const activePreset = PRESETS.find(p => p.id === filterPreset);
   const filtered = useMemo(() => {
     let r = [...log].reverse();
     if (userF !== 'all') r = r.filter(e => e.username === userF);
     if (actionF !== 'all') r = r.filter(e => e.action === actionF);
+    if (activePreset) r = r.filter(e => activePreset.actions.has(e.action));
     if (search.trim()) { const q = search.toLowerCase(); r = r.filter(e => (e.details||'').toLowerCase().includes(q) || (e.username||'').toLowerCase().includes(q)); }
     if (dateFrom) r = r.filter(e => e.timestamp && e.timestamp.slice(0, 10) >= dateFrom);
     if (dateTo)   r = r.filter(e => e.timestamp && e.timestamp.slice(0, 10) <= dateTo);
     return r;
-  }, [log, userF, actionF, search, dateFrom, dateTo]);
+  }, [log, userF, actionF, activePreset, search, dateFrom, dateTo]);
 
   const paginated = useMemo(() => filtered.slice((page-1)*pageSize, page*pageSize), [filtered, page]);
 
@@ -137,10 +153,20 @@ export default function ActivityLog({ save }) {
         <div className="field" style={{ margin: 0 }}><label>To Date</label><input className="input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
       </div>
 
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        {PRESETS.map(p => (
+          <Btn key={p.id}
+            className={filterPreset === p.id ? 'btn-primary btn-sm' : 'btn-outline btn-sm'}
+            onClick={() => setFilterPreset(filterPreset === p.id ? '' : p.id)}
+          >
+            {p.label}
+          </Btn>
+        ))}
+      </div>
       <div style={{ fontSize: 13, color: '#666', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span>Showing <strong>{filtered.length}</strong> of {log.length} entries</span>
-        {(userF !== 'all' || actionF !== 'all' || search || dateFrom || dateTo) && (
-          <Btn className="btn-sm" style={{ background: '#eee', color: '#666' }} onClick={() => { setUserF('all'); setActionF('all'); setSearch(''); setDateFrom(''); setDateTo(''); }}>✕ Clear Filters</Btn>
+        <span>Showing <strong>{filtered.length}</strong> of {log.length} entries{activePreset ? ` (${activePreset.label} filter)` : ''}</span>
+        {(userF !== 'all' || actionF !== 'all' || filterPreset || search || dateFrom || dateTo) && (
+          <Btn className="btn-sm" style={{ background: '#eee', color: '#666' }} onClick={() => { setUserF('all'); setActionF('all'); setFilterPreset(''); setSearch(''); setDateFrom(''); setDateTo(''); }}>✕ Clear Filters</Btn>
         )}
       </div>
 
