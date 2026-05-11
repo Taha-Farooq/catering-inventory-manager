@@ -12,7 +12,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline }) {
+export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline, sessionTimeLeft = 0, onAttendanceComplete }) {
   const isAdmin = currentUser?.role === 'admin';
   const isKioskStation = isAdmin && kioskLock;
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
@@ -32,6 +32,8 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
   const [summary, setSummary] = useState({ rows: [], active: {}, payRates: {} });
   const [rateDrafts, setRateDrafts] = useState({});
   const [targetUser, setTargetUser] = useState('');
+  const [localCache, setLocalCache] = useState(() => load('_attendanceCache', []));
+  const [showLocalCache, setShowLocalCache] = useState(false);
 
   async function loadMe() {
     const res = await attendanceApiCall('/api/attendance/me', { currentUser });
@@ -94,9 +96,27 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
       return;
     }
     setErr('');
-    showToast(`Checked ${res.data.status === 'in' ? 'in' : 'out'} successfully.`);
+    const statusLabel = res.data.status === 'in' ? 'in' : 'out';
+    showToast(`Checked ${statusLabel} successfully.`);
+    // Save locally so admin can see recent activity even when backend is offline
+    const entry = {
+      id: crypto.randomUUID(),
+      username: overrideUser || currentUser.username,
+      displayName: overrideUser || currentUser.displayName || currentUser.username,
+      action: statusLabel,
+      timestamp: new Date().toISOString(),
+      business: selectedBusiness,
+      byAdmin: !!overrideUser,
+    };
+    setLocalCache(prev => {
+      const next = [entry, ...prev].slice(0, 200);
+      save('_attendanceCache', next);
+      return next;
+    });
+    logActivity('attendance_' + statusLabel, `Checked ${statusLabel}${overrideUser ? ' (admin override for ' + overrideUser + ')' : ''}`);
     loadMe();
     loadSummary();
+    if (onAttendanceComplete) onAttendanceComplete();
   }
   async function createQr() {
     const res = await attendanceApiCall('/api/attendance/qr/create', { currentUser, method:'POST' });
@@ -327,10 +347,32 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
         {isAdmin && <Btn className="btn-outline btn-sm" onClick={onEnterKiosk}>{kioskLock ? 'Kiosk Locked (logout required)' : 'Open Kiosk Station Mode'}</Btn>}
       </div>
       {(!isOnline || backendDown) && <BackendUnavailableBanner code={backendDown ? 'DMG-E021' : 'DMG-E030'} />}
+
+      {/* Session countdown timer for QR-verified staff */}
+      {!isAdmin && sessionTimeLeft > 0 && (
+        <div style={{
+          background: sessionTimeLeft <= 30 ? '#FEF2F2' : sessionTimeLeft <= 60 ? '#FFFBEB' : '#F0FDF4',
+          border: `2px solid ${sessionTimeLeft <= 30 ? '#FCA5A5' : sessionTimeLeft <= 60 ? '#FCD34D' : '#86EFAC'}`,
+          borderRadius: 10, padding: '10px 14px', marginBottom: 12,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}>
+          <div style={{fontSize: 13, fontWeight: 600, color: sessionTimeLeft <= 30 ? '#991b1b' : sessionTimeLeft <= 60 ? '#92400e' : '#166534'}}>
+            {sessionTimeLeft <= 30 ? '⚠️ Session expiring!' : '⏱ Session active'}
+          </div>
+          <div style={{
+            fontSize: 22, fontWeight: 800, fontFamily: 'monospace',
+            color: sessionTimeLeft <= 30 ? '#DC2626' : sessionTimeLeft <= 60 ? '#D97706' : '#16A34A',
+          }}>
+            {String(Math.floor(sessionTimeLeft / 60)).padStart(2, '0')}:{String(sessionTimeLeft % 60).padStart(2, '0')}
+          </div>
+          <div style={{fontSize: 12, color: '#666'}}>Check in or out before time runs out</div>
+        </div>
+      )}
+
       <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72'}}>
-        Scan QR, log in, then tap Check In or Check Out.
+        {sessionTimeLeft > 0 ? 'QR verified — tap Check In or Check Out.' : 'Scan QR, log in, then tap Check In or Check Out.'}
       </div>
-      <div className="hint-card">Tip: If a phone is used daily, enable "Remember this device" at login.</div>
+      {!isAdmin && <div className="hint-card">Tip: If a phone is used daily, enable "Remember this device" at login.</div>}
       {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:6,marginBottom:10,fontSize:12.5}}>{err}</div>}
 
       <div className="card mb-4">
@@ -338,8 +380,23 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
         <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
           {isAdmin
             ? <span style={{fontSize:13,color:'#555'}}>Admins are excluded from attendance tracking.</span>
-            : <span style={{fontSize:13,color:'#555'}}>Status: <strong>{me?.active ? 'Currently Checked In' : 'Currently Checked Out'}</strong></span>}
-          {!isAdmin && <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me?.weekHours || 0} hours</strong></span>}
+            : (() => {
+                // Show backend status if available; fall back to local cache if backend is down
+                if (me) {
+                  return <span style={{fontSize:13,color:'#555'}}>Status: <strong style={{color: me.active ? '#15803D' : '#374151'}}>{me.active ? '✅ Currently Checked In' : '⏹ Currently Checked Out'}</strong></span>;
+                }
+                const lastLocal = localCache.find(e => e.username === currentUser?.username);
+                if (lastLocal) {
+                  return <span style={{fontSize:13,color:'#888'}}>
+                    Last recorded: <strong style={{color: lastLocal.action === 'in' ? '#15803D' : '#374151'}}>
+                      {lastLocal.action === 'in' ? '✅ Checked In' : '⏹ Checked Out'}
+                    </strong> at {new Date(lastLocal.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+                    <span style={{fontSize:11,marginLeft:6,color:'#aaa'}}>(local record — server unavailable)</span>
+                  </span>;
+                }
+                return <span style={{fontSize:13,color:'#aaa'}}>Status loading…</span>;
+              })()}
+          {!isAdmin && me && <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me.weekHours || 0} hours</strong></span>}
           {!isAdmin && <span style={{fontSize:13,color: attendanceToken ? '#166534' : '#9a3412'}}>
             {attendanceToken ? 'Work QR verified for this session.' : 'Scan work QR to enable check in/out.'}
           </span>}
@@ -422,6 +479,53 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Local attendance cache — visible even when backend is offline */}
+          <div className="card mt-4">
+            <button
+              style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontWeight:700,color:'var(--brown)',fontSize:14,padding:0,marginBottom: showLocalCache ? 12 : 0}}
+              onClick={() => setShowLocalCache(v => !v)}
+            >
+              <span>📋 Recent Attendance Log ({localCache.length} local records)</span>
+              <span>{showLocalCache ? '▲' : '▼'}</span>
+            </button>
+            {showLocalCache && (
+              <>
+                <div style={{fontSize:12,color:'#888',marginBottom:10}}>
+                  Saved on this device when staff check in/out. Persists across sessions. Complements the backend weekly summary above.
+                  <button style={{marginLeft:12,fontSize:12,color:'#DC2626',background:'none',border:'none',cursor:'pointer',padding:0}} onClick={() => {
+                    if (window.confirm('Clear all local attendance records on this device?')) {
+                      setLocalCache([]); save('_attendanceCache', []);
+                    }
+                  }}>🗑 Clear all</button>
+                </div>
+                {localCache.length === 0 ? (
+                  <div style={{color:'#aaa',fontSize:13,textAlign:'center',padding:'12px 0'}}>No local records yet. Records appear here when staff check in or out.</div>
+                ) : (
+                  <div className="tbl-wrap">
+                    <table>
+                      <thead><tr><th>Time</th><th>Employee</th><th>Action</th><th>Business</th><th>By Admin</th></tr></thead>
+                      <tbody>
+                        {localCache.slice(0, 100).map((e, i) => (
+                          <tr key={e.id || i}>
+                            <td style={{whiteSpace:'nowrap',fontSize:12}}>{new Date(e.timestamp).toLocaleString()}</td>
+                            <td style={{fontWeight:600}}>{e.displayName} {e.username !== e.displayName && <span style={{fontSize:11,color:'#888'}}>@{e.username}</span>}</td>
+                            <td>
+                              <span style={{padding:'2px 10px',borderRadius:10,fontSize:12,fontWeight:600,background:e.action==='in'?'#DCFCE7':'#FEE2E2',color:e.action==='in'?'#15803D':'#DC2626'}}>
+                                {e.action === 'in' ? 'Checked In' : 'Checked Out'}
+                              </span>
+                            </td>
+                            <td style={{fontSize:12,color:'#555'}}>{e.business || '—'}</td>
+                            <td style={{fontSize:12,color:e.byAdmin?'#7C3AED':'#aaa'}}>{e.byAdmin ? '✓ Admin' : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </>
       )}

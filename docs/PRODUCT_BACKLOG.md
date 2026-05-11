@@ -708,6 +708,68 @@ New "🏠 Dashboard" tab (admin-only), first in Stock nav group. Stat cards: tot
 | BL-163 | CateringInvoices: customer name typed match auto-fills phone/email/address from existing customer record | **Done** — Slice 71 |
 | BL-164 | CateringInvoices: "Upcoming" and "This Month" quick filter preset buttons in filter bar | **Done** — Slice 71 |
 | BL-165 | PurchaseInvoices: markPaid records paidAt + payment.date (today) on quick Mark Paid; shown in view modal | **Done** — Slice 71 |
+| BL-166 | PayrollInvoices: YTD employee summary panel (year filter, aggregate table, CSV export) | **Done** — Slice 72 |
+| BL-167 | PayrollInvoices: employee work history drill-down (name-based, all-years, CSV export) | **Done** — Slice 73 |
+| BL-168 | Security: QR bypass fix for restored sessions; configurable session timeout in Settings | **Done** — Slice 72 |
+| BL-169 | Settings: employee pay rate registry editor; backup v2.6 with registry + staff pwd store | **Done** — Slice 72 |
+| BL-170 | PayrollInvoices: date-range payroll report (From/To date picker, biz filter, CSV + Excel) | **Done** — Slice 74 |
+| BL-171 | PayrollInvoices: bulk mark-paid (checkboxes, select-all, action bar) | **Done** — Slice 74 |
+| BL-172 | CheckInOutPage: local attendance cache (_attendanceCache) + Recent Attendance Log panel for admin | **Done** — Slice 74 |
+| BL-173 | Dashboard: Today's Attendance card from local cache | **Done** — Slice 74 |
+| BL-174 | Settings: Export Staff List CSV (name, username, password, email, phone, permissions) | **Done** — Slice 74 |
+| BL-175 | CheckInOutPage: local cache fallback for staff status display when backend offline | **Done** — Slice 74 |
+
+---
+
+### BL-166 — PayrollInvoices YTD employee summary
+
+Collapsible "▶ YTD Summary {year}" panel above the invoice list. Year selector dropdown, aggregate table (Employee Name, Reg Hours, OT Hours, Gross Pay, Invoice Count, Status), CSV export. Status badge: Paid (all invoices paid) / Partial / Unpaid. Handles multi-line and legacy single-employee formats.
+Files: `src/tabs/PayrollInvoices.jsx`
+
+### BL-167 — Employee work history drill-down
+
+"📋 History" button per employee in both Employee Summary and YTD Summary tables. Opens a modal keyed by employee name (no user account required) showing every payroll invoice entry for that employee: date/period, business, pay period, pay rate, reg/OT hours, total, status. Year filter + "All Years" option. Summary stat cards. CSV export. Data sourced live from payroll invoices — no separate storage.
+Files: `src/tabs/PayrollInvoices.jsx`
+
+### BL-168 — QR bypass fix and configurable session timeout
+
+App.jsx `staffQrPhase` lazy initializer enforces QR gate on session restore (prevents tab-reopen / browser-history bypass). Admin-configurable check-in session timeout via Settings → Staff Security Settings (slider 30–600s). Logs security events to ActivityLog.
+Files: `src/App.jsx`, `src/constants.js`, `src/ui/SettingsModal.jsx`
+
+### BL-169 — Employee registry editor and backup v2.6
+
+Settings → Employee Pay Rate Registry card: view, edit pay rates, remove employees from `_employeeRegistry`. Backup v2.6 adds `employeeRegistry`, `staffPasswordStore` (decrypted, re-encrypted on restore), and `staffSessionTimeout` to backup ZIP.
+Files: `src/ui/SettingsModal.jsx`
+
+### BL-170 — PayrollInvoices date-range payroll report
+
+Collapsible 📊 Payroll Report card between Employee Summary and YTD Summary. Date range inputs (From/To, default current month). Independent business filter. Per-employee table: Reg Hours, OT Hours, Total Hours, Gross Pay, Invoices, Status (Paid/Partial/Unpaid badge). TOTAL footer row. CSV + Excel export (`payroll-report-{from}-to-{to}.csv/xlsx`, sheet "Payroll Report").
+Files: `src/tabs/PayrollInvoices.jsx`
+
+### BL-171 — PayrollInvoices bulk mark-paid
+
+Checkbox per unpaid invoice row; select-all checkbox in table header (selects all visible unpaid); blue floating action bar shows selected count + "✓ Mark X as Paid" button + Clear. `markPaid` now records `paidAt: today()`.
+Files: `src/tabs/PayrollInvoices.jsx`
+
+### BL-172 — Local attendance cache
+
+`checkAction` saves each successful check-in/out to `_attendanceCache` (max 200 records) with: id, username, displayName, action (in/out), timestamp, business, byAdmin. Admin gains collapsible "📋 Recent Attendance Log" card in CheckInOutPage showing last 100 records. Records persist across sessions, work when backend is offline. Admin can clear all local records.
+Files: `src/tabs/CheckInOutPage.jsx`
+
+### BL-173 — Dashboard Today's Attendance card
+
+Dashboard reads `_attendanceCache` and shows a blue "👷 Today's Attendance" card when there are local records for today. Shows current status per employee (last action: in/out), event time, business, and aggregate counts (currently in / checked out / total events). Only visible when there is data.
+Files: `src/tabs/Dashboard.jsx`
+
+### BL-174 — Staff credentials CSV export
+
+Settings → Staff Users section: "⬇ Export Staff List" button downloads CSV with columns: Display Name, Username, Password (from encrypted store), Email, Phone, Permissions. Useful for admin to print and hand to staff.
+Files: `src/ui/SettingsModal.jsx`
+
+### BL-175 — Staff status local fallback
+
+CheckInOutPage "My Status" card: if backend is unavailable (me=null), shows last local cache entry for current user (action, timestamp, "(local record — server unavailable)" label) instead of a misleading default.
+Files: `src/tabs/CheckInOutPage.jsx`
 
 ---
 

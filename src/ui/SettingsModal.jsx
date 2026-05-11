@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react';
 import JSZip from 'jszip';
+import { secureGet, secureSet, secureDel } from '../utils/secureStore.js';
 import { load, save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { documentBaseHref } from '../utils/print.js';
@@ -32,10 +33,45 @@ import {
   CATEGORIES,
   CUSTOM_CATEGORIES_KEY,
   INVENTORY_ADJUSTMENTS_KEY,
+  STAFF_SESSION_TIMEOUT_KEY,
+  DEFAULT_STAFF_SESSION_TIMEOUT,
 } from '../constants.js';
 import Modal from './Modal.jsx';
 import Confirm from './Confirm.jsx';
 import { BrandMark } from './BrandMark.jsx';
+
+function loadEmpRegistry() {
+  try { return JSON.parse(localStorage.getItem('_employeeRegistry') || '{}'); } catch { return {}; }
+}
+
+const PWD_STORE_KEY = '_staffPasswordStore';
+
+function makeCredentialEmailLink(displayName, username, password) {
+  const appUrl = window.location.href.split('?')[0];
+  const subject = encodeURIComponent('Your Login — Catering Manager App');
+  const body = encodeURIComponent(
+    `Hi ${displayName},\n\nYour login credentials for the Catering Manager App:\n\n` +
+    `Username: ${username}\nPassword: ${password}\n\n` +
+    `Sign in at: ${appUrl}\n\nPlease keep these credentials secure.\n\nThanks`
+  );
+  return `mailto:?subject=${subject}&body=${body}`;
+}
+
+function makeCredentialSmsLink(phone, displayName, username, password) {
+  const body = encodeURIComponent(
+    `Hi ${displayName}, your Catering Manager login:\nUsername: ${username}\nPassword: ${password}`
+  );
+  return `sms:${phone}?body=${body}`;
+}
+
+function genUsername(name) {
+  return name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 20) || 'user';
+}
+
+function genPassword(name) {
+  const first = name.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '') || 'user';
+  return first + Math.floor(1000 + Math.random() * 9000);
+}
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
   const listId = useId();
@@ -121,6 +157,19 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const [customCategories, setCustomCategories] = useState(() => load(CUSTOM_CATEGORIES_KEY, []));
   const [newCatInput, setNewCatInput] = useState('');
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
+  const [empRegistry, setEmpRegistry] = useState({});
+  const [empEditRate, setEmpEditRate] = useState({});
+  const [sessionTimeoutInput, setSessionTimeoutInput] = useState(() => load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT));
+  const [pwdStore, setPwdStore] = useState({});
+  const [revealPwdFor, setRevealPwdFor] = useState(null);
+  const [addEmail, setAddEmail] = useState('');
+  const [addPhone, setAddPhone] = useState('');
+  const [quickCreateName, setQuickCreateName] = useState(null);
+  const [quickUname, setQuickUname] = useState('');
+  const [quickPwd, setQuickPwd] = useState('');
+  const [quickEmail, setQuickEmail] = useState('');
+  const [quickPhone, setQuickPhone] = useState('');
+  const [quickErr, setQuickErr] = useState('');
   const logoFileRefs = { degrill: useRef(), parathas: useRef(), dera: useRef(), transfer: useRef() };
   const BIZ_KEYS = ['degrill', 'parathas', 'dera', 'transfer'];
   const blankContact = () => BIZ_KEYS.reduce((acc,k) => ({...acc,[k]:{phone:'',address:'',email:''}}), {});
@@ -147,6 +196,12 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setStaff(loadStaff());
     setResetApiInput(loadAdminResetApiBase());
     setResetApiState({ kind:'idle', msg:'' });
+    setEmpRegistry(loadEmpRegistry());
+    setEmpEditRate({});
+    setSessionTimeoutInput(load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT));
+    secureGet(PWD_STORE_KEY, {}).then(v => setPwdStore(v || {}));
+    setQuickCreateName(null);
+    setRevealPwdFor(null);
   }, [open]);
 
   useEffect(() => {
@@ -262,8 +317,13 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname] = { password: hash, role: 'user', displayName, permissions: newPerms };
     save('credentials', creds);
     await syncCredsBestEffort('add_user');
+    const store2 = { ...pwdStore };
+    store2[uname] = { password: newPwd, displayName, email: addEmail.trim(), phone: addPhone.trim(), savedAt: new Date().toISOString() };
+    secureSet(PWD_STORE_KEY, store2);
+    setPwdStore({ ...store2 });
     setStaff(s => [...s, { username: uname, displayName, permissions: newPerms }]);
     setNewUname(''); setNewDisplay(''); setNewPwd(''); setNewPwdC(''); setNewPerms([...DEFAULT_USER_PERMS]);
+    setAddEmail(''); setAddPhone('');
     setShowAdd(false);
     showToast(displayName + ' added!');
     logActivity('add_user', 'Created staff user: ' + uname);
@@ -279,6 +339,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     delete creds[uname];
     save('credentials', creds);
     syncCredsBestEffort('delete_user');
+    const store2 = { ...pwdStore };
+    delete store2[uname];
+    secureSet(PWD_STORE_KEY, store2);
+    setPwdStore({ ...store2 });
     setStaff(s => s.filter(x => x.username !== uname));
     showToast('User removed.');
     logActivity('delete_user', 'Deleted staff user: ' + uname);
@@ -293,6 +357,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname].password = await hashPwd(editPwd, uname);
     save('credentials', creds);
     await syncCredsBestEffort('reset_password');
+    const store2 = { ...pwdStore };
+    store2[uname] = { ...(store2[uname] || {}), password: editPwd, displayName: creds[uname].displayName || uname, savedAt: new Date().toISOString() };
+    secureSet(PWD_STORE_KEY, store2);
+    setPwdStore({ ...store2 });
     setEditPwdFor(null); setEditPwd(''); setEditPwdC('');
     showToast('Password updated for @' + uname);
     logActivity('reset_password', 'Reset password for: ' + uname);
@@ -362,6 +430,45 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     showToast('Quick reset code updated.');
   }
 
+  function startQuickCreate(name) {
+    setQuickCreateName(name);
+    setQuickUname(genUsername(name));
+    setQuickPwd(genPassword(name));
+    setQuickEmail('');
+    setQuickPhone('');
+    setQuickErr('');
+  }
+
+  async function confirmQuickCreate() {
+    setQuickErr('');
+    const uname = quickUname.trim().toLowerCase();
+    if (!uname) { setQuickErr('Username is required.'); return; }
+    if (!/^[a-z0-9_]+$/.test(uname)) { setQuickErr('Use only letters, numbers, or underscores.'); return; }
+    if (uname === 'admin') { setQuickErr('"admin" is a reserved username.'); return; }
+    const creds = load('credentials', {});
+    if (creds[uname]) { setQuickErr('That username is already taken — edit it above.'); return; }
+    if (quickPwd.length < 6) { setQuickErr('Password must be at least 6 characters.'); return; }
+    const hash = await hashPwd(quickPwd, uname);
+    const displayName = quickCreateName;
+    creds[uname] = { password: hash, role: 'user', displayName, permissions: [...DEFAULT_USER_PERMS] };
+    save('credentials', creds);
+    await syncCredsBestEffort('quick_create_user');
+    const store2 = { ...pwdStore };
+    store2[uname] = { password: quickPwd, displayName, email: quickEmail.trim(), phone: quickPhone.trim(), savedAt: new Date().toISOString() };
+    secureSet(PWD_STORE_KEY, store2);
+    setPwdStore({ ...store2 });
+    setStaff(s => [...s, { username: uname, displayName, permissions: [...DEFAULT_USER_PERMS] }]);
+    const savedPwd = quickPwd;
+    setQuickCreateName(null);
+    setQuickErr('');
+    setQuickUname('');
+    setQuickPwd('');
+    setQuickEmail('');
+    setQuickPhone('');
+    showToast(`${displayName} (@${uname}) created! Password: ${savedPwd}`);
+    logActivity('add_user', 'Quick-created account for payroll employee: ' + uname);
+  }
+
   function addCustomCategory() {
     const cat = newCatInput.trim();
     if (!cat) return;
@@ -386,6 +493,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   async function doExport() {
     try {
       const zip = new JSZip();
+      const pwdStoreRaw = await secureGet(PWD_STORE_KEY, {});
       const payload = {
         items, shoppingList:shopping, purchaseInvoices:purchaseInv,
         cateringInvoices:cateringInv, transferInvoices:transferInv,
@@ -395,11 +503,14 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         suppliers:(suppliers||[]),
         inventoryAdjustments: load(INVENTORY_ADJUSTMENTS_KEY, []),
         credentials: load('credentials', {}),
+        employeeRegistry: loadEmpRegistry(),
+        staffPasswordStore: pwdStoreRaw || {},
         settings:{
           selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact,
           customCategories,
+          staffSessionTimeout: load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT),
         },
-        exportDate: new Date().toISOString(), version:'2.5'
+        exportDate: new Date().toISOString(), version:'2.6'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
@@ -439,15 +550,16 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
 
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
                     'transferInvoices','payrollInvoices','dailyFinanceEntries',
-                    'customers','priceHistory','suppliers','inventoryAdjustments','credentials','settings'];
+                    'customers','priceHistory','suppliers','inventoryAdjustments',
+                    'credentials','employeeRegistry','staffPasswordStore','settings'];
       const entries = await Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
         return [k, JSON.parse(await f.async('string'))];
       }));
 
-      entries.forEach(([k,v]) => {
-        if (!v) return;
+      for (const [k,v] of entries) {
+        if (!v) continue;
         if (k==='items')                { setItems(v);               save('items',v); }
         if (k==='shoppingList')         { setShopping(v);            save('shoppingList',v); }
         if (k==='purchaseInvoices')     { setPurchaseInv(v);         save('purchaseInvoices',v); }
@@ -471,6 +583,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           setCustomCategories(v.customCategories);
           save(CUSTOM_CATEGORIES_KEY, v.customCategories);
         }
+        if (k==='settings' && v?.staffSessionTimeout != null) {
+          save(STAFF_SESSION_TIMEOUT_KEY, v.staffSessionTimeout);
+          setSessionTimeoutInput(v.staffSessionTimeout);
+        }
         if (k==='suppliers')            { setSuppliers(v);           save('_suppliers',v); }
         if (k==='inventoryAdjustments') {
           save(INVENTORY_ADJUSTMENTS_KEY, v);
@@ -478,7 +594,15 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         if (k==='credentials' && v && typeof v === 'object' && Object.keys(v).length > 0) {
           save('credentials', v);
         }
-      });
+        if (k==='employeeRegistry' && v && typeof v === 'object') {
+          localStorage.setItem('_employeeRegistry', JSON.stringify(v));
+          setEmpRegistry(v);
+        }
+        if (k==='staffPasswordStore' && v && typeof v === 'object' && Object.keys(v).length > 0) {
+          await secureSet(PWD_STORE_KEY, v);
+          setPwdStore(v);
+        }
+      }
       logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
       showToast('Backup restored! All data has been loaded.');
       if (parseFloat(backupVersion) < 2.4) {
@@ -683,6 +807,97 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         </div>
       </div>
 
+      {/* Security Settings */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔐 Staff Security Settings</div>
+        <div style={{marginBottom:12}}>
+          <label style={{display:'block',fontWeight:600,fontSize:13,marginBottom:6,color:'#444'}}>
+            Check-In Session Timeout
+            <span style={{fontWeight:400,color:'#888',marginLeft:8,fontSize:12}}>
+              (how long staff have to check in/out after QR scan before being auto-logged out)
+            </span>
+          </label>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <input type="range" min={30} max={600} step={30}
+              value={sessionTimeoutInput}
+              onChange={e => setSessionTimeoutInput(Number(e.target.value))}
+              style={{flex:1,accentColor:'var(--brown)'}}
+            />
+            <span style={{minWidth:60,textAlign:'right',fontWeight:700,color:'var(--brown)',fontSize:15}}>
+              {sessionTimeoutInput >= 60
+                ? `${Math.floor(sessionTimeoutInput/60)}m${sessionTimeoutInput%60?` ${sessionTimeoutInput%60}s`:''}`
+                : `${sessionTimeoutInput}s`}
+            </span>
+          </div>
+          <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}}>
+            {[60,90,120,180,300].map(v=>(
+              <Btn key={v} className={sessionTimeoutInput===v?'btn-primary btn-sm':'btn-outline btn-sm'}
+                onClick={()=>setSessionTimeoutInput(v)}>
+                {v<60?`${v}s`:v===60?'1 min':v===90?'1.5 min':v===120?'2 min':v===180?'3 min':'5 min'}
+              </Btn>
+            ))}
+          </div>
+        </div>
+        <Btn className="btn-primary btn-sm" onClick={() => {
+          save(STAFF_SESSION_TIMEOUT_KEY, sessionTimeoutInput);
+          showToast(`Session timeout set to ${sessionTimeoutInput}s.`);
+          logActivity('settings_change', `Staff session timeout set to ${sessionTimeoutInput}s`);
+        }}>💾 Save Timeout</Btn>
+      </div>
+
+      {/* Employee Pay Rate Registry */}
+      {Object.keys(empRegistry).length > 0 && (
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>💼 Employee Pay Rate Registry</div>
+        <p style={{fontSize:12.5,color:'#666',marginBottom:10,lineHeight:1.5}}>
+          Pay rates auto-saved from payroll entries. Edit or remove employees from the registry here.
+        </p>
+        {Object.entries(empRegistry).sort(([a],[b])=>a.localeCompare(b)).map(([name, info]) => {
+          const editing = empEditRate[name] !== undefined;
+          return (
+            <div key={name} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:'white',borderRadius:6,border:'1px solid #EED9B0',marginBottom:6,flexWrap:'wrap'}}>
+              <span style={{fontWeight:600,flex:1,minWidth:100}}>{name}</span>
+              {editing ? (
+                <>
+                  <input type="number" min={0} step={0.25} value={empEditRate[name]}
+                    onChange={e=>setEmpEditRate(r=>({...r,[name]:e.target.value}))}
+                    style={{width:80,padding:'4px 8px',border:'1px solid #DEB887',borderRadius:5,fontSize:13}}
+                    placeholder="$/hr"
+                  />
+                  <span style={{fontSize:12,color:'#888'}}>/hr</span>
+                  <Btn className="btn-primary btn-sm" onClick={()=>{
+                    const rate = parseFloat(empEditRate[name]);
+                    if (!isNaN(rate) && rate >= 0) {
+                      const updated = {...loadEmpRegistry(), [name]:{...info, payRate: rate, lastUsed: info.lastUsed}};
+                      localStorage.setItem('_employeeRegistry', JSON.stringify(updated));
+                      setEmpRegistry(updated);
+                      logActivity('edit_employee_rate', `Updated pay rate for ${name} to $${rate}/hr`);
+                      showToast(`Pay rate updated for ${name}.`);
+                    }
+                    setEmpEditRate(r=>{const n={...r};delete n[name];return n;});
+                  }}>✓ Save</Btn>
+                  <Btn className="btn-outline btn-sm" onClick={()=>setEmpEditRate(r=>{const n={...r};delete n[name];return n;})}>Cancel</Btn>
+                </>
+              ) : (
+                <>
+                  <span style={{color:'#444',fontSize:13}}>{info.payRate!=null?`${fmt$(info.payRate)}/hr`:'—'}</span>
+                  <Btn className="btn-outline btn-sm" onClick={()=>setEmpEditRate(r=>({...r,[name]:info.payRate??''}))}>✏️ Edit</Btn>
+                  <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>{
+                    const updated = {...loadEmpRegistry()};
+                    delete updated[name];
+                    localStorage.setItem('_employeeRegistry', JSON.stringify(updated));
+                    setEmpRegistry(updated);
+                    logActivity('remove_employee', `Removed ${name} from employee registry`);
+                    showToast(`${name} removed from registry.`);
+                  }}>🗑</Btn>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      )}
+
       {/* Staff Users */}
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
@@ -698,6 +913,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
               <FI label="Display Name (shown in app)" value={newDisplay} onChange={e=>setNewDisplay(e.target.value)} placeholder="e.g. John Smith" />
               <FI label="Password" type="password" value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
               <FI label="Confirm Password" type="password" value={newPwdC} onChange={e=>setNewPwdC(e.target.value)} placeholder="Re-enter password" autoComplete="new-password" />
+              <FI label="Email (optional — to send credentials)" type="email" value={addEmail} onChange={e=>setAddEmail(e.target.value)} placeholder="staff@example.com" />
+              <FI label="Phone (optional — to text credentials)" type="tel" value={addPhone} onChange={e=>setAddPhone(e.target.value)} placeholder="+1 555 000 0000" />
             </div>
             <div style={{marginBottom:6,fontWeight:600,fontSize:13,color:'var(--brown)'}}>Tab Access:</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:12}}>
@@ -769,9 +986,147 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
                 </div>
               </div>
             )}
+
+            {/* Credential panel — contact info + reveal password + share */}
+            {(() => {
+              const entry = pwdStore[u.username];
+              const isRevealed = revealPwdFor === u.username;
+              return (
+                <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #EED9B0',fontSize:12.5}}>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
+                    <span style={{color:'#777'}}>@{u.username}</span>
+                    <Btn className="btn-outline btn-sm" onClick={()=>{navigator.clipboard?.writeText(u.username).catch(()=>{});showToast('Username copied.');}}>
+                      📋 Copy username
+                    </Btn>
+                    {entry ? (
+                      <>
+                        <Btn className="btn-outline btn-sm" onClick={()=>setRevealPwdFor(isRevealed ? null : u.username)}>
+                          {isRevealed ? '🙈 Hide password' : '👁 Show password'}
+                        </Btn>
+                        {isRevealed && (
+                          <span style={{fontFamily:'monospace',background:'#F5ECD7',padding:'2px 8px',borderRadius:4,fontWeight:600}}>
+                            {entry.password}
+                          </span>
+                        )}
+                        <Btn className="btn-outline btn-sm" onClick={()=>{navigator.clipboard?.writeText(entry.password).catch(()=>{});showToast('Password copied.');}}>
+                          📋 Copy password
+                        </Btn>
+                        <a href={makeCredentialEmailLink(u.displayName, u.username, entry.password)} style={{textDecoration:'none'}}>
+                          <Btn className="btn-outline btn-sm">📧 Email</Btn>
+                        </a>
+                        {entry.phone && (
+                          <a href={makeCredentialSmsLink(entry.phone, u.displayName, u.username, entry.password)} style={{textDecoration:'none'}}>
+                            <Btn className="btn-outline btn-sm">📱 Text</Btn>
+                          </a>
+                        )}
+                        {/* Edit contact info inline */}
+                        <Btn className="btn-outline btn-sm" onClick={()=>{
+                          const e2=document.getElementById(`contact-${u.username}`);
+                          if(e2) e2.style.display=e2.style.display==='none'?'block':'none';
+                        }}>✏️ Contact info</Btn>
+                      </>
+                    ) : (
+                      <span style={{color:'#aaa',fontSize:12}}>Set a new password above to save it here for sharing</span>
+                    )}
+                  </div>
+                  {/* Inline contact editor */}
+                  <div id={`contact-${u.username}`} style={{display:'none',marginTop:8,background:'#f9f6ef',borderRadius:6,padding:'10px 12px',border:'1px solid #EED9B0'}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--brown)',marginBottom:6}}>Contact info for sharing credentials</div>
+                    <div className="grid-2">
+                      <FI label="Email" type="email" defaultValue={entry?.email||''} id={`email-${u.username}`} placeholder="staff@example.com" />
+                      <FI label="Phone" type="tel" defaultValue={entry?.phone||''} id={`phone-${u.username}`} placeholder="+1 555 000 0000" />
+                    </div>
+                    <Btn className="btn-primary btn-sm" onClick={()=>{
+                      const em = document.getElementById(`email-${u.username}`)?.value || '';
+                      const ph = document.getElementById(`phone-${u.username}`)?.value || '';
+                      const store2 = { ...pwdStore };
+                      store2[u.username] = { ...(store2[u.username]||{}), email: em.trim(), phone: ph.trim() };
+                      secureSet(PWD_STORE_KEY, store2);
+                      setPwdStore({...store2});
+                      document.getElementById(`contact-${u.username}`).style.display='none';
+                      showToast('Contact info saved for @' + u.username);
+                    }}>💾 Save contact</Btn>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ))}
-        <div style={{fontSize:12,color:'#888',marginTop:4}}>💡 To view a user's activity, go to the <strong>Activity Log</strong> tab and filter by their username.</div>
+        {/* Quick-create from payroll employee registry */}
+        {(() => {
+          const regNames = Object.keys(empRegistry).sort();
+          if (!regNames.length) return null;
+          const existingNames = new Set(staff.map(s => s.displayName?.toLowerCase()));
+          const existingUnames = new Set(staff.map(s => s.username));
+          const unaccounted = regNames.filter(name =>
+            !existingNames.has(name.toLowerCase()) && !existingUnames.has(genUsername(name))
+          );
+          if (!unaccounted.length) return null;
+          return (
+            <div style={{marginTop:14,padding:'12px 14px',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#1e40af',marginBottom:4}}>
+                ⚡ Employees from Payroll Records
+              </div>
+              <p style={{fontSize:12,color:'#3b5fc0',marginBottom:10,lineHeight:1.5}}>
+                These employees appear in payroll but don't have app accounts yet. Click to auto-generate simple login credentials.
+              </p>
+              {unaccounted.map(name => (
+                <div key={name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',background:'white',borderRadius:6,border:'1px solid #BFDBFE',marginBottom:6}}>
+                  <div>
+                    <span style={{fontWeight:600}}>{name}</span>
+                    {empRegistry[name]?.payRate && (
+                      <span style={{fontSize:12,color:'#777',marginLeft:8}}>{fmt$(empRegistry[name].payRate)}/hr</span>
+                    )}
+                  </div>
+                  <Btn className="btn-outline btn-sm" onClick={() => startQuickCreate(name)}>⚡ Create Account</Btn>
+                </div>
+              ))}
+              {quickCreateName && (
+                <div style={{marginTop:10,padding:'12px 14px',background:'#F0FDF4',border:'1px solid #86EFAC',borderRadius:8}}>
+                  <div style={{fontWeight:700,fontSize:13,color:'#166534',marginBottom:10}}>
+                    Creating account for: <strong>{quickCreateName}</strong>
+                  </div>
+                  <div className="grid-2 mb-2">
+                    <FI label="Username" value={quickUname} onChange={e=>setQuickUname(e.target.value)} autoComplete="off" />
+                    <FI label="Temporary Password" value={quickPwd} onChange={e=>setQuickPwd(e.target.value)} autoComplete="off" />
+                    <FI label="Email (optional)" type="email" value={quickEmail} onChange={e=>setQuickEmail(e.target.value)} placeholder="staff@example.com" />
+                    <FI label="Phone (optional)" type="tel" value={quickPhone} onChange={e=>setQuickPhone(e.target.value)} placeholder="+1 555 000 0000" />
+                  </div>
+                  <div style={{fontSize:12,color:'#15803D',background:'#DCFCE7',padding:'7px 10px',borderRadius:6,marginBottom:10}}>
+                    📋 The password is saved for you so you can view/send it later from the staff user card.
+                  </div>
+                  {quickErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'7px 10px',borderRadius:5,marginBottom:8,fontSize:13}}>{quickErr}</div>}
+                  <div className="flex gap-2">
+                    <Btn className="btn-primary btn-sm" onClick={confirmQuickCreate}>✓ Create Account</Btn>
+                    <Btn className="btn-outline btn-sm" onClick={()=>{setQuickCreateName(null);setQuickErr('');}}>Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginTop:8}}>
+          <div style={{fontSize:12,color:'#888'}}>💡 To view a user's activity, go to the <strong>Activity Log</strong> tab and filter by their username.</div>
+          {staff.length > 0 && (
+            <Btn className="btn-outline btn-sm" onClick={async () => {
+              const store = await secureGet(PWD_STORE_KEY, {});
+              const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+              const hdr = ['Display Name', 'Username', 'Password', 'Email', 'Phone', 'Permissions'];
+              const rows = staff.map(u => {
+                const e = store[u.username] || {};
+                return [u.displayName, u.username, e.password || '(not saved)', e.email || '', e.phone || '', (u.permissions || []).join(' | ')];
+              });
+              const csv = [hdr, ...rows].map(r => r.map(esc).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'staff-credentials-' + new Date().toISOString().slice(0,10) + '.csv';
+              document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+              showToast('Staff credentials exported. Keep this file secure!');
+              logActivity('export_staff_credentials', 'Exported staff credentials CSV');
+            }}>⬇ Export Staff List</Btn>
+          )}
+        </div>
       </div>
 
       {/* Admin Password */}
