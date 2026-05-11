@@ -509,6 +509,13 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 - **📋 History** button added to each row of the YTD Summary table (pre-filters to the selected YTD year).
 - Key: history is keyed by employee **name** — no user account required; works from day 1 of payroll data entry.
 
+**Slice 74:** Payroll reports, bulk actions, local attendance cache, dashboard card (2026-05).
+- PayrollInvoices: `showReport/reportFrom/reportTo/reportBiz` state + `reportSummary` useMemo; collapsible date-range Payroll Report card; `exportReportCsv` + `exportReportExcel` (sheet "Payroll Report", TOTAL footer row).
+- PayrollInvoices: `selectedPay` Set state; per-row checkbox (unpaid only); select-all in header; blue action bar; `bulkMarkPaid()` marks all selected as paid with `paidAt: today()`. `markPaid` also records `paidAt`.
+- CheckInOutPage: `localCache` state from `_attendanceCache`; `showLocalCache` toggle; `checkAction` saves entry after success; admin "📋 Recent Attendance Log" collapsible card (last 100 records, clear button); staff "My Status" shows local cache fallback when backend is offline.
+- Dashboard: "👷 Today's Attendance" card — reads `_attendanceCache` for today's records, shows current status per employee.
+- SettingsModal: "⬇ Export Staff List" async button decrypts `_staffPasswordStore` then downloads CSV with all staff credentials.
+
 ## New localStorage keys (Slices 52–67)
 
 | Key | Type | Owner | Purpose |
@@ -519,6 +526,7 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 | `_customCategories` | array | ItemDatabase | Admin-defined custom categories (BL-38) |
 | `_suppliers` | array | SupplierManagement | Registered supplier contact records (BL-138) |
 | `_staffSessionTimeout` | number | App.jsx / SettingsModal | Admin-configured check-in session timeout in seconds (default 120) |
+| `_attendanceCache` | array | CheckInOutPage | Local record of check-in/out events (max 200 entries) |
 
 ## Known technical debt
 
