@@ -37,6 +37,19 @@ import Modal from './Modal.jsx';
 import Confirm from './Confirm.jsx';
 import { BrandMark } from './BrandMark.jsx';
 
+function loadEmpRegistry() {
+  try { return JSON.parse(localStorage.getItem('_employeeRegistry') || '{}'); } catch { return {}; }
+}
+
+function genUsername(name) {
+  return name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 20) || 'user';
+}
+
+function genPassword(name) {
+  const first = name.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '') || 'user';
+  return first + Math.floor(1000 + Math.random() * 9000);
+}
+
 function FI({ label, suggestions, fieldStyle, ...props }) {
   const listId = useId();
   const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
@@ -121,6 +134,11 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const [customCategories, setCustomCategories] = useState(() => load(CUSTOM_CATEGORIES_KEY, []));
   const [newCatInput, setNewCatInput] = useState('');
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
+  const [empRegistry, setEmpRegistry] = useState({});
+  const [quickCreateName, setQuickCreateName] = useState(null);
+  const [quickUname, setQuickUname] = useState('');
+  const [quickPwd, setQuickPwd] = useState('');
+  const [quickErr, setQuickErr] = useState('');
   const logoFileRefs = { degrill: useRef(), parathas: useRef(), dera: useRef(), transfer: useRef() };
   const BIZ_KEYS = ['degrill', 'parathas', 'dera', 'transfer'];
   const blankContact = () => BIZ_KEYS.reduce((acc,k) => ({...acc,[k]:{phone:'',address:'',email:''}}), {});
@@ -147,6 +165,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setStaff(loadStaff());
     setResetApiInput(loadAdminResetApiBase());
     setResetApiState({ kind:'idle', msg:'' });
+    setEmpRegistry(loadEmpRegistry());
+    setQuickCreateName(null);
   }, [open]);
 
   useEffect(() => {
@@ -360,6 +380,37 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setResetCodeC('');
     setResetCodeMsg('Reset Code saved.');
     showToast('Quick reset code updated.');
+  }
+
+  function startQuickCreate(name) {
+    setQuickCreateName(name);
+    setQuickUname(genUsername(name));
+    setQuickPwd(genPassword(name));
+    setQuickErr('');
+  }
+
+  async function confirmQuickCreate() {
+    setQuickErr('');
+    const uname = quickUname.trim().toLowerCase();
+    if (!uname) { setQuickErr('Username is required.'); return; }
+    if (!/^[a-z0-9_]+$/.test(uname)) { setQuickErr('Use only letters, numbers, or underscores.'); return; }
+    if (uname === 'admin') { setQuickErr('"admin" is a reserved username.'); return; }
+    const creds = load('credentials', {});
+    if (creds[uname]) { setQuickErr('That username is already taken — edit it above.'); return; }
+    if (quickPwd.length < 6) { setQuickErr('Password must be at least 6 characters.'); return; }
+    const hash = await hashPwd(quickPwd, uname);
+    const displayName = quickCreateName;
+    creds[uname] = { password: hash, role: 'user', displayName, permissions: [...DEFAULT_USER_PERMS] };
+    save('credentials', creds);
+    await syncCredsBestEffort('quick_create_user');
+    setStaff(s => [...s, { username: uname, displayName, permissions: [...DEFAULT_USER_PERMS] }]);
+    const savedPwd = quickPwd;
+    setQuickCreateName(null);
+    setQuickErr('');
+    setQuickUname('');
+    setQuickPwd('');
+    showToast(`${displayName} (@${uname}) created! Password: ${savedPwd}`);
+    logActivity('add_user', 'Quick-created account for payroll employee: ' + uname);
   }
 
   function addCustomCategory() {
@@ -771,6 +822,57 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
             )}
           </div>
         ))}
+        {/* Quick-create from payroll employee registry */}
+        {(() => {
+          const regNames = Object.keys(empRegistry).sort();
+          if (!regNames.length) return null;
+          const existingNames = new Set(staff.map(s => s.displayName?.toLowerCase()));
+          const existingUnames = new Set(staff.map(s => s.username));
+          const unaccounted = regNames.filter(name =>
+            !existingNames.has(name.toLowerCase()) && !existingUnames.has(genUsername(name))
+          );
+          if (!unaccounted.length) return null;
+          return (
+            <div style={{marginTop:14,padding:'12px 14px',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#1e40af',marginBottom:4}}>
+                ⚡ Employees from Payroll Records
+              </div>
+              <p style={{fontSize:12,color:'#3b5fc0',marginBottom:10,lineHeight:1.5}}>
+                These employees appear in payroll but don't have app accounts yet. Click to auto-generate simple login credentials.
+              </p>
+              {unaccounted.map(name => (
+                <div key={name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',background:'white',borderRadius:6,border:'1px solid #BFDBFE',marginBottom:6}}>
+                  <div>
+                    <span style={{fontWeight:600}}>{name}</span>
+                    {empRegistry[name]?.payRate && (
+                      <span style={{fontSize:12,color:'#777',marginLeft:8}}>{fmt$(empRegistry[name].payRate)}/hr</span>
+                    )}
+                  </div>
+                  <Btn className="btn-outline btn-sm" onClick={() => startQuickCreate(name)}>⚡ Create Account</Btn>
+                </div>
+              ))}
+              {quickCreateName && (
+                <div style={{marginTop:10,padding:'12px 14px',background:'#F0FDF4',border:'1px solid #86EFAC',borderRadius:8}}>
+                  <div style={{fontWeight:700,fontSize:13,color:'#166534',marginBottom:10}}>
+                    Creating account for: <strong>{quickCreateName}</strong>
+                  </div>
+                  <div className="grid-2 mb-2">
+                    <FI label="Username" value={quickUname} onChange={e=>setQuickUname(e.target.value)} autoComplete="off" />
+                    <FI label="Temporary Password" value={quickPwd} onChange={e=>setQuickPwd(e.target.value)} autoComplete="off" />
+                  </div>
+                  <div style={{fontSize:12,color:'#15803D',background:'#DCFCE7',padding:'7px 10px',borderRadius:6,marginBottom:10}}>
+                    📋 Note down this password to share with the employee — it won't be shown again.
+                  </div>
+                  {quickErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'7px 10px',borderRadius:5,marginBottom:8,fontSize:13}}>{quickErr}</div>}
+                  <div className="flex gap-2">
+                    <Btn className="btn-primary btn-sm" onClick={confirmQuickCreate}>✓ Create Account</Btn>
+                    <Btn className="btn-outline btn-sm" onClick={()=>{setQuickCreateName(null);setQuickErr('');}}>Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div style={{fontSize:12,color:'#888',marginTop:4}}>💡 To view a user's activity, go to the <strong>Activity Log</strong> tab and filter by their username.</div>
       </div>
 
