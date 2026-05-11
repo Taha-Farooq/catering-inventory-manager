@@ -32,6 +32,8 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
   const [summary, setSummary] = useState({ rows: [], active: {}, payRates: {} });
   const [rateDrafts, setRateDrafts] = useState({});
   const [targetUser, setTargetUser] = useState('');
+  const [localCache, setLocalCache] = useState(() => load('_attendanceCache', []));
+  const [showLocalCache, setShowLocalCache] = useState(false);
 
   async function loadMe() {
     const res = await attendanceApiCall('/api/attendance/me', { currentUser });
@@ -94,7 +96,24 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
       return;
     }
     setErr('');
-    showToast(`Checked ${res.data.status === 'in' ? 'in' : 'out'} successfully.`);
+    const statusLabel = res.data.status === 'in' ? 'in' : 'out';
+    showToast(`Checked ${statusLabel} successfully.`);
+    // Save locally so admin can see recent activity even when backend is offline
+    const entry = {
+      id: crypto.randomUUID(),
+      username: overrideUser || currentUser.username,
+      displayName: overrideUser || currentUser.displayName || currentUser.username,
+      action: statusLabel,
+      timestamp: new Date().toISOString(),
+      business: selectedBusiness,
+      byAdmin: !!overrideUser,
+    };
+    setLocalCache(prev => {
+      const next = [entry, ...prev].slice(0, 200);
+      save('_attendanceCache', next);
+      return next;
+    });
+    logActivity('attendance_' + statusLabel, `Checked ${statusLabel}${overrideUser ? ' (admin override for ' + overrideUser + ')' : ''}`);
     loadMe();
     loadSummary();
     if (onAttendanceComplete) onAttendanceComplete();
@@ -445,6 +464,53 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Local attendance cache — visible even when backend is offline */}
+          <div className="card mt-4">
+            <button
+              style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontWeight:700,color:'var(--brown)',fontSize:14,padding:0,marginBottom: showLocalCache ? 12 : 0}}
+              onClick={() => setShowLocalCache(v => !v)}
+            >
+              <span>📋 Recent Attendance Log ({localCache.length} local records)</span>
+              <span>{showLocalCache ? '▲' : '▼'}</span>
+            </button>
+            {showLocalCache && (
+              <>
+                <div style={{fontSize:12,color:'#888',marginBottom:10}}>
+                  Saved on this device when staff check in/out. Persists across sessions. Complements the backend weekly summary above.
+                  <button style={{marginLeft:12,fontSize:12,color:'#DC2626',background:'none',border:'none',cursor:'pointer',padding:0}} onClick={() => {
+                    if (window.confirm('Clear all local attendance records on this device?')) {
+                      setLocalCache([]); save('_attendanceCache', []);
+                    }
+                  }}>🗑 Clear all</button>
+                </div>
+                {localCache.length === 0 ? (
+                  <div style={{color:'#aaa',fontSize:13,textAlign:'center',padding:'12px 0'}}>No local records yet. Records appear here when staff check in or out.</div>
+                ) : (
+                  <div className="tbl-wrap">
+                    <table>
+                      <thead><tr><th>Time</th><th>Employee</th><th>Action</th><th>Business</th><th>By Admin</th></tr></thead>
+                      <tbody>
+                        {localCache.slice(0, 100).map((e, i) => (
+                          <tr key={e.id || i}>
+                            <td style={{whiteSpace:'nowrap',fontSize:12}}>{new Date(e.timestamp).toLocaleString()}</td>
+                            <td style={{fontWeight:600}}>{e.displayName} {e.username !== e.displayName && <span style={{fontSize:11,color:'#888'}}>@{e.username}</span>}</td>
+                            <td>
+                              <span style={{padding:'2px 10px',borderRadius:10,fontSize:12,fontWeight:600,background:e.action==='in'?'#DCFCE7':'#FEE2E2',color:e.action==='in'?'#15803D':'#DC2626'}}>
+                                {e.action === 'in' ? 'Checked In' : 'Checked Out'}
+                              </span>
+                            </td>
+                            <td style={{fontSize:12,color:'#555'}}>{e.business || '—'}</td>
+                            <td style={{fontSize:12,color:e.byAdmin?'#7C3AED':'#aaa'}}>{e.byAdmin ? '✓ Admin' : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </>
       )}
