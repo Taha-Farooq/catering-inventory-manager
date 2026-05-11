@@ -41,6 +41,32 @@ function loadEmpRegistry() {
   try { return JSON.parse(localStorage.getItem('_employeeRegistry') || '{}'); } catch { return {}; }
 }
 
+const PWD_STORE_KEY = '_staffPasswordStore';
+function loadPwdStore() {
+  try { return JSON.parse(localStorage.getItem(PWD_STORE_KEY) || '{}'); } catch { return {}; }
+}
+function savePwdStore(data) {
+  try { localStorage.setItem(PWD_STORE_KEY, JSON.stringify(data)); } catch {}
+}
+
+function makeCredentialEmailLink(displayName, username, password) {
+  const appUrl = window.location.href.split('?')[0];
+  const subject = encodeURIComponent('Your Login — Catering Manager App');
+  const body = encodeURIComponent(
+    `Hi ${displayName},\n\nYour login credentials for the Catering Manager App:\n\n` +
+    `Username: ${username}\nPassword: ${password}\n\n` +
+    `Sign in at: ${appUrl}\n\nPlease keep these credentials secure.\n\nThanks`
+  );
+  return `mailto:?subject=${subject}&body=${body}`;
+}
+
+function makeCredentialSmsLink(phone, displayName, username, password) {
+  const body = encodeURIComponent(
+    `Hi ${displayName}, your Catering Manager login:\nUsername: ${username}\nPassword: ${password}`
+  );
+  return `sms:${phone}?body=${body}`;
+}
+
 function genUsername(name) {
   return name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 20) || 'user';
 }
@@ -135,9 +161,15 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const [newCatInput, setNewCatInput] = useState('');
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
   const [empRegistry, setEmpRegistry] = useState({});
+  const [pwdStore, setPwdStore] = useState({});
+  const [revealPwdFor, setRevealPwdFor] = useState(null);
+  const [addEmail, setAddEmail] = useState('');
+  const [addPhone, setAddPhone] = useState('');
   const [quickCreateName, setQuickCreateName] = useState(null);
   const [quickUname, setQuickUname] = useState('');
   const [quickPwd, setQuickPwd] = useState('');
+  const [quickEmail, setQuickEmail] = useState('');
+  const [quickPhone, setQuickPhone] = useState('');
   const [quickErr, setQuickErr] = useState('');
   const logoFileRefs = { degrill: useRef(), parathas: useRef(), dera: useRef(), transfer: useRef() };
   const BIZ_KEYS = ['degrill', 'parathas', 'dera', 'transfer'];
@@ -166,7 +198,9 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setResetApiInput(loadAdminResetApiBase());
     setResetApiState({ kind:'idle', msg:'' });
     setEmpRegistry(loadEmpRegistry());
+    setPwdStore(loadPwdStore());
     setQuickCreateName(null);
+    setRevealPwdFor(null);
   }, [open]);
 
   useEffect(() => {
@@ -282,8 +316,13 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname] = { password: hash, role: 'user', displayName, permissions: newPerms };
     save('credentials', creds);
     await syncCredsBestEffort('add_user');
+    const store2 = loadPwdStore();
+    store2[uname] = { password: newPwd, displayName, email: addEmail.trim(), phone: addPhone.trim(), savedAt: new Date().toISOString() };
+    savePwdStore(store2);
+    setPwdStore({ ...store2 });
     setStaff(s => [...s, { username: uname, displayName, permissions: newPerms }]);
     setNewUname(''); setNewDisplay(''); setNewPwd(''); setNewPwdC(''); setNewPerms([...DEFAULT_USER_PERMS]);
+    setAddEmail(''); setAddPhone('');
     setShowAdd(false);
     showToast(displayName + ' added!');
     logActivity('add_user', 'Created staff user: ' + uname);
@@ -299,6 +338,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     delete creds[uname];
     save('credentials', creds);
     syncCredsBestEffort('delete_user');
+    const store2 = loadPwdStore();
+    delete store2[uname];
+    savePwdStore(store2);
+    setPwdStore({ ...store2 });
     setStaff(s => s.filter(x => x.username !== uname));
     showToast('User removed.');
     logActivity('delete_user', 'Deleted staff user: ' + uname);
@@ -313,6 +356,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname].password = await hashPwd(editPwd, uname);
     save('credentials', creds);
     await syncCredsBestEffort('reset_password');
+    const store2 = loadPwdStore();
+    store2[uname] = { ...(store2[uname] || {}), password: editPwd, displayName: creds[uname].displayName || uname, savedAt: new Date().toISOString() };
+    savePwdStore(store2);
+    setPwdStore({ ...store2 });
     setEditPwdFor(null); setEditPwd(''); setEditPwdC('');
     showToast('Password updated for @' + uname);
     logActivity('reset_password', 'Reset password for: ' + uname);
@@ -386,6 +433,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setQuickCreateName(name);
     setQuickUname(genUsername(name));
     setQuickPwd(genPassword(name));
+    setQuickEmail('');
+    setQuickPhone('');
     setQuickErr('');
   }
 
@@ -403,12 +452,18 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname] = { password: hash, role: 'user', displayName, permissions: [...DEFAULT_USER_PERMS] };
     save('credentials', creds);
     await syncCredsBestEffort('quick_create_user');
+    const store2 = loadPwdStore();
+    store2[uname] = { password: quickPwd, displayName, email: quickEmail.trim(), phone: quickPhone.trim(), savedAt: new Date().toISOString() };
+    savePwdStore(store2);
+    setPwdStore({ ...store2 });
     setStaff(s => [...s, { username: uname, displayName, permissions: [...DEFAULT_USER_PERMS] }]);
     const savedPwd = quickPwd;
     setQuickCreateName(null);
     setQuickErr('');
     setQuickUname('');
     setQuickPwd('');
+    setQuickEmail('');
+    setQuickPhone('');
     showToast(`${displayName} (@${uname}) created! Password: ${savedPwd}`);
     logActivity('add_user', 'Quick-created account for payroll employee: ' + uname);
   }
@@ -749,6 +804,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
               <FI label="Display Name (shown in app)" value={newDisplay} onChange={e=>setNewDisplay(e.target.value)} placeholder="e.g. John Smith" />
               <FI label="Password" type="password" value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
               <FI label="Confirm Password" type="password" value={newPwdC} onChange={e=>setNewPwdC(e.target.value)} placeholder="Re-enter password" autoComplete="new-password" />
+              <FI label="Email (optional — to send credentials)" type="email" value={addEmail} onChange={e=>setAddEmail(e.target.value)} placeholder="staff@example.com" />
+              <FI label="Phone (optional — to text credentials)" type="tel" value={addPhone} onChange={e=>setAddPhone(e.target.value)} placeholder="+1 555 000 0000" />
             </div>
             <div style={{marginBottom:6,fontWeight:600,fontSize:13,color:'var(--brown)'}}>Tab Access:</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:12}}>
@@ -820,6 +877,70 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
                 </div>
               </div>
             )}
+
+            {/* Credential panel — contact info + reveal password + share */}
+            {(() => {
+              const entry = pwdStore[u.username];
+              const isRevealed = revealPwdFor === u.username;
+              return (
+                <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #EED9B0',fontSize:12.5}}>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
+                    <span style={{color:'#777'}}>@{u.username}</span>
+                    <Btn className="btn-outline btn-sm" onClick={()=>{navigator.clipboard?.writeText(u.username).catch(()=>{});showToast('Username copied.');}}>
+                      📋 Copy username
+                    </Btn>
+                    {entry ? (
+                      <>
+                        <Btn className="btn-outline btn-sm" onClick={()=>setRevealPwdFor(isRevealed ? null : u.username)}>
+                          {isRevealed ? '🙈 Hide password' : '👁 Show password'}
+                        </Btn>
+                        {isRevealed && (
+                          <span style={{fontFamily:'monospace',background:'#F5ECD7',padding:'2px 8px',borderRadius:4,fontWeight:600}}>
+                            {entry.password}
+                          </span>
+                        )}
+                        <Btn className="btn-outline btn-sm" onClick={()=>{navigator.clipboard?.writeText(entry.password).catch(()=>{});showToast('Password copied.');}}>
+                          📋 Copy password
+                        </Btn>
+                        <a href={makeCredentialEmailLink(u.displayName, u.username, entry.password)} style={{textDecoration:'none'}}>
+                          <Btn className="btn-outline btn-sm">📧 Email</Btn>
+                        </a>
+                        {entry.phone && (
+                          <a href={makeCredentialSmsLink(entry.phone, u.displayName, u.username, entry.password)} style={{textDecoration:'none'}}>
+                            <Btn className="btn-outline btn-sm">📱 Text</Btn>
+                          </a>
+                        )}
+                        {/* Edit contact info inline */}
+                        <Btn className="btn-outline btn-sm" onClick={()=>{
+                          const e2=document.getElementById(`contact-${u.username}`);
+                          if(e2) e2.style.display=e2.style.display==='none'?'block':'none';
+                        }}>✏️ Contact info</Btn>
+                      </>
+                    ) : (
+                      <span style={{color:'#aaa',fontSize:12}}>Set a new password above to save it here for sharing</span>
+                    )}
+                  </div>
+                  {/* Inline contact editor */}
+                  <div id={`contact-${u.username}`} style={{display:'none',marginTop:8,background:'#f9f6ef',borderRadius:6,padding:'10px 12px',border:'1px solid #EED9B0'}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--brown)',marginBottom:6}}>Contact info for sharing credentials</div>
+                    <div className="grid-2">
+                      <FI label="Email" type="email" defaultValue={entry?.email||''} id={`email-${u.username}`} placeholder="staff@example.com" />
+                      <FI label="Phone" type="tel" defaultValue={entry?.phone||''} id={`phone-${u.username}`} placeholder="+1 555 000 0000" />
+                    </div>
+                    <Btn className="btn-primary btn-sm" onClick={()=>{
+                      const em = document.getElementById(`email-${u.username}`)?.value || '';
+                      const ph = document.getElementById(`phone-${u.username}`)?.value || '';
+                      const store2 = loadPwdStore();
+                      store2[u.username] = { ...(store2[u.username]||{}), email: em.trim(), phone: ph.trim() };
+                      savePwdStore(store2);
+                      setPwdStore({...store2});
+                      document.getElementById(`contact-${u.username}`).style.display='none';
+                      showToast('Contact info saved for @' + u.username);
+                    }}>💾 Save contact</Btn>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ))}
         {/* Quick-create from payroll employee registry */}
@@ -859,9 +980,11 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
                   <div className="grid-2 mb-2">
                     <FI label="Username" value={quickUname} onChange={e=>setQuickUname(e.target.value)} autoComplete="off" />
                     <FI label="Temporary Password" value={quickPwd} onChange={e=>setQuickPwd(e.target.value)} autoComplete="off" />
+                    <FI label="Email (optional)" type="email" value={quickEmail} onChange={e=>setQuickEmail(e.target.value)} placeholder="staff@example.com" />
+                    <FI label="Phone (optional)" type="tel" value={quickPhone} onChange={e=>setQuickPhone(e.target.value)} placeholder="+1 555 000 0000" />
                   </div>
                   <div style={{fontSize:12,color:'#15803D',background:'#DCFCE7',padding:'7px 10px',borderRadius:6,marginBottom:10}}>
-                    📋 Note down this password to share with the employee — it won't be shown again.
+                    📋 The password is saved for you so you can view/send it later from the staff user card.
                   </div>
                   {quickErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'7px 10px',borderRadius:5,marginBottom:8,fontSize:13}}>{quickErr}</div>}
                   <div className="flex gap-2">

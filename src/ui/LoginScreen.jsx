@@ -326,8 +326,8 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
           <div style={{background: serverRetrying ? '#EFF6FF' : '#FFF8DC', border:`1px solid ${serverRetrying ? '#BFDBFE' : '#DEB887'}`,borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color: serverRetrying ? '#1e40af' : '#7a5c00',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
             <span style={{flex:1}}>
               {serverRetrying
-                ? '🔄 Connecting to server… sign in will be available once connected.'
-                : '⚠️ Server unreachable. Ask your admin for credentials or upload a starter file below.'}
+                ? '🔄 Server is starting up (this can take ~30 seconds). You can try signing in now — it may work already.'
+                : '⚠️ Server unreachable. If you have credentials, try signing in anyway — or upload a starter file below.'}
             </span>
             <button type="button" onClick={async () => {
               setServerRetrying(true);
