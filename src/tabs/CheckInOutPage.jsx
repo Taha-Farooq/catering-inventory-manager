@@ -12,7 +12,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline }) {
+export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline, sessionTimeLeft = 0, onAttendanceComplete }) {
   const isAdmin = currentUser?.role === 'admin';
   const isKioskStation = isAdmin && kioskLock;
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
@@ -97,6 +97,7 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
     showToast(`Checked ${res.data.status === 'in' ? 'in' : 'out'} successfully.`);
     loadMe();
     loadSummary();
+    if (onAttendanceComplete) onAttendanceComplete();
   }
   async function createQr() {
     const res = await attendanceApiCall('/api/attendance/qr/create', { currentUser, method:'POST' });
@@ -327,10 +328,32 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
         {isAdmin && <Btn className="btn-outline btn-sm" onClick={onEnterKiosk}>{kioskLock ? 'Kiosk Locked (logout required)' : 'Open Kiosk Station Mode'}</Btn>}
       </div>
       {(!isOnline || backendDown) && <BackendUnavailableBanner code={backendDown ? 'DMG-E021' : 'DMG-E030'} />}
+
+      {/* Session countdown timer for QR-verified staff */}
+      {!isAdmin && sessionTimeLeft > 0 && (
+        <div style={{
+          background: sessionTimeLeft <= 30 ? '#FEF2F2' : sessionTimeLeft <= 60 ? '#FFFBEB' : '#F0FDF4',
+          border: `2px solid ${sessionTimeLeft <= 30 ? '#FCA5A5' : sessionTimeLeft <= 60 ? '#FCD34D' : '#86EFAC'}`,
+          borderRadius: 10, padding: '10px 14px', marginBottom: 12,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}>
+          <div style={{fontSize: 13, fontWeight: 600, color: sessionTimeLeft <= 30 ? '#991b1b' : sessionTimeLeft <= 60 ? '#92400e' : '#166534'}}>
+            {sessionTimeLeft <= 30 ? '⚠️ Session expiring!' : '⏱ Session active'}
+          </div>
+          <div style={{
+            fontSize: 22, fontWeight: 800, fontFamily: 'monospace',
+            color: sessionTimeLeft <= 30 ? '#DC2626' : sessionTimeLeft <= 60 ? '#D97706' : '#16A34A',
+          }}>
+            {String(Math.floor(sessionTimeLeft / 60)).padStart(2, '0')}:{String(sessionTimeLeft % 60).padStart(2, '0')}
+          </div>
+          <div style={{fontSize: 12, color: '#666'}}>Check in or out before time runs out</div>
+        </div>
+      )}
+
       <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72'}}>
-        Scan QR, log in, then tap Check In or Check Out.
+        {sessionTimeLeft > 0 ? 'QR verified — tap Check In or Check Out.' : 'Scan QR, log in, then tap Check In or Check Out.'}
       </div>
-      <div className="hint-card">Tip: If a phone is used daily, enable "Remember this device" at login.</div>
+      {!isAdmin && <div className="hint-card">Tip: If a phone is used daily, enable "Remember this device" at login.</div>}
       {err && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:6,marginBottom:10,fontSize:12.5}}>{err}</div>}
 
       <div className="card mb-4">

@@ -53,6 +53,7 @@ import {
 } from './authHelpers.js';
 import SettingsModal from './ui/SettingsModal.jsx';
 import LoginScreen from './ui/LoginScreen.jsx';
+import QrScanGate from './ui/QrScanGate.jsx';
 import AdminResetPortal from './ui/AdminResetPortal.jsx';
 import HelpCenter from './HelpCenter.jsx';
 import PayrollInvoices from './tabs/PayrollInvoices.jsx';
@@ -284,6 +285,11 @@ function App() {
   const [priceHist, setPriceHist] = useState(()=>load('priceHistory',[]));
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
   const [kioskLock, setKioskLock] = useState(()=>load('_kioskLock', false));
+  // Staff QR gate: 'idle' | 'scan_required' | 'ready'
+  const [staffQrPhase, setStaffQrPhase] = useState('idle');
+  const [staffAttToken, setStaffAttToken] = useState('');
+  const [staffSessionTimer, setStaffSessionTimer] = useState(0);
+  const staffTimerRef = useRef(null);
   const [localFeatureWarning, setLocalFeatureWarning] = useState('');
   const [storageEnvOk, setStorageEnvOk] = useState(true);
   const [storageQuotaWarn, setStorageQuotaWarn] = useState(null);
@@ -356,6 +362,15 @@ function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, [currentUser, kioskLock]);
 
+  // Block back/forward navigation for all non-admin users (prevents bypassing QR gate)
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'admin' || kioskLock) return;
+    window.history.pushState(null, '', window.location.href);
+    const onPop = () => window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [currentUser, kioskLock]);
+
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'admin') return;
     probeResetApi('http://localhost:8787').then(chk => {
@@ -408,10 +423,50 @@ function App() {
     const perms = user.permissions || creds[user.username]?.permissions || DEFAULT_USER_PERMS;
     setUserPerms(perms);
     const isAdmin = user.role === 'admin';
+    // Staff with ONLY check-in/out access must scan the location QR before proceeding
+    const isCheckioOnly = !isAdmin && perms.length > 0 && perms.every(p2 => p2 === 'checkio');
     const firstTab = isAdmin ? TABS_ADMIN[0].id : (ALL_USER_TABS.find(t => perms.includes(t.id))?.id || 'shopping');
-    if (attendanceParams && user.role !== 'admin') setTab('checkio');
-    else setTab(firstTab);
+    if (isCheckioOnly) {
+      setTab('checkio');
+      setStaffQrPhase('scan_required');
+    } else if (attendanceParams && !isAdmin) {
+      setTab('checkio');
+    } else {
+      setTab(firstTab);
+    }
     logActivity('login', 'Signed in as ' + user.role);
+  }
+
+  function handleQrPassed(token) {
+    setStaffAttToken(token);
+    setStaffQrPhase('ready');
+    setStaffSessionTimer(120);
+    if (staffTimerRef.current) clearTimeout(staffTimerRef.current);
+    const tick = () => {
+      setStaffSessionTimer(prev => {
+        if (prev <= 1) { doStaffAutoLogout('Session timer expired'); return 0; }
+        staffTimerRef.current = setTimeout(tick, 1000);
+        return prev - 1;
+      });
+    };
+    staffTimerRef.current = setTimeout(tick, 1000);
+  }
+
+  function doStaffAutoLogout(reason) {
+    if (staffTimerRef.current) { clearTimeout(staffTimerRef.current); staffTimerRef.current = null; }
+    logActivity('logout', reason || 'Staff auto-logout');
+    setCurrentUser(null);
+    save('_session', null);
+    setStaffQrPhase('idle');
+    setStaffAttToken('');
+    setStaffSessionTimer(0);
+  }
+
+  function handleAttendanceComplete() {
+    // Called after staff successfully checks in or out — brief success then logout
+    if (staffTimerRef.current) { clearTimeout(staffTimerRef.current); staffTimerRef.current = null; }
+    setStaffSessionTimer(0);
+    setTimeout(() => doStaffAutoLogout('Check-in/out completed'), 2200);
   }
 
   function handleLogout() {
@@ -419,9 +474,13 @@ function App() {
   }
   function confirmDoLogout() {
     setConfirmLogout(false);
+    if (staffTimerRef.current) { clearTimeout(staffTimerRef.current); staffTimerRef.current = null; }
     logActivity('logout', 'Signed out');
     setCurrentUser(null);
     save('_session', null);
+    setStaffQrPhase('idle');
+    setStaffAttToken('');
+    setStaffSessionTimer(0);
     if (kioskLock) { setKioskLock(false); save('_kioskLock', false); }
   }
 
@@ -460,6 +519,18 @@ function App() {
     setTab('checkio');
   }
   if (!currentUser) return <LoginScreen onLogin={handleLogin} bootWarnings={bootWarnings} online={online} />;
+
+  // QR scan gate: shown for checkio-only staff immediately after login
+  if (staffQrPhase === 'scan_required') {
+    return (
+      <QrScanGate
+        onPassed={handleQrPassed}
+        onFailed={() => doStaffAutoLogout('QR scan failed — 3 attempts')}
+        attendanceApiCallFn={attendanceApiCall}
+        currentUser={currentUser}
+      />
+    );
+  }
 
   const isAdmin = currentUser.role === 'admin';
   const TABS = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
@@ -646,7 +717,7 @@ function App() {
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
-        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} />}
+        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={staffAttToken || attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} sessionTimeLeft={staffSessionTimer} onAttendanceComplete={handleAttendanceComplete} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} />}
         {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}

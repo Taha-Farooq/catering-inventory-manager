@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react';
 import JSZip from 'jszip';
+import { secureGet, secureSet, secureDel } from '../utils/secureStore.js';
 import { load, save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { documentBaseHref } from '../utils/print.js';
@@ -42,12 +43,6 @@ function loadEmpRegistry() {
 }
 
 const PWD_STORE_KEY = '_staffPasswordStore';
-function loadPwdStore() {
-  try { return JSON.parse(localStorage.getItem(PWD_STORE_KEY) || '{}'); } catch { return {}; }
-}
-function savePwdStore(data) {
-  try { localStorage.setItem(PWD_STORE_KEY, JSON.stringify(data)); } catch {}
-}
 
 function makeCredentialEmailLink(displayName, username, password) {
   const appUrl = window.location.href.split('?')[0];
@@ -198,7 +193,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setResetApiInput(loadAdminResetApiBase());
     setResetApiState({ kind:'idle', msg:'' });
     setEmpRegistry(loadEmpRegistry());
-    setPwdStore(loadPwdStore());
+    secureGet(PWD_STORE_KEY, {}).then(v => setPwdStore(v || {}));
     setQuickCreateName(null);
     setRevealPwdFor(null);
   }, [open]);
@@ -316,9 +311,9 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname] = { password: hash, role: 'user', displayName, permissions: newPerms };
     save('credentials', creds);
     await syncCredsBestEffort('add_user');
-    const store2 = loadPwdStore();
+    const store2 = { ...pwdStore };
     store2[uname] = { password: newPwd, displayName, email: addEmail.trim(), phone: addPhone.trim(), savedAt: new Date().toISOString() };
-    savePwdStore(store2);
+    secureSet(PWD_STORE_KEY, store2);
     setPwdStore({ ...store2 });
     setStaff(s => [...s, { username: uname, displayName, permissions: newPerms }]);
     setNewUname(''); setNewDisplay(''); setNewPwd(''); setNewPwdC(''); setNewPerms([...DEFAULT_USER_PERMS]);
@@ -338,9 +333,9 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     delete creds[uname];
     save('credentials', creds);
     syncCredsBestEffort('delete_user');
-    const store2 = loadPwdStore();
+    const store2 = { ...pwdStore };
     delete store2[uname];
-    savePwdStore(store2);
+    secureSet(PWD_STORE_KEY, store2);
     setPwdStore({ ...store2 });
     setStaff(s => s.filter(x => x.username !== uname));
     showToast('User removed.');
@@ -356,9 +351,9 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname].password = await hashPwd(editPwd, uname);
     save('credentials', creds);
     await syncCredsBestEffort('reset_password');
-    const store2 = loadPwdStore();
+    const store2 = { ...pwdStore };
     store2[uname] = { ...(store2[uname] || {}), password: editPwd, displayName: creds[uname].displayName || uname, savedAt: new Date().toISOString() };
-    savePwdStore(store2);
+    secureSet(PWD_STORE_KEY, store2);
     setPwdStore({ ...store2 });
     setEditPwdFor(null); setEditPwd(''); setEditPwdC('');
     showToast('Password updated for @' + uname);
@@ -452,9 +447,9 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     creds[uname] = { password: hash, role: 'user', displayName, permissions: [...DEFAULT_USER_PERMS] };
     save('credentials', creds);
     await syncCredsBestEffort('quick_create_user');
-    const store2 = loadPwdStore();
+    const store2 = { ...pwdStore };
     store2[uname] = { password: quickPwd, displayName, email: quickEmail.trim(), phone: quickPhone.trim(), savedAt: new Date().toISOString() };
-    savePwdStore(store2);
+    secureSet(PWD_STORE_KEY, store2);
     setPwdStore({ ...store2 });
     setStaff(s => [...s, { username: uname, displayName, permissions: [...DEFAULT_USER_PERMS] }]);
     const savedPwd = quickPwd;
@@ -930,9 +925,9 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
                     <Btn className="btn-primary btn-sm" onClick={()=>{
                       const em = document.getElementById(`email-${u.username}`)?.value || '';
                       const ph = document.getElementById(`phone-${u.username}`)?.value || '';
-                      const store2 = loadPwdStore();
+                      const store2 = { ...pwdStore };
                       store2[u.username] = { ...(store2[u.username]||{}), email: em.trim(), phone: ph.trim() };
-                      savePwdStore(store2);
+                      secureSet(PWD_STORE_KEY, store2);
                       setPwdStore({...store2});
                       document.getElementById(`contact-${u.username}`).style.display='none';
                       showToast('Contact info saved for @' + u.username);
