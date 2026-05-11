@@ -184,6 +184,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [filterEmployee, setFilterEmployee] = useState('');
   const [showSummary, setShowSummary]   = useState(false);
   const [showReport, setShowReport]     = useState(false);
+  const [selectedPay, setSelectedPay]   = useState(new Set());
   const [reportFrom, setReportFrom]     = useState(() => new Date().toISOString().slice(0, 8) + '01');
   const [reportTo, setReportTo]         = useState(() => new Date().toISOString().slice(0, 10));
   const [reportBiz, setReportBiz]       = useState('all');
@@ -665,8 +666,16 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   }
 
   function markPaid(id) {
-    saveInv(inv.map(r => r.id === id ? { ...r, status: 'paid' } : r));
+    saveInv(inv.map(r => r.id === id ? { ...r, status: 'paid', paidAt: today() } : r));
     showToast('Marked paid.');
+  }
+
+  function bulkMarkPaid() {
+    if (!selectedPay.size) return;
+    const count = selectedPay.size;
+    saveInv(inv.map(r => selectedPay.has(r.id) && r.status !== 'paid' ? { ...r, status: 'paid', paidAt: today() } : r));
+    setSelectedPay(new Set());
+    showToast(`Marked ${count} invoice${count !== 1 ? 's' : ''} as paid.`);
   }
 
   function printInv(record) {
@@ -916,10 +925,32 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
         </div>
       ) : (
         <div className="card" style={{ padding: 0 }}>
+          {/* Bulk action bar */}
+          {selectedPay.size > 0 && (
+            <div style={{ background: '#1D4ED8', color: 'white', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderRadius: '8px 8px 0 0' }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{selectedPay.size} invoice{selectedPay.size !== 1 ? 's' : ''} selected</span>
+              <Btn className="btn-sm" style={{ background: '#15803D', color: 'white', border: 'none' }} onClick={bulkMarkPaid}>
+                ✓ Mark {selectedPay.size} as Paid
+              </Btn>
+              <Btn className="btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }} onClick={() => setSelectedPay(new Set())}>
+                Clear
+              </Btn>
+            </div>
+          )}
           <div className="tbl-wrap">
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 32, padding: '8px 6px' }}>
+                    <input type="checkbox"
+                      checked={visible.filter(r => r.status !== 'paid').length > 0 && visible.filter(r => r.status !== 'paid').every(r => selectedPay.has(r.id))}
+                      onChange={e => {
+                        const unpaid = visible.filter(r => r.status !== 'paid').map(r => r.id);
+                        setSelectedPay(e.target.checked ? new Set([...selectedPay, ...unpaid]) : new Set([...selectedPay].filter(id => !unpaid.includes(id))));
+                      }}
+                      title="Select all unpaid"
+                    />
+                  </th>
                   <th>Invoice #</th>
                   <th>Employees</th>
                   <th>Period</th>
@@ -931,7 +962,14 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
               </thead>
               <tbody>
                 {visible.map(r => (
-                  <tr key={r.id}>
+                  <tr key={r.id} style={{ background: selectedPay.has(r.id) ? '#EFF6FF' : undefined }}>
+                    <td style={{ padding: '6px', textAlign: 'center' }}>
+                      {r.status !== 'paid' && (
+                        <input type="checkbox" checked={selectedPay.has(r.id)}
+                          onChange={e => setSelectedPay(prev => { const s = new Set(prev); e.target.checked ? s.add(r.id) : s.delete(r.id); return s; })}
+                        />
+                      )}
+                    </td>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12 }}>{r.id}</td>
                     <td style={{ fontWeight: 600 }}>{getInvEmployeeName(r)}</td>
                     <td style={{ fontSize: 12 }}>{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd || r.date)}</td>

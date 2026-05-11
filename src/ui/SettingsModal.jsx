@@ -1105,7 +1105,28 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
             </div>
           );
         })()}
-        <div style={{fontSize:12,color:'#888',marginTop:4}}>💡 To view a user's activity, go to the <strong>Activity Log</strong> tab and filter by their username.</div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginTop:8}}>
+          <div style={{fontSize:12,color:'#888'}}>💡 To view a user's activity, go to the <strong>Activity Log</strong> tab and filter by their username.</div>
+          {staff.length > 0 && (
+            <Btn className="btn-outline btn-sm" onClick={async () => {
+              const store = await secureGet(PWD_STORE_KEY, {});
+              const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+              const hdr = ['Display Name', 'Username', 'Password', 'Email', 'Phone', 'Permissions'];
+              const rows = staff.map(u => {
+                const e = store[u.username] || {};
+                return [u.displayName, u.username, e.password || '(not saved)', e.email || '', e.phone || '', (u.permissions || []).join(' | ')];
+              });
+              const csv = [hdr, ...rows].map(r => r.map(esc).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'staff-credentials-' + new Date().toISOString().slice(0,10) + '.csv';
+              document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+              showToast('Staff credentials exported. Keep this file secure!');
+              logActivity('export_staff_credentials', 'Exported staff credentials CSV');
+            }}>⬇ Export Staff List</Btn>
+          )}
+        </div>
       </div>
 
       {/* Admin Password */}
