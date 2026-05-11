@@ -207,17 +207,20 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       const creds = load('credentials', null);
       const key = uname.trim().toLowerCase();
       setLoading(true);
+      const saltedHash = await hashPwd(pwd, key);
+      const legacyHash  = await hashPwd(pwd);
+
       // Try local credentials first when available
       if (!useCentralAuth && creds && creds[key]) {
-        const saltedHash = await hashPwd(pwd, key);
-        const legacyHash  = await hashPwd(pwd);
         const stored = creds[key].password;
         let activeHash = null;
         if (stored === saltedHash) {
           activeHash = saltedHash;
         } else if (stored === legacyHash) {
+          // Legacy unsalted hash matched — upgrade stored hash and sync to backend
           const upgraded = { ...creds, [key]: { ...creds[key], password: saltedHash } };
           save('credentials', upgraded);
+          syncCredentialsToBackend(upgraded, authApiBase).catch(() => {});
           activeHash = saltedHash;
         }
         if (!activeHash) { setLoading(false); setErr('Invalid username or password.'); return; }
@@ -229,9 +232,25 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         }, 400);
         return;
       }
-      // Always attempt backend login — works even if initial probe failed (Render cold start)
-      const hash = await hashPwd(pwd, key);
-      const remote = await loginViaBackend(key, hash, authApiBase);
+
+      // Backend login — try salted hash first, then legacy as fallback.
+      // The backend may store the legacy unsalted hash if credentials were synced
+      // before the salted-hash migration; trying both prevents lockout.
+      let remote = await loginViaBackend(key, saltedHash, authApiBase);
+      let activeHash = saltedHash;
+      if (!remote.ok && remote.code === 'DMG-E020') {
+        // Auth failure (not network) — try legacy unsalted hash
+        const legacyRemote = await loginViaBackend(key, legacyHash, authApiBase);
+        if (legacyRemote.ok && legacyRemote.user) {
+          remote = legacyRemote;
+          activeHash = legacyHash;
+          // Upgrade backend to salted hash immediately
+          const freshCreds = load('credentials', {});
+          freshCreds[key] = { ...(freshCreds[key] || {}), password: saltedHash };
+          save('credentials', freshCreds);
+          syncCredentialsToBackend(freshCreds, authApiBase).catch(() => {});
+        }
+      }
       if (!remote.ok || !remote.user) {
         setLoading(false);
         if (remote.code && remote.code !== 'DMG-E020' && remote.code !== 'DMG-E021') {
@@ -245,10 +264,10 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       }
       // Backend responded — update auth state for future actions
       if (!useCentralAuth) { setUseCentralAuth(true); setNeedsSetup(false); setServerRetrying(false); }
-      if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: hash });
+      if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: activeHash });
       else save('_rememberedCheckinLogin', null);
       setTimeout(() => {
-        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS, authHash: hash });
+        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS, authHash: activeHash });
       }, 400);
     } catch (e2) {
       logFailure({ area:'login', action:'handle_login_exception', error:e2 });
