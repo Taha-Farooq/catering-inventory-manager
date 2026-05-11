@@ -380,8 +380,23 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
         <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
           {isAdmin
             ? <span style={{fontSize:13,color:'#555'}}>Admins are excluded from attendance tracking.</span>
-            : <span style={{fontSize:13,color:'#555'}}>Status: <strong>{me?.active ? 'Currently Checked In' : 'Currently Checked Out'}</strong></span>}
-          {!isAdmin && <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me?.weekHours || 0} hours</strong></span>}
+            : (() => {
+                // Show backend status if available; fall back to local cache if backend is down
+                if (me) {
+                  return <span style={{fontSize:13,color:'#555'}}>Status: <strong style={{color: me.active ? '#15803D' : '#374151'}}>{me.active ? '✅ Currently Checked In' : '⏹ Currently Checked Out'}</strong></span>;
+                }
+                const lastLocal = localCache.find(e => e.username === currentUser?.username);
+                if (lastLocal) {
+                  return <span style={{fontSize:13,color:'#888'}}>
+                    Last recorded: <strong style={{color: lastLocal.action === 'in' ? '#15803D' : '#374151'}}>
+                      {lastLocal.action === 'in' ? '✅ Checked In' : '⏹ Checked Out'}
+                    </strong> at {new Date(lastLocal.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+                    <span style={{fontSize:11,marginLeft:6,color:'#aaa'}}>(local record — server unavailable)</span>
+                  </span>;
+                }
+                return <span style={{fontSize:13,color:'#aaa'}}>Status loading…</span>;
+              })()}
+          {!isAdmin && me && <span style={{fontSize:13,color:'#555'}}>This week: <strong>{me.weekHours || 0} hours</strong></span>}
           {!isAdmin && <span style={{fontSize:13,color: attendanceToken ? '#166534' : '#9a3412'}}>
             {attendanceToken ? 'Work QR verified for this session.' : 'Scan work QR to enable check in/out.'}
           </span>}
