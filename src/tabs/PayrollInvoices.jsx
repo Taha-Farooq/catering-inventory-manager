@@ -183,6 +183,10 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterEmployee, setFilterEmployee] = useState('');
   const [showSummary, setShowSummary]   = useState(false);
+  const [showReport, setShowReport]     = useState(false);
+  const [reportFrom, setReportFrom]     = useState(() => new Date().toISOString().slice(0, 8) + '01');
+  const [reportTo, setReportTo]         = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportBiz, setReportBiz]       = useState('all');
   const [ytdYear, setYtdYear]           = useState(() => new Date().getFullYear());
   const [showYtd, setShowYtd]           = useState(false);
   const [historyEmp, setHistoryEmp]     = useState(null);  // employee name, or null
@@ -282,6 +286,36 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [inv, ytdYear, showAllBiz, selectedBusiness]);
 
+  const reportSummary = useMemo(() => {
+    const m = {};
+    inv.forEach(r => {
+      const d = r.periodStart || r.createdAt || '';
+      if (!d || d < reportFrom || d > reportTo) return;
+      if (reportBiz !== 'all' && r.business && r.business !== reportBiz) return;
+      const isPaid = (r.status || 'unpaid') === 'paid';
+      const add = (name, regHours, otHours, linePay) => {
+        const key = name.trim().toLowerCase();
+        if (!m[key]) m[key] = { name: name.trim(), regHours: 0, otHours: 0, grossPay: 0, invoiceIds: new Set(), paidIds: new Set() };
+        m[key].regHours  += parseFloat(regHours)  || 0;
+        m[key].otHours   += parseFloat(otHours)   || 0;
+        m[key].grossPay  += parseFloat(linePay)   || 0;
+        m[key].invoiceIds.add(r.id);
+        if (isPaid) m[key].paidIds.add(r.id);
+      };
+      if (Array.isArray(r.lines) && r.lines.length > 0) {
+        r.lines.forEach(l => add(l.name || 'Unknown', l.regularHours, l.overtimeHours, l.total));
+      } else {
+        add(r.employeeName || 'Unknown', r.regularHours, r.overtimeHours, r.total);
+      }
+    });
+    return Object.values(m).map(e => {
+      const ic = e.invoiceIds.size;
+      const pc = e.paidIds.size;
+      const status = pc === ic ? 'Paid' : pc > 0 ? 'Partial' : 'Unpaid';
+      return { name: e.name, regHours: e.regHours, otHours: e.otHours, grossPay: e.grossPay, invoiceCount: ic, status };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [inv, reportFrom, reportTo, reportBiz]);
+
   // All payroll entries for the selected employee, newest first, across all invoices
   const empHistory = useMemo(() => {
     if (!historyEmp) return [];
@@ -362,6 +396,66 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     a.href = url; a.download = `payroll-ytd-${ytdYear}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     showToast(`YTD ${ytdYear} summary exported as CSV.`);
+  }
+
+  function exportReportCsv() {
+    if (!reportSummary.length) { showToast('No data in selected range.', 'error'); return; }
+    const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const hdr = ['Employee Name', 'Regular Hours', 'OT Hours', 'Total Hours', 'Gross Pay', 'Invoices', 'Status'];
+    const rows = reportSummary.map(e => [
+      e.name,
+      e.regHours.toFixed(2),
+      e.otHours.toFixed(2),
+      (e.regHours + e.otHours).toFixed(2),
+      fmt$(e.grossPay),
+      e.invoiceCount,
+      e.status,
+    ]);
+    const totalsRow = [
+      'TOTAL',
+      reportSummary.reduce((s, e) => s + e.regHours, 0).toFixed(2),
+      reportSummary.reduce((s, e) => s + e.otHours, 0).toFixed(2),
+      reportSummary.reduce((s, e) => s + e.regHours + e.otHours, 0).toFixed(2),
+      fmt$(reportSummary.reduce((s, e) => s + e.grossPay, 0)),
+      reportSummary.reduce((s, e) => s + e.invoiceCount, 0),
+      '',
+    ];
+    const csv = [hdr, ...rows, totalsRow].map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payroll-report-${reportFrom}-to-${reportTo}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('Payroll report exported as CSV.');
+  }
+
+  function exportReportExcel() {
+    if (!reportSummary.length) { showToast('No data in selected range.', 'error'); return; }
+    const hdr = ['Employee Name', 'Regular Hours', 'OT Hours', 'Total Hours', 'Gross Pay', 'Invoices', 'Status'];
+    const rows = reportSummary.map(e => [
+      e.name,
+      e.regHours,
+      e.otHours,
+      e.regHours + e.otHours,
+      e.grossPay,
+      e.invoiceCount,
+      e.status,
+    ]);
+    const totalsRow = [
+      'TOTAL',
+      reportSummary.reduce((s, e) => s + e.regHours, 0),
+      reportSummary.reduce((s, e) => s + e.otHours, 0),
+      reportSummary.reduce((s, e) => s + e.regHours + e.otHours, 0),
+      reportSummary.reduce((s, e) => s + e.grossPay, 0),
+      reportSummary.reduce((s, e) => s + e.invoiceCount, 0),
+      '',
+    ];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([hdr, ...rows, [], totalsRow]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Payroll Report');
+    XLSX.writeFile(wb, `payroll-report-${reportFrom}-to-${reportTo}.xlsx`);
+    showToast('Payroll report exported as Excel.');
   }
 
   function saveInv(data) {
@@ -668,6 +762,81 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Payroll Report panel */}
+      <div style={{ border: '1.5px solid #EED9B0', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, color: 'var(--brown)', fontSize: 14, padding: 0 }}
+            onClick={() => setShowReport(v => !v)}
+          >
+            {showReport ? '▼' : '▶'} 📊 Payroll Report
+          </button>
+          {showReport && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 13, color: '#666' }}>From</label>
+              <input className="input" type="date" style={{ width: 'auto' }} value={reportFrom} onChange={e => setReportFrom(e.target.value)} />
+              <label style={{ fontSize: 13, color: '#666' }}>To</label>
+              <input className="input" type="date" style={{ width: 'auto' }} value={reportTo} onChange={e => setReportTo(e.target.value)} />
+              <select className="input" style={{ width: 'auto' }} value={reportBiz} onChange={e => setReportBiz(e.target.value)}>
+                <option value="all">All Businesses</option>
+                {Object.entries(BUSINESSES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+              </select>
+              <Btn className="btn-outline btn-sm" onClick={exportReportCsv}>⬇ CSV</Btn>
+              <Btn className="btn-outline btn-sm" onClick={exportReportExcel}>⬇ Excel</Btn>
+            </div>
+          )}
+        </div>
+        {showReport && (
+          <div style={{ marginTop: 12 }}>
+            {reportSummary.length === 0 ? (
+              <div style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '8px 0' }}>No payroll data for the selected date range.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#F5ECD7' }}>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'left' }}>Employee Name</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Regular Hours</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>OT Hours</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Total Hours</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Gross Pay</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Invoices</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportSummary.map(e => (
+                    <tr key={e.name}>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', fontWeight: 600 }}>{e.name}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.regHours.toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.otHours.toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{(e.regHours + e.otHours).toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right', fontWeight: 700, color: 'var(--brown)' }}>{fmt$(e.grossPay)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.invoiceCount}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'center' }}>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                          background: e.status === 'Paid' ? '#DCFCE7' : e.status === 'Partial' ? '#FEF9C3' : '#FEE2E2',
+                          color: e.status === 'Paid' ? '#15803D' : e.status === 'Partial' ? '#854D0E' : '#DC2626',
+                        }}>{e.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: '#F5ECD7', fontWeight: 700 }}>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0' }}>TOTAL</td>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{reportSummary.reduce((s, e) => s + e.regHours, 0).toFixed(2)}</td>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{reportSummary.reduce((s, e) => s + e.otHours, 0).toFixed(2)}</td>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{reportSummary.reduce((s, e) => s + e.regHours + e.otHours, 0).toFixed(2)}</td>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right', color: 'var(--brown)' }}>{fmt$(reportSummary.reduce((s, e) => s + e.grossPay, 0))}</td>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{reportSummary.reduce((s, e) => s + e.invoiceCount, 0)}</td>
+                    <td style={{ padding: '7px 10px', border: '1px solid #EED9B0' }}></td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>
