@@ -103,6 +103,8 @@ import {
   BIZ_CONTACT_KEY,
   SCAN_DOC_TYPES,
   ATT_QR_QUERY_KEY,
+  STAFF_SESSION_TIMEOUT_KEY,
+  DEFAULT_STAFF_SESSION_TIMEOUT,
 } from './constants.js';
 import {
   fmt$,
@@ -286,7 +288,16 @@ function App() {
   const [userPerms, setUserPerms] = useState(()=>load('_userPermissions', DEFAULT_USER_PERMS));
   const [kioskLock, setKioskLock] = useState(()=>load('_kioskLock', false));
   // Staff QR gate: 'idle' | 'scan_required' | 'ready'
-  const [staffQrPhase, setStaffQrPhase] = useState('idle');
+  // Lazy init: if a checkio-only session is restored from storage (tab reopen / remember-me),
+  // force QR gate immediately so history/tab tricks can't bypass it.
+  const [staffQrPhase, setStaffQrPhase] = useState(() => {
+    const u = load('_session', null);
+    if (!u || u.role === 'admin') return 'idle';
+    const creds = load('credentials', {});
+    const perms = u.permissions || creds[u.username]?.permissions || [];
+    const isCheckioOnly = perms.length > 0 && perms.every(p => p === 'checkio');
+    return isCheckioOnly ? 'scan_required' : 'idle';
+  });
   const [staffAttToken, setStaffAttToken] = useState('');
   const [staffSessionTimer, setStaffSessionTimer] = useState(0);
   const staffTimerRef = useRef(null);
@@ -371,6 +382,16 @@ function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, [currentUser, kioskLock]);
 
+  // Log when QR gate is re-enforced on a restored session (tab reopen / remember-me)
+  const restoredQrLog = useRef(false);
+  useEffect(() => {
+    if (restoredQrLog.current) return;
+    if (currentUser && staffQrPhase === 'scan_required') {
+      restoredQrLog.current = true;
+      logActivity('qr_gate_restored', 'QR gate enforced on restored session (tab reopen or history)');
+    }
+  }, [currentUser, staffQrPhase]);
+
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'admin') return;
     probeResetApi('http://localhost:8787').then(chk => {
@@ -438,9 +459,11 @@ function App() {
   }
 
   function handleQrPassed(token) {
+    const timeout = Math.max(30, load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT));
     setStaffAttToken(token);
     setStaffQrPhase('ready');
-    setStaffSessionTimer(120);
+    setStaffSessionTimer(timeout);
+    logActivity('qr_scan_pass', 'Staff QR verified — session started (' + timeout + 's)');
     if (staffTimerRef.current) clearTimeout(staffTimerRef.current);
     const tick = () => {
       setStaffSessionTimer(prev => {

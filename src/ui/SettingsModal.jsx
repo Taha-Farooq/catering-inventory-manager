@@ -33,6 +33,8 @@ import {
   CATEGORIES,
   CUSTOM_CATEGORIES_KEY,
   INVENTORY_ADJUSTMENTS_KEY,
+  STAFF_SESSION_TIMEOUT_KEY,
+  DEFAULT_STAFF_SESSION_TIMEOUT,
 } from '../constants.js';
 import Modal from './Modal.jsx';
 import Confirm from './Confirm.jsx';
@@ -156,6 +158,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const [newCatInput, setNewCatInput] = useState('');
   const [logoFields, setLogoFields] = useState({ degrill:'', parathas:'', dera:'', transfer:'' });
   const [empRegistry, setEmpRegistry] = useState({});
+  const [empEditRate, setEmpEditRate] = useState({});
+  const [sessionTimeoutInput, setSessionTimeoutInput] = useState(() => load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT));
   const [pwdStore, setPwdStore] = useState({});
   const [revealPwdFor, setRevealPwdFor] = useState(null);
   const [addEmail, setAddEmail] = useState('');
@@ -193,6 +197,8 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
     setResetApiInput(loadAdminResetApiBase());
     setResetApiState({ kind:'idle', msg:'' });
     setEmpRegistry(loadEmpRegistry());
+    setEmpEditRate({});
+    setSessionTimeoutInput(load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT));
     secureGet(PWD_STORE_KEY, {}).then(v => setPwdStore(v || {}));
     setQuickCreateName(null);
     setRevealPwdFor(null);
@@ -487,6 +493,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   async function doExport() {
     try {
       const zip = new JSZip();
+      const pwdStoreRaw = await secureGet(PWD_STORE_KEY, {});
       const payload = {
         items, shoppingList:shopping, purchaseInvoices:purchaseInv,
         cateringInvoices:cateringInv, transferInvoices:transferInv,
@@ -496,11 +503,14 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         suppliers:(suppliers||[]),
         inventoryAdjustments: load(INVENTORY_ADJUSTMENTS_KEY, []),
         credentials: load('credentials', {}),
+        employeeRegistry: loadEmpRegistry(),
+        staffPasswordStore: pwdStoreRaw || {},
         settings:{
           selectedBusiness: load('_lastBiz','degrill'), logoOverrides, bizContact,
           customCategories,
+          staffSessionTimeout: load(STAFF_SESSION_TIMEOUT_KEY, DEFAULT_STAFF_SESSION_TIMEOUT),
         },
-        exportDate: new Date().toISOString(), version:'2.5'
+        exportDate: new Date().toISOString(), version:'2.6'
       };
       Object.entries(payload).forEach(([k,v]) => zip.file(k+'.json', JSON.stringify(v,null,2)));
       zip.file('README.txt',
@@ -540,15 +550,16 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
 
       const keys = ['items','shoppingList','purchaseInvoices','cateringInvoices',
                     'transferInvoices','payrollInvoices','dailyFinanceEntries',
-                    'customers','priceHistory','suppliers','inventoryAdjustments','credentials','settings'];
+                    'customers','priceHistory','suppliers','inventoryAdjustments',
+                    'credentials','employeeRegistry','staffPasswordStore','settings'];
       const entries = await Promise.all(keys.map(async k => {
         const f = zip.file(k+'.json');
         if (!f) return [k, null];
         return [k, JSON.parse(await f.async('string'))];
       }));
 
-      entries.forEach(([k,v]) => {
-        if (!v) return;
+      for (const [k,v] of entries) {
+        if (!v) continue;
         if (k==='items')                { setItems(v);               save('items',v); }
         if (k==='shoppingList')         { setShopping(v);            save('shoppingList',v); }
         if (k==='purchaseInvoices')     { setPurchaseInv(v);         save('purchaseInvoices',v); }
@@ -572,6 +583,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           setCustomCategories(v.customCategories);
           save(CUSTOM_CATEGORIES_KEY, v.customCategories);
         }
+        if (k==='settings' && v?.staffSessionTimeout != null) {
+          save(STAFF_SESSION_TIMEOUT_KEY, v.staffSessionTimeout);
+          setSessionTimeoutInput(v.staffSessionTimeout);
+        }
         if (k==='suppliers')            { setSuppliers(v);           save('_suppliers',v); }
         if (k==='inventoryAdjustments') {
           save(INVENTORY_ADJUSTMENTS_KEY, v);
@@ -579,7 +594,15 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         if (k==='credentials' && v && typeof v === 'object' && Object.keys(v).length > 0) {
           save('credentials', v);
         }
-      });
+        if (k==='employeeRegistry' && v && typeof v === 'object') {
+          localStorage.setItem('_employeeRegistry', JSON.stringify(v));
+          setEmpRegistry(v);
+        }
+        if (k==='staffPasswordStore' && v && typeof v === 'object' && Object.keys(v).length > 0) {
+          await secureSet(PWD_STORE_KEY, v);
+          setPwdStore(v);
+        }
+      }
       logActivity('restore_backup', `Restored data from backup (format v${backupVersion})`);
       showToast('Backup restored! All data has been loaded.');
       if (parseFloat(backupVersion) < 2.4) {
@@ -783,6 +806,97 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           <Btn className="btn-outline" onClick={addCustomCategory}>＋ Add</Btn>
         </div>
       </div>
+
+      {/* Security Settings */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔐 Staff Security Settings</div>
+        <div style={{marginBottom:12}}>
+          <label style={{display:'block',fontWeight:600,fontSize:13,marginBottom:6,color:'#444'}}>
+            Check-In Session Timeout
+            <span style={{fontWeight:400,color:'#888',marginLeft:8,fontSize:12}}>
+              (how long staff have to check in/out after QR scan before being auto-logged out)
+            </span>
+          </label>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <input type="range" min={30} max={600} step={30}
+              value={sessionTimeoutInput}
+              onChange={e => setSessionTimeoutInput(Number(e.target.value))}
+              style={{flex:1,accentColor:'var(--brown)'}}
+            />
+            <span style={{minWidth:60,textAlign:'right',fontWeight:700,color:'var(--brown)',fontSize:15}}>
+              {sessionTimeoutInput >= 60
+                ? `${Math.floor(sessionTimeoutInput/60)}m${sessionTimeoutInput%60?` ${sessionTimeoutInput%60}s`:''}`
+                : `${sessionTimeoutInput}s`}
+            </span>
+          </div>
+          <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}}>
+            {[60,90,120,180,300].map(v=>(
+              <Btn key={v} className={sessionTimeoutInput===v?'btn-primary btn-sm':'btn-outline btn-sm'}
+                onClick={()=>setSessionTimeoutInput(v)}>
+                {v<60?`${v}s`:v===60?'1 min':v===90?'1.5 min':v===120?'2 min':v===180?'3 min':'5 min'}
+              </Btn>
+            ))}
+          </div>
+        </div>
+        <Btn className="btn-primary btn-sm" onClick={() => {
+          save(STAFF_SESSION_TIMEOUT_KEY, sessionTimeoutInput);
+          showToast(`Session timeout set to ${sessionTimeoutInput}s.`);
+          logActivity('settings_change', `Staff session timeout set to ${sessionTimeoutInput}s`);
+        }}>💾 Save Timeout</Btn>
+      </div>
+
+      {/* Employee Pay Rate Registry */}
+      {Object.keys(empRegistry).length > 0 && (
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>💼 Employee Pay Rate Registry</div>
+        <p style={{fontSize:12.5,color:'#666',marginBottom:10,lineHeight:1.5}}>
+          Pay rates auto-saved from payroll entries. Edit or remove employees from the registry here.
+        </p>
+        {Object.entries(empRegistry).sort(([a],[b])=>a.localeCompare(b)).map(([name, info]) => {
+          const editing = empEditRate[name] !== undefined;
+          return (
+            <div key={name} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:'white',borderRadius:6,border:'1px solid #EED9B0',marginBottom:6,flexWrap:'wrap'}}>
+              <span style={{fontWeight:600,flex:1,minWidth:100}}>{name}</span>
+              {editing ? (
+                <>
+                  <input type="number" min={0} step={0.25} value={empEditRate[name]}
+                    onChange={e=>setEmpEditRate(r=>({...r,[name]:e.target.value}))}
+                    style={{width:80,padding:'4px 8px',border:'1px solid #DEB887',borderRadius:5,fontSize:13}}
+                    placeholder="$/hr"
+                  />
+                  <span style={{fontSize:12,color:'#888'}}>/hr</span>
+                  <Btn className="btn-primary btn-sm" onClick={()=>{
+                    const rate = parseFloat(empEditRate[name]);
+                    if (!isNaN(rate) && rate >= 0) {
+                      const updated = {...loadEmpRegistry(), [name]:{...info, payRate: rate, lastUsed: info.lastUsed}};
+                      localStorage.setItem('_employeeRegistry', JSON.stringify(updated));
+                      setEmpRegistry(updated);
+                      logActivity('edit_employee_rate', `Updated pay rate for ${name} to $${rate}/hr`);
+                      showToast(`Pay rate updated for ${name}.`);
+                    }
+                    setEmpEditRate(r=>{const n={...r};delete n[name];return n;});
+                  }}>✓ Save</Btn>
+                  <Btn className="btn-outline btn-sm" onClick={()=>setEmpEditRate(r=>{const n={...r};delete n[name];return n;})}>Cancel</Btn>
+                </>
+              ) : (
+                <>
+                  <span style={{color:'#444',fontSize:13}}>{info.payRate!=null?`${fmt$(info.payRate)}/hr`:'—'}</span>
+                  <Btn className="btn-outline btn-sm" onClick={()=>setEmpEditRate(r=>({...r,[name]:info.payRate??''}))}>✏️ Edit</Btn>
+                  <Btn className="btn-sm" style={{background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={()=>{
+                    const updated = {...loadEmpRegistry()};
+                    delete updated[name];
+                    localStorage.setItem('_employeeRegistry', JSON.stringify(updated));
+                    setEmpRegistry(updated);
+                    logActivity('remove_employee', `Removed ${name} from employee registry`);
+                    showToast(`${name} removed from registry.`);
+                  }}>🗑</Btn>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      )}
 
       {/* Staff Users */}
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>

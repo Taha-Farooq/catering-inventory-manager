@@ -122,3 +122,7 @@ export const BIZ_CONTACT_KEY = '_bizContact';
 export const FAILURE_LOG_KEY = '_failureLog';
 export const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
 export const ATT_QR_QUERY_KEY = 'attToken';
+/** localStorage key for admin-configured staff check-in session timeout (seconds). */
+export const STAFF_SESSION_TIMEOUT_KEY = '_staffSessionTimeout';
+/** Default staff session timeout in seconds if not configured by admin. */
+export const DEFAULT_STAFF_SESSION_TIMEOUT = 120;
