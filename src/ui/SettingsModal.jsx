@@ -787,7 +787,12 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           To request admin credential changes, email <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>.
         </div>
         <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid #EED9B0'}}>
-          <div style={{fontWeight:600,fontSize:13,color:'#5a3010',marginBottom:6}}>Quick Reset Code (for login-screen reset)</div>
+          <div style={{fontWeight:600,fontSize:13,color:'#5a3010',marginBottom:4}}>Quick Reset Code (for login-screen reset)</div>
+          {!load(ADMIN_RESET_CODE_KEY,'') && (
+            <div style={{background:'#FEF3C7',border:'1px solid #F59E0B',borderRadius:6,padding:'7px 10px',marginBottom:8,fontSize:12.5,color:'#92400e'}}>
+              ⚠️ <strong>No reset code set.</strong> Without this, the admin cannot recover access if locked out on a new device. Set one now and save it somewhere safe.
+            </div>
+          )}
           <div className="grid-2">
             <FI label="New Reset Code" type="password" value={resetCode} onChange={e=>{setResetCode(e.target.value);setResetCodeMsg('');}} placeholder="Min 6 characters" />
             <FI label="Confirm Reset Code" type="password" value={resetCodeC} onChange={e=>{setResetCodeC(e.target.value);setResetCodeMsg('');}} placeholder="Re-enter reset code" />
