@@ -185,6 +185,8 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [showSummary, setShowSummary]   = useState(false);
   const [ytdYear, setYtdYear]           = useState(() => new Date().getFullYear());
   const [showYtd, setShowYtd]           = useState(false);
+  const [historyEmp, setHistoryEmp]     = useState(null);  // employee name, or null
+  const [historyYearFilter, setHistoryYearFilter] = useState('all');
 
   const inv = payrollInvoices || [];
 
@@ -279,6 +281,53 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
       return { name: e.name, regHours: e.regHours, otHours: e.otHours, grossPay: e.grossPay, invoiceCount, paidCount, status };
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [inv, ytdYear, showAllBiz, selectedBusiness]);
+
+  // All payroll entries for the selected employee, newest first, across all invoices
+  const empHistory = useMemo(() => {
+    if (!historyEmp) return [];
+    const key = historyEmp.trim().toLowerCase();
+    const entries = [];
+    inv.forEach(r => {
+      const date = r.periodStart || r.createdAt || '';
+      if (Array.isArray(r.lines) && r.lines.length > 0) {
+        r.lines.forEach(l => {
+          if ((l.name || '').trim().toLowerCase() !== key) return;
+          entries.push({ invId: r.id, date, business: r.business, payPeriod: r.payPeriod, periodStart: r.periodStart, periodEnd: r.periodEnd, payRate: l.payRate, regHours: parseFloat(l.regularHours) || 0, otHours: parseFloat(l.overtimeHours) || 0, total: l.total || 0, status: r.status || 'unpaid' });
+        });
+      } else if ((r.employeeName || '').trim().toLowerCase() === key) {
+        entries.push({ invId: r.id, date, business: r.business, payPeriod: r.payPeriod, periodStart: r.periodStart, periodEnd: r.periodEnd, payRate: r.hourlyRate, regHours: parseFloat(r.regularHours) || 0, otHours: parseFloat(r.overtimeHours) || 0, total: r.total || 0, status: r.status || 'unpaid' });
+      }
+    });
+    return entries.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }, [historyEmp, inv]);
+
+  const empHistoryFiltered = useMemo(() => {
+    if (historyYearFilter === 'all') return empHistory;
+    return empHistory.filter(e => e.date && new Date(e.date).getFullYear() === Number(historyYearFilter));
+  }, [empHistory, historyYearFilter]);
+
+  const empHistoryYears = useMemo(() => [...new Set(empHistory.map(e => e.date ? new Date(e.date).getFullYear() : null).filter(Boolean))].sort().reverse(), [empHistory]);
+
+  function exportEmpHistoryCsv() {
+    if (!empHistoryFiltered.length) { showToast('No history to export.', 'error'); return; }
+    const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const hdr = ['Date', 'Business', 'Pay Period', 'Period Start', 'Period End', 'Pay Rate', 'Reg Hours', 'OT Hours', 'Total Pay', 'Status'];
+    const biz = BUSINESSES;
+    const rows = empHistoryFiltered.map(e => [
+      e.date, biz[e.business]?.name || e.business || '—', e.payPeriod || '—',
+      e.periodStart || '—', e.periodEnd || '—',
+      e.payRate != null ? fmt$(e.payRate) : '—',
+      e.regHours.toFixed(2), e.otHours.toFixed(2), fmt$(e.total), e.status,
+    ]);
+    const csv = [hdr, ...rows].map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `work-history-${historyEmp.replace(/\s+/g,'-')}-${historyYearFilter==='all'?'all':historyYearFilter}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast(`History exported for ${historyEmp}.`);
+  }
 
   function exportYtdCsv() {
     if (!ytdSummary.length) { showToast('No YTD data to export.', 'error'); return; }
@@ -583,7 +632,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
         {showSummary && (
           <div className="tbl-wrap" style={{ borderTop: '1px solid #EED9B0' }}>
             <table>
-              <thead><tr><th>Employee</th><th>Pay Periods</th><th>Reg Hrs</th><th>OT Hrs</th><th>Total Pay</th><th>Unpaid</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Pay Periods</th><th>Reg Hrs</th><th>OT Hrs</th><th>Total Pay</th><th>Unpaid</th><th></th></tr></thead>
               <tbody>
                 {employeeSummary.map(e => (
                   <tr key={e.name}>
@@ -593,6 +642,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                     <td>{e.totalOtHours.toFixed(1)}</td>
                     <td style={{ fontWeight: 700, color: 'var(--brown)' }}>{fmt$(e.totalPay)}</td>
                     <td style={{ color: e.unpaidTotal > 0 ? '#DC2626' : '#15803D', fontWeight: e.unpaidTotal > 0 ? 600 : 400 }}>{e.unpaidTotal > 0 ? fmt$(e.unpaidTotal) : 'Paid'}</td>
+                    <td><Btn className="btn-outline btn-sm" onClick={() => { setHistoryEmp(e.name); setHistoryYearFilter('all'); }}>📋 History</Btn></td>
                   </tr>
                 ))}
               </tbody>
@@ -640,6 +690,7 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                     <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Gross Pay</th>
                     <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Invoice Count</th>
                     <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'center' }}>Status</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -656,6 +707,9 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                           background: e.status === 'Paid' ? '#DCFCE7' : e.status === 'Partial' ? '#FEF9C3' : '#FEE2E2',
                           color: e.status === 'Paid' ? '#15803D' : e.status === 'Partial' ? '#854D0E' : '#DC2626',
                         }}>{e.status}</span>
+                      </td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0' }}>
+                        <Btn className="btn-outline btn-sm" onClick={() => { setHistoryEmp(e.name); setHistoryYearFilter(String(ytdYear)); }}>📋 History</Btn>
                       </td>
                     </tr>
                   ))}
@@ -858,6 +912,83 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
         onConfirm={() => deleteRecord(confirmObj)}
         onCancel={() => setConfirmObj(null)}
       />
+
+      {/* Employee Work History Modal */}
+      <Modal open={!!historyEmp} onClose={() => setHistoryEmp(null)} title={`Work History — ${historyEmp || ''}`} wide>
+        {historyEmp && (
+          <div>
+            {/* Totals banner */}
+            {(() => {
+              const totalReg = empHistoryFiltered.reduce((s, e) => s + e.regHours, 0);
+              const totalOt  = empHistoryFiltered.reduce((s, e) => s + e.otHours, 0);
+              const totalPay = empHistoryFiltered.reduce((s, e) => s + e.total, 0);
+              const paidPay  = empHistoryFiltered.filter(e => e.status === 'paid').reduce((s, e) => s + e.total, 0);
+              return (
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {[
+                    { label: 'Reg Hours', value: totalReg.toFixed(1) },
+                    { label: 'OT Hours',  value: totalOt.toFixed(1) },
+                    { label: 'Gross Pay', value: fmt$(totalPay), bold: true },
+                    { label: 'Paid',      value: fmt$(paidPay), color: '#15803D' },
+                    { label: 'Unpaid',    value: fmt$(totalPay - paidPay), color: totalPay - paidPay > 0 ? '#DC2626' : '#15803D' },
+                  ].map(s => (
+                    <div key={s.label} style={{ flex: 1, minWidth: 90, background: '#F5ECD7', borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>{s.label}</div>
+                      <div style={{ fontWeight: s.bold ? 800 : 600, color: s.color || 'var(--brown)', fontSize: 16 }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Filters + export */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <select className="input" style={{ width: 'auto' }} value={historyYearFilter} onChange={e => setHistoryYearFilter(e.target.value)}>
+                <option value="all">All Years</option>
+                {empHistoryYears.map(y => <option key={y} value={String(y)}>{y}</option>)}
+              </select>
+              <Btn className="btn-outline btn-sm" onClick={exportEmpHistoryCsv}>⬇ Export CSV</Btn>
+              <span style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>{empHistoryFiltered.length} entr{empHistoryFiltered.length === 1 ? 'y' : 'ies'}</span>
+            </div>
+
+            {empHistoryFiltered.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 16px', color: '#aaa', fontSize: 13 }}>No payroll entries found for this period.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#F5ECD7' }}>
+                      {['Date', 'Business', 'Pay Period', 'Pay Rate', 'Reg Hrs', 'OT Hrs', 'Total', 'Status'].map(h => (
+                        <th key={h} style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: h === 'Business' || h === 'Pay Period' || h === 'Date' ? 'left' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {empHistoryFiltered.map((e, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#FAFAF7' }}>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', whiteSpace: 'nowrap' }}>
+                          {e.periodStart && e.periodEnd ? `${fmtDate(e.periodStart)} – ${fmtDate(e.periodEnd)}` : fmtDate(e.date)}
+                        </td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0' }}>{BUSINESSES[e.business]?.name || e.business || '—'}</td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0' }}>{e.payPeriod || '—'}</td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.payRate != null ? fmt$(e.payRate) + '/hr' : '—'}</td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.regHours.toFixed(2)}</td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.otHours.toFixed(2)}</td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right', fontWeight: 700 }}>{fmt$(e.total)}</td>
+                        <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: e.status === 'paid' ? '#DCFCE7' : '#FEE2E2', color: e.status === 'paid' ? '#15803D' : '#DC2626' }}>
+                            {e.status === 'paid' ? 'Paid' : 'Unpaid'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
