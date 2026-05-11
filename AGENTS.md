@@ -489,6 +489,26 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 
 **Slice 71:** More analytics + UX polish — Analytics: `eventTypeData` and `topCustomers` useMemos now track `count` per group; bars show event/customer count labels; Excel exports gain Events + Avg per Event columns. Analytics: `repeatCustomers` useMemo adds Repeat Customers stat card (X/Y, pct%). `analyticsUtils.test.js`: updated replicas + 4 new `calcRepeatCustomers` tests. CateringInvoices: customer name field `onChange` now checks if typed name matches existing customer → auto-fills phone/email/address; "Upcoming" + "This Month" quick filter buttons added to filter bar. PurchaseInvoices: `markPaid` records `paidAt = today()` and sets `payment.date` if not already set; view modal shows "Paid: date" from either field. Total: 307 tests (21 files).
 
+## Slices 72–73 — Security hardening, staff management, payroll work history (2026-05)
+
+**Slice 72:** Security hardening for staff QR gate + staff management improvements.
+- App.jsx `staffQrPhase` lazy initializer: forces `scan_required` when a checkio-only session is restored from `_session` storage (tab reopen, browser history, remember-me), closing the QR bypass vulnerability. Logs `qr_gate_restored` to ActivityLog when this happens; logs `qr_scan_pass` with timeout duration when QR is verified.
+- `handleQrPassed` reads `STAFF_SESSION_TIMEOUT_KEY` from localStorage so timeout is configurable; enforces minimum 30s.
+- `constants.js`: added `STAFF_SESSION_TIMEOUT_KEY = '_staffSessionTimeout'` and `DEFAULT_STAFF_SESSION_TIMEOUT = 120`.
+- SettingsModal: new **🔐 Staff Security Settings** card — slider + quick-select buttons (60/90/120/180/300s presets) to configure session timeout; saves to `STAFF_SESSION_TIMEOUT_KEY`.
+- SettingsModal: new **💼 Employee Pay Rate Registry** card — shows all employees from `_employeeRegistry` with their stored pay rates; allows editing pay rates inline and removing employees from the registry.
+- Backup bumped to **v2.6** — now includes `employeeRegistry` (plain JSON) and `staffPasswordStore` (decrypted, re-encrypted on new device with its own AES-GCM key) and `staffSessionTimeout` in settings. Restore `forEach` converted to `for...of` to allow `await secureSet` for password store.
+
+**Slice 73:** PayrollInvoices — employee work history + YTD summary drill-down.
+- New state: `historyEmp` (employee name string | null), `historyYearFilter` ('all' | year string).
+- `empHistory` useMemo: scans all invoices for lines matching the selected employee name (case-insensitive), handles both multi-employee (`lines[]`) and old single-employee format. Returns entries sorted newest-first with: invId, date, business, payPeriod, periodStart, periodEnd, payRate, regHours, otHours, total, status.
+- `empHistoryFiltered` useMemo: applies `historyYearFilter` to `empHistory`.
+- `empHistoryYears` useMemo: distinct years from `empHistory` for the year selector.
+- **Employee Work History Modal** (`open={!!historyEmp}`): totals banner (Reg Hours, OT Hours, Gross Pay, Paid, Unpaid); year filter dropdown + "All Years"; entry count; table with Period, Business, Pay Period, Pay Rate, Reg Hrs, OT Hrs, Total, Status; zebra rows; **⬇ Export CSV** downloads per-employee CSV with all columns.
+- **📋 History** button added to each row of the Employee Summary table (opens history with All Years).
+- **📋 History** button added to each row of the YTD Summary table (pre-filters to the selected YTD year).
+- Key: history is keyed by employee **name** — no user account required; works from day 1 of payroll data entry.
+
 ## New localStorage keys (Slices 52–67)
 
 | Key | Type | Owner | Purpose |
@@ -498,6 +518,7 @@ Each purchase invoice row has a "📦 Stock" button (admin, requires `setItems` 
 | `_inventorySnapshots` | object | Dashboard | Daily stock snapshots for sparkline (BL-104) |
 | `_customCategories` | array | ItemDatabase | Admin-defined custom categories (BL-38) |
 | `_suppliers` | array | SupplierManagement | Registered supplier contact records (BL-138) |
+| `_staffSessionTimeout` | number | App.jsx / SettingsModal | Admin-configured check-in session timeout in seconds (default 120) |
 
 ## Known technical debt
 
