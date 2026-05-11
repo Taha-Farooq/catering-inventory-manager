@@ -183,6 +183,8 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterEmployee, setFilterEmployee] = useState('');
   const [showSummary, setShowSummary]   = useState(false);
+  const [ytdYear, setYtdYear]           = useState(() => new Date().getFullYear());
+  const [showYtd, setShowYtd]           = useState(false);
 
   const inv = payrollInvoices || [];
 
@@ -235,6 +237,62 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     });
     return Object.values(m).sort((a, b) => b.totalPay - a.totalPay);
   }, [inv]);
+
+  const payrollYears = useMemo(() => [...new Set(
+    inv.map(i => { const d = i.periodStart || i.createdAt || ''; return d ? new Date(d).getFullYear() : null; }).filter(Boolean)
+  )].sort().reverse(), [inv]);
+
+  const ytdSummary = useMemo(() => {
+    const m = {};
+    inv.forEach(r => {
+      // year filter
+      const d = r.periodStart || r.createdAt || '';
+      if (!d) return;
+      if (new Date(d).getFullYear() !== ytdYear) return;
+      // business filter
+      if (!showAllBiz && r.business && r.business !== selectedBusiness) return;
+
+      const isPaid = (r.status || 'unpaid') === 'paid';
+      const addEntry = (rawName, regHours, otHours, linePay) => {
+        const key = rawName.trim().toLowerCase();
+        if (!m[key]) m[key] = { name: rawName.trim(), regHours: 0, otHours: 0, grossPay: 0, invoiceIds: new Set(), paidInvoiceIds: new Set() };
+        m[key].regHours  += parseFloat(regHours)  || 0;
+        m[key].otHours   += parseFloat(otHours)   || 0;
+        m[key].grossPay  += parseFloat(linePay)   || 0;
+        m[key].invoiceIds.add(r.id);
+        if (isPaid) m[key].paidInvoiceIds.add(r.id);
+      };
+
+      if (Array.isArray(r.lines) && r.lines.length > 0) {
+        r.lines.forEach(l => addEntry(l.name || 'Unknown', l.regularHours, l.overtimeHours, l.total));
+      } else {
+        addEntry(r.employeeName || 'Unknown', r.regularHours, r.overtimeHours, r.total);
+      }
+    });
+
+    return Object.values(m).map(e => {
+      const invoiceCount = e.invoiceIds.size;
+      const paidCount    = e.paidInvoiceIds.size;
+      let status = 'Unpaid';
+      if (paidCount === invoiceCount) status = 'Paid';
+      else if (paidCount > 0) status = 'Partial';
+      return { name: e.name, regHours: e.regHours, otHours: e.otHours, grossPay: e.grossPay, invoiceCount, paidCount, status };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [inv, ytdYear, showAllBiz, selectedBusiness]);
+
+  function exportYtdCsv() {
+    if (!ytdSummary.length) { showToast('No YTD data to export.', 'error'); return; }
+    const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const hdr = ['Employee', 'Regular Hours', 'OT Hours', 'Gross Pay', 'Invoices', 'Status'];
+    const rows = ytdSummary.map(e => [e.name, e.regHours.toFixed(2), e.otHours.toFixed(2), fmt$(e.grossPay), e.invoiceCount, e.status]);
+    const csv = [hdr.map(esc).join(','), ...rows.map(row => row.map(esc).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `payroll-ytd-${ytdYear}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast(`YTD ${ytdYear} summary exported as CSV.`);
+  }
 
   function saveInv(data) {
     setPayrollInvoices(data);
@@ -539,6 +597,71 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* YTD Summary panel */}
+      <div style={{ border: '1.5px solid #EED9B0', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, color: 'var(--brown)', fontSize: 14, padding: 0 }}
+            onClick={() => setShowYtd(v => !v)}
+          >
+            {showYtd ? '▼' : '▶'} YTD Summary {ytdYear}
+          </button>
+          {showYtd && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <select
+                className="input"
+                style={{ width: 'auto' }}
+                value={ytdYear}
+                onChange={e => setYtdYear(Number(e.target.value))}
+              >
+                {(payrollYears.length > 0 ? payrollYears : [new Date().getFullYear()]).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+              <Btn className="btn-outline btn-sm" onClick={exportYtdCsv}>⬇ Export CSV</Btn>
+            </div>
+          )}
+        </div>
+        {showYtd && (
+          <div style={{ marginTop: 12 }}>
+            {ytdSummary.length === 0 ? (
+              <div style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '8px 0' }}>No payroll data for {ytdYear}.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#F5ECD7' }}>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'left' }}>Employee Name</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Regular Hours</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>OT Hours</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Gross Pay</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>Invoice Count</th>
+                    <th style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ytdSummary.map(e => (
+                    <tr key={e.name}>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', fontWeight: 600 }}>{e.name}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.regHours.toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.otHours.toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right', fontWeight: 700, color: 'var(--brown)' }}>{fmt$(e.grossPay)}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'right' }}>{e.invoiceCount}</td>
+                      <td style={{ padding: '7px 10px', border: '1px solid #EED9B0', textAlign: 'center' }}>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                          background: e.status === 'Paid' ? '#DCFCE7' : e.status === 'Partial' ? '#FEF9C3' : '#FEE2E2',
+                          color: e.status === 'Paid' ? '#15803D' : e.status === 'Partial' ? '#854D0E' : '#DC2626',
+                        }}>{e.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>
