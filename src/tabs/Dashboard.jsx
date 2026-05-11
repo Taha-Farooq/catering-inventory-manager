@@ -577,6 +577,52 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
       )}
 
       {/* Catalog health */}
+      {/* Today's attendance from local cache */}
+      {(() => {
+        const todayStr = today();
+        const cache = load('_attendanceCache', []);
+        const todayRecords = cache.filter(e => e.timestamp && e.timestamp.startsWith(todayStr));
+        if (!todayRecords.length) return null;
+        // Build current-status map: last action per username
+        const statusMap = {};
+        [...todayRecords].reverse().forEach(e => {
+          if (!statusMap[e.username]) statusMap[e.username] = e;
+        });
+        const currentlyIn = Object.values(statusMap).filter(e => e.action === 'in');
+        const checkedOut  = Object.values(statusMap).filter(e => e.action === 'out');
+        return (
+          <div className="card mb-4" style={{ borderLeft: '4px solid #3B82F6' }}>
+            <div className="section-title" style={{ marginBottom: 10, color: '#1D4ED8' }}>
+              👷 Today's Attendance ({todayStr})
+            </div>
+            <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
+              <span style={{ fontWeight: 700, color: '#15803D' }}>{currentlyIn.length} currently in</span>
+              <span style={{ fontWeight: 700, color: '#6B7280' }}>{checkedOut.length} checked out</span>
+              <span style={{ fontWeight: 700, color: '#1D4ED8' }}>{todayRecords.length} total events</span>
+            </div>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Employee</th><th>Status</th><th>Last Event</th><th>Business</th></tr></thead>
+                <tbody>
+                  {Object.values(statusMap).sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||'')).map((e,i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{e.displayName}{e.username !== e.displayName && <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>@{e.username}</span>}</td>
+                      <td>
+                        <span style={{ padding: '2px 10px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: e.action === 'in' ? '#DCFCE7' : '#F3F4F6', color: e.action === 'in' ? '#15803D' : '#6B7280' }}>
+                          {e.action === 'in' ? '✅ In' : '⏹ Out'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: 12, color: '#555' }}>{new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                      <td style={{ fontSize: 12, color: '#777' }}>{e.business || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {catalogWarnings.length > 0 && (
         <div className="card mb-4">
           <div className="section-title" style={{ marginBottom: 12 }}>&#9888; Catalog Completeness</div>

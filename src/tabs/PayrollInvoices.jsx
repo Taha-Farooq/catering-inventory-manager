@@ -329,6 +329,27 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
     showToast(`History exported for ${historyEmp}.`);
   }
 
+  function exportEmpHistoryExcel() {
+    if (!empHistoryFiltered.length) { showToast('No history to export.', 'error'); return; }
+    const hdr = ['Date', 'Business', 'Pay Period', 'Period Start', 'Period End', 'Pay Rate ($/hr)', 'Reg Hours', 'OT Hours', 'Total Pay', 'Status'];
+    const rows = empHistoryFiltered.map(e => [
+      e.date, BUSINESSES[e.business]?.name || e.business || '',
+      e.payPeriod || '', e.periodStart || '', e.periodEnd || '',
+      e.payRate != null ? Number(e.payRate) : '',
+      e.regHours, e.otHours, e.total, e.status,
+    ]);
+    const totalsRow = ['TOTAL', '', '', '', '', '',
+      empHistoryFiltered.reduce((s,e)=>s+e.regHours,0),
+      empHistoryFiltered.reduce((s,e)=>s+e.otHours,0),
+      empHistoryFiltered.reduce((s,e)=>s+e.total,0), ''];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([hdr, ...rows, [], totalsRow]);
+    XLSX.utils.book_append_sheet(wb, ws, historyEmp.slice(0, 31));
+    const safeYear = historyYearFilter === 'all' ? 'all' : historyYearFilter;
+    XLSX.writeFile(wb, `work-history-${(historyEmp||'employee').replace(/\s+/g,'-')}-${safeYear}.xlsx`);
+    showToast(`Excel history exported for ${historyEmp}.`);
+  }
+
   function exportYtdCsv() {
     if (!ytdSummary.length) { showToast('No YTD data to export.', 'error'); return; }
     const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
@@ -947,7 +968,8 @@ export default function PayrollInvoices({ payrollInvoices, setPayrollInvoices, s
                 <option value="all">All Years</option>
                 {empHistoryYears.map(y => <option key={y} value={String(y)}>{y}</option>)}
               </select>
-              <Btn className="btn-outline btn-sm" onClick={exportEmpHistoryCsv}>⬇ Export CSV</Btn>
+              <Btn className="btn-outline btn-sm" onClick={exportEmpHistoryCsv}>⬇ CSV</Btn>
+              <Btn className="btn-outline btn-sm" onClick={exportEmpHistoryExcel}>⬇ Excel</Btn>
               <span style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>{empHistoryFiltered.length} entr{empHistoryFiltered.length === 1 ? 'y' : 'ies'}</span>
             </div>
 
