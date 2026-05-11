@@ -44,6 +44,7 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
   // needsSetup = true only when backend is unreachable AND no local credentials exist
   const [needsSetup, setNeedsSetup] = useState(() => load('credentials', null) === null);
   const [checkingSetup, setCheckingSetup] = useState(true);
+  const [serverRetrying, setServerRetrying] = useState(false);
   const [authApiBase, setAuthApiBase] = useState(() => loadAdminResetApiBase());
   const [useCentralAuth, setUseCentralAuth] = useState(false);
   const [uname, setUname] = useState('');
@@ -71,33 +72,57 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let retryTimer = null;
+
+    async function checkBackend() {
       const st = await getAuthStatus(authApiBase);
       if (cancelled) return;
       if (st.ok) {
-        // Backend is reachable — always go straight to login form
         setNeedsSetup(false);
         setUseCentralAuth(!!st.hasUsers);
         if (st.base) setAuthApiBase(st.base);
         setCheckingSetup(false);
-        return;
+        setServerRetrying(false);
+        return true;
       }
+      return false;
+    }
+
+    (async () => {
+      const ok = await checkBackend();
+      if (cancelled) return;
+      if (ok) return;
+
       // Backend unavailable — fall back to local credentials
       const localCreds = load('credentials', null);
       if (localCreds && Object.keys(localCreds).length) {
-        if (!cancelled) {
-          setNeedsSetup(false);
-          setUseCentralAuth(false);
-          setCheckingSetup(false);
-        }
+        setNeedsSetup(false);
+        setUseCentralAuth(false);
+        setCheckingSetup(false);
         return;
       }
-      // No backend, no local creds — show login form but with setup hint
+
+      // No local creds either — show form but keep retrying backend in background
+      // so admins on new devices connect once the server wakes (Render cold start)
       setNeedsSetup(true);
       setUseCentralAuth(false);
       setCheckingSetup(false);
+      setServerRetrying(true);
+
+      const retry = async () => {
+        if (cancelled) return;
+        const ok2 = await checkBackend();
+        if (!cancelled && !ok2) {
+          retryTimer = setTimeout(retry, 8000);
+        }
+      };
+      retryTimer = setTimeout(retry, 8000);
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -161,7 +186,10 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         <div className="login-card">
           <OfflineBanner online={online} />
           <BrowserCapsBanner warnings={bootWarnings} />
-          <div className="text-center" style={{color:'#777'}}>Checking account setup...</div>
+          <div className="text-center" style={{color:'#777'}}>Connecting to server…</div>
+          <div className="text-center" style={{fontSize:12,color:'#aaa',marginTop:6}}>
+            This may take a moment on first load.
+          </div>
         </div>
       </div>
     );
@@ -179,6 +207,7 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       const creds = load('credentials', null);
       const key = uname.trim().toLowerCase();
       setLoading(true);
+      // Try local credentials first when available
       if (!useCentralAuth && creds && creds[key]) {
         const saltedHash = await hashPwd(pwd, key);
         const legacyHash  = await hashPwd(pwd);
@@ -200,17 +229,22 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         }, 400);
         return;
       }
+      // Always attempt backend login — works even if initial probe failed (Render cold start)
       const hash = await hashPwd(pwd, key);
       const remote = await loginViaBackend(key, hash, authApiBase);
       if (!remote.ok || !remote.user) {
         setLoading(false);
-        if (useCentralAuth && remote.code && remote.code !== 'DMG-E020') {
+        if (remote.code && remote.code !== 'DMG-E020' && remote.code !== 'DMG-E021') {
           setErr(userMessageForCode(remote.code, remote.error));
+        } else if (remote.code === 'DMG-E021') {
+          setErr('Cannot reach server. Check your internet connection and try again.');
         } else {
           setErr('Invalid username or password.');
         }
         return;
       }
+      // Backend responded — update auth state for future actions
+      if (!useCentralAuth) { setUseCentralAuth(true); setNeedsSetup(false); setServerRetrying(false); }
       if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: hash });
       else save('_rememberedCheckinLogin', null);
       setTimeout(() => {
@@ -270,8 +304,26 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         </div>
 
         {needsSetup && (
-          <div style={{background:'#FFF8DC',border:'1px solid #DEB887',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color:'#7a5c00'}}>
-            ⚠️ No accounts found on this device. Ask your admin for login credentials, or upload a starter file below.
+          <div style={{background: serverRetrying ? '#EFF6FF' : '#FFF8DC', border:`1px solid ${serverRetrying ? '#BFDBFE' : '#DEB887'}`,borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:12.5,color: serverRetrying ? '#1e40af' : '#7a5c00',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <span style={{flex:1}}>
+              {serverRetrying
+                ? '🔄 Connecting to server… sign in will be available once connected.'
+                : '⚠️ Server unreachable. Ask your admin for credentials or upload a starter file below.'}
+            </span>
+            <button type="button" onClick={async () => {
+              setServerRetrying(true);
+              const st = await getAuthStatus(authApiBase);
+              if (st.ok) {
+                setNeedsSetup(false);
+                setUseCentralAuth(!!st.hasUsers);
+                if (st.base) setAuthApiBase(st.base);
+                setServerRetrying(false);
+              } else {
+                setServerRetrying(false);
+              }
+            }} style={{background:'none',border:'1px solid currentColor',borderRadius:5,padding:'2px 8px',fontSize:11.5,cursor:'pointer',whiteSpace:'nowrap'}}>
+              Retry
+            </button>
           </div>
         )}
 

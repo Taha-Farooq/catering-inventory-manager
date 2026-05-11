@@ -110,12 +110,12 @@ async function readSharedApiBaseConfig() {
   }
 }
 
-export async function probeResetApi(baseUrl) {
+export async function probeResetApi(baseUrl, timeoutMs = 3500) {
   const base = normalizeApiBase(baseUrl);
   if (!base) return { ok:false, base, error:'Empty URL' };
   if (shouldSkipApiCandidate(base)) return { ok:false, base, error:'Blocked by browser security (HTTPS page cannot call this HTTP host)' };
   try {
-    const r = await withTimeout(fetch(`${base}/health`, { method:'GET' }), 3500);
+    const r = await withTimeout(fetch(`${base}/health`, { method:'GET' }), timeoutMs);
     if (!r.ok) return { ok:false, base, error:`HTTP ${r.status}` };
     const data = await r.json().catch(() => ({}));
     if (data && data.ok) return { ok:true, base };
@@ -127,22 +127,34 @@ export async function probeResetApi(baseUrl) {
 
 export async function resolveResetApiBase(preferredBase) {
   const sharedConfigBase = await readSharedApiBaseConfig();
+  // sharedConfigBase (auth-api-config.json) is the authoritative production URL;
+  // list it first so it wins when probed in parallel.
   const candidates = [
+    sharedConfigBase,
     preferredBase,
     readApiBaseFromUrl(),
     loadAdminResetApiBase(),
-    sharedConfigBase,
     ...ADMIN_RESET_API_ENDPOINTS
   ].map(normalizeApiBase).filter(Boolean);
   const uniq = [...new Set(candidates)];
-  for (const c of uniq) {
-    const chk = await probeResetApi(c);
-    if (chk.ok) {
-      saveAdminResetApiBase(c);
-      return { ok:true, base:c };
-    }
+
+  // Probe all candidates simultaneously — the first to succeed wins.
+  // Use a generous timeout so cloud backends (Render free tier) have time
+  // to wake from a cold start without blocking the user for too long.
+  const PROBE_TIMEOUT = 20000;
+  try {
+    const winner = await Promise.any(
+      uniq.map(async c => {
+        const chk = await probeResetApi(c, PROBE_TIMEOUT);
+        if (!chk.ok) throw new Error(chk.error || 'probe failed');
+        return c;
+      })
+    );
+    saveAdminResetApiBase(winner);
+    return { ok:true, base:winner };
+  } catch {
+    return { ok:false, base:normalizeApiBase(preferredBase || loadAdminResetApiBase() || ADMIN_RESET_API_BASE) };
   }
-  return { ok:false, base:normalizeApiBase(preferredBase || loadAdminResetApiBase() || ADMIN_RESET_API_BASE) };
 }
 
 export async function getAuthStatus(preferredBase) {
