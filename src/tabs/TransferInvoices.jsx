@@ -7,7 +7,7 @@ import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printInvoiceById } from '../utils/print.js';
-import { nextTransferId } from '../utils/invoiceIds.js';
+import { nextTransferId, normalizeTransferInvoice } from '../utils/invoiceIds.js';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
   const listId = useId();
