@@ -103,15 +103,34 @@ function Ensure-Secret {
   }
 }
 
+function Hydrate-FileForOneDrive {
+  param([string]$Path, [string]$Label)
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "$Label not found at: $Path"
+  }
+  try {
+    $null = [System.IO.File]::ReadAllBytes($Path)
+  } catch {
+    throw "Could not read $Label at: $Path`n`nIf this folder is stored in OneDrive, open File Explorer, right-click the 'backend' folder, choose 'Always keep on this device', wait until every file shows the green check icon, then run this setup again.`n`nOriginal error: $($_.Exception.Message)"
+  }
+}
+
 function Ensure-Dependencies {
   if (Test-Path (Join-Path $backendDir "node_modules")) { return }
   Write-Host "Installing backend dependencies..."
+
+  Hydrate-FileForOneDrive -Path (Join-Path $backendDir "package.json") -Label "package.json"
+  Hydrate-FileForOneDrive -Path (Join-Path $backendDir "server.js") -Label "server.js"
+
+  [System.IO.Directory]::SetCurrentDirectory($backendDir)
   Push-Location $backendDir
   try {
     if (Test-Path $portableNpmCmd) {
-      & $portableNpmCmd install
+      & $portableNpmCmd install --prefix "$backendDir"
+      if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit code $LASTEXITCODE). See output above." }
     } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
-      npm install
+      npm install --prefix "$backendDir"
+      if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit code $LASTEXITCODE). See output above." }
     } else {
       throw "npm is unavailable."
     }
