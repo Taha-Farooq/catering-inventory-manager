@@ -588,7 +588,15 @@ function App() {
   }
 
   const isAdmin = currentUser.role === 'admin';
-  const TABS = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+  // Simple mode hides power-user tabs (Inv. Log, Price History, Activity
+  // Log) from the nav to cut clutter; the tabs still exist and power mode
+  // restores them. If the active tab gets hidden, the effect below bounces
+  // to Dashboard.
+  const TABS = ((isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id)))
+    .filter(t => !(isSimple && t.powerOnly));
+  useEffect(() => {
+    if (isAdmin && isSimple && TABS_ADMIN.find(t => t.id === tab)?.powerOnly) setTab('dashboard');
+  }, [isSimple, tab, isAdmin]);
   const navGroups = useMemo(() => {
     const allowed = new Set(TABS.map(t => t.id));
     const src = (isAdmin && kioskLock)

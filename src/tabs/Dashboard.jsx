@@ -4,6 +4,7 @@ import { fmt$, fmtDate } from '../formatters.js';
 import { load, save, uid, today } from '../utils/storage.js';
 import { showToast } from '../toastContext.jsx';
 import { logActivity } from '../utils/activity.js';
+import { quickBackupZip } from '../utils/quickBackup.js';
 
 const ACTION_LABELS = {
   login: 'Logged In', logout: 'Logged Out', view_tab: 'Viewed Page',
@@ -102,6 +103,14 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     const log = load('_activityLog', []);
     return [...log].reverse().slice(0, 10);
   }, []);
+
+  // One-time welcome card pointing to the five key places. Dismissal is
+  // persisted so it never reappears.
+  const [showWelcome, setShowWelcome] = useState(() => !load('_welcomeTourDone', false));
+  function dismissWelcome() {
+    setShowWelcome(false);
+    save('_welcomeTourDone', true);
+  }
 
   // ── Today summary, backup nudge, overdue customers (added in the security+UX release) ──
   const todayStr = today();
@@ -324,6 +333,32 @@ Thanks!`
     <div>
       <div className="section-title">Dashboard</div>
 
+      {/* One-time welcome tour — dismissable, never reappears */}
+      {showWelcome && (
+        <div className="card mb-4" style={{ background: 'linear-gradient(135deg,#FFF8EC,#FFF3DC)', border: '1.5px solid #DEB887' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ fontWeight: 800, color: 'var(--brown,#8B4513)', fontSize: 16, marginBottom: 8 }}>👋 Welcome! Here's where everything lives</div>
+            <button className="btn btn-outline btn-sm" onClick={dismissWelcome}>Got it ✕</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 10 }}>
+            {[
+              { icon: '📄', title: 'Scan Documents', text: 'Photograph or drop in paperwork — the computer reads and files it for you.', tab: 'scanbeta' },
+              { icon: '🍽️', title: 'Catering Invoices', text: 'Create, print, and track invoices for events.', tab: 'catering' },
+              { icon: '✅', title: 'Check In/Out', text: 'Staff QR clock-in; print pay stubs from here.', tab: 'checkio' },
+              { icon: '📊', title: 'Analytics → Reports', text: 'Monthly report, P&L, and owner profit split — one button.', tab: 'analytics' },
+              { icon: '⚙️', title: 'Settings', text: 'Backups, owners & profit shares, staff accounts, branding.', settings: true },
+            ].map(c => (
+              <button key={c.title} onClick={() => { if (c.settings) { onOpenSettings?.(); } else { setTab?.(c.tab); } }}
+                style={{ textAlign: 'left', background: '#fff', border: '1px solid #EED9B0', borderRadius: 8, padding: '10px 12px', cursor: 'pointer' }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: '#5a3010' }}>{c.icon} {c.title}</div>
+                <div style={{ fontSize: 12, color: '#777', marginTop: 3, lineHeight: 1.4 }}>{c.text}</div>
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11.5, color: '#999', marginTop: 10 }}>Tip: the ✨ button in the top bar switches between Simple mode (fewer tabs) and Power mode (everything).</div>
+        </div>
+      )}
+
       {/* Today summary */}
       <div className="card mb-4" style={{ borderLeft: '4px solid #15803D' }}>
         <div style={{ fontWeight: 700, color: '#15803D', marginBottom: 10, fontSize: 14 }}>
@@ -358,9 +393,12 @@ Thanks!`
               ? 'You haven’t exported a backup yet. Click below to download one — keep it somewhere safe.'
               : `It’s been ${lastBackupDays} days since your last backup. A quick export keeps your data safe.`}
           </div>
+          <button className="btn btn-primary btn-sm" onClick={() => quickBackupZip()}>
+            ⬇ Back up now
+          </button>
           {onOpenSettings && (
-            <button className="btn btn-primary btn-sm" onClick={onOpenSettings}>
-              ⬇ Back up now
+            <button className="btn btn-outline btn-sm" style={{ marginLeft: 8 }} onClick={onOpenSettings}>
+              Open backup settings
             </button>
           )}
         </div>

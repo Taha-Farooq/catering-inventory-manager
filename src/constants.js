@@ -15,7 +15,7 @@ export const TABS_ADMIN = [
   { id: 'dashboard', label: '🏠 Dashboard' },
   { id: 'checkio', label: '✅ Check In/Out' },
   { id: 'items', label: '📦 Items' },
-  { id: 'invadj', label: '📝 Inv. Log' },
+  { id: 'invadj', label: '📝 Inv. Log', powerOnly: true },
   { id: 'shopping', label: '🛒 Shopping' },
   { id: 'pricer', label: '💰 Price Updater' },
   { id: 'purchase', label: '📋 Purchase Inv.' },
@@ -27,10 +27,10 @@ export const TABS_ADMIN = [
   { id: 'analytics', label: '📊 Analytics' },
   { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
   { id: 'archive', label: '🗂️ Archive' },
-  { id: 'history', label: '📈 Price History' },
+  { id: 'history', label: '📈 Price History', powerOnly: true },
   { id: 'margins', label: '💹 Menu Margins' },
-  { id: 'actlog', label: '🔍 Activity Log' },
-  { id: 'scanbeta', label: '🧪 Scan DB (Beta)' },
+  { id: 'actlog', label: '🔍 Activity Log', powerOnly: true },
+  { id: 'scanbeta', label: '📄 Scan Documents' },
   { id: 'help', label: '❓ Help' },
 ];
 

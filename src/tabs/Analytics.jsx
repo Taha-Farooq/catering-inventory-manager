@@ -25,6 +25,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   const [filterTo, setFilterTo] = useState('');
   const [preset, setPreset] = useState('');
   const [filterBiz, setFilterBiz] = useState('');
+  const [showReportsMenu, setShowReportsMenu] = useState(false);
 
   function applyPreset(p) {
     const now = new Date();
@@ -468,9 +469,26 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
-        <button className="btn btn-primary btn-sm" onClick={printMonthlyReport} title="Print a one-page monthly report combining P&L, top customers, and payroll summary">📈 Monthly Report</button>
-        <button className="btn btn-primary btn-sm" onClick={printProfitAndLoss} title="Print a professional Profit & Loss statement for the selected period and business">🧾 P&amp;L Statement</button>
-        <button className="btn btn-primary btn-sm" onClick={printDistribution} title="Print the owner distribution statement (configure owners in Settings → Advanced → Owners)">🤝 Distribution</button>
+        <div style={{ position: 'relative' }}>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowReportsMenu(v => !v)} title="Print professional reports for the selected period">📄 Reports ▾</button>
+          {showReportsMenu && (
+            <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 50, background: '#fff', border: '1px solid #ddd', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.12)', minWidth: 250, overflow: 'hidden' }}>
+              {[
+                { icon: '📈', label: 'Monthly Business Report', hint: 'One-page summary for the period', fn: printMonthlyReport },
+                { icon: '🧾', label: 'Profit & Loss Statement', hint: 'Formal P&L on letterhead', fn: printProfitAndLoss },
+                { icon: '🤝', label: 'Owner Profit Split', hint: 'Distribution statement with signatures', fn: printDistribution },
+              ].map(item => (
+                <button key={item.label} onClick={() => { setShowReportsMenu(false); item.fn(); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid #f3f3f3', cursor: 'pointer', fontSize: 13.5 }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#FBF6EC'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                  <span style={{ marginRight: 8 }}>{item.icon}</span><strong>{item.label}</strong>
+                  <div style={{ fontSize: 11.5, color: '#888', marginLeft: 26 }}>{item.hint}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</button>
         <button className="btn btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</button>
       </div>
