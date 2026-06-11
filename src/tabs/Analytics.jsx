@@ -4,11 +4,21 @@ import { CHART_COLORS, BUSINESSES } from '../constants.js';
 import { fmt$ } from '../formatters.js';
 import { showToast } from '../toastContext.jsx';
 import { logActivity } from '../utils/activity.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { buildProfessionalDoc, docSection, docMoney } from '../utils/professionalDoc.js';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
 const fmtD = d => d.toISOString().slice(0, 10);
 
-export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) {
+function periodLabelFrom(from, to) {
+  if (!from && !to) return 'All time';
+  const fmtNice = s => { try { return new Date(s + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); } catch { return s; } };
+  if (from && to) return `${fmtNice(from)} – ${fmtNice(to)}`;
+  if (from) return `From ${fmtNice(from)}`;
+  return `Through ${fmtNice(to)}`;
+}
+
+export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries, payrollInvoices = [], brandingMap = null }) {
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
   const [preset, setPreset] = useState('');
@@ -48,6 +58,16 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     if(filterBiz&&(i.business||'')!==filterBiz)return false;
     return true;
   }),[dailyFinanceEntries,filterFrom,filterTo,filterBiz]);
+
+  // Payroll falls in the period when its pay-period start lands in range.
+  const filteredPayroll=useMemo(()=>(payrollInvoices||[]).filter(p=>{
+    const d=p.periodStart||p.periodEnd||p.createdAt||'';
+    if(filterFrom&&d<filterFrom)return false;
+    if(filterTo&&d>filterTo)return false;
+    if(filterBiz&&(p.business||'')!==filterBiz)return false;
+    return true;
+  }),[payrollInvoices,filterFrom,filterTo,filterBiz]);
+  const payrollTotal=useMemo(()=>filteredPayroll.reduce((s,p)=>s+(p.total||0),0),[filteredPayroll]);
 
   const totalRevenue=useMemo(()=>filteredCatering.reduce((s,i)=>s+(i.grandTotal||0),0),[filteredCatering]);
   const totalSpending=useMemo(()=>filteredPurchase.reduce((s,i)=>s+(i.total||0),0),[filteredPurchase]);
@@ -106,6 +126,80 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
 
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
   const isFiltered=filterFrom||filterTo||filterBiz;
+
+  function brandingForReport() {
+    if (filterBiz && brandingMap?.[filterBiz]) return brandingMap[filterBiz];
+    // Combined view: a neutral letterhead listing the three businesses.
+    return {
+      name: 'DMG Restaurant Group',
+      address: 'DeGrill · Parathas & Platters · Dera Masala Grill',
+      phone: brandingMap?.dera?.phone || '',
+      email: brandingMap?.dera?.email || '',
+      logo: brandingMap?.dera?.logo || '',
+    };
+  }
+
+  // Profit & Loss statement — the document for a partner conversation. Unlike
+  // the on-screen "Gross Profit" stat (which omits payroll), this statement
+  // includes payroll as an operating expense for the true bottom line.
+  function printProfitAndLoss() {
+    const revenue = totalRevenue + manualIncome;
+    const supplies = totalSpending;
+    const otherExp = manualExpense;
+    const totalExp = supplies + payrollTotal + otherExp;
+    const net = +(revenue - totalExp).toFixed(2);
+    const margin = revenue > 0 ? ((net / revenue) * 100).toFixed(1) + '%' : '—';
+
+    if (!filteredCatering.length && !filteredPurchase.length && !filteredDaily.length && !filteredPayroll.length) {
+      showToast('No financial data in this period to build a statement.', 'error');
+      return;
+    }
+
+    const revSection = docSection({
+      heading: 'Revenue',
+      rows: [
+        { label: 'Catering & event revenue', value: docMoney(totalRevenue), indent: true },
+        ...(manualIncome ? [{ label: 'Other income (daily ledger)', value: docMoney(manualIncome), indent: true }] : []),
+      ],
+      total: { label: 'Total Revenue', value: docMoney(revenue) },
+    });
+    const expSection = docSection({
+      heading: 'Operating Expenses',
+      rows: [
+        { label: 'Supplies & purchases', value: docMoney(supplies), indent: true },
+        { label: 'Payroll & wages', value: docMoney(payrollTotal), indent: true },
+        ...(otherExp ? [{ label: 'Other expenses (daily ledger)', value: docMoney(otherExp), indent: true }] : []),
+      ],
+      total: { label: 'Total Operating Expenses', value: docMoney(totalExp) },
+    });
+    const netSection = docSection({
+      rows: [
+        { label: 'Net margin', value: margin, muted: true },
+      ],
+      total: { label: net >= 0 ? 'NET PROFIT' : 'NET LOSS', value: docMoney(net), accent: net >= 0 ? '#15803D' : '#DC2626' },
+    });
+    const memoSection = docSection({
+      heading: 'Memoranda (not included in net profit)',
+      rows: [
+        { label: 'Outstanding receivables (unpaid invoices)', value: docMoney(outstanding), indent: true, muted: true },
+        { label: 'Sales tax collected, net of paid', value: docMoney(taxDue), indent: true, muted: true },
+        { label: 'Catering invoices in period', value: String(filteredCatering.length), indent: true, muted: true },
+        { label: 'Purchase orders in period', value: String(filteredPurchase.length), indent: true, muted: true },
+      ],
+    });
+
+    const html = buildProfessionalDoc({
+      branding: brandingForReport(),
+      docType: 'PROFIT & LOSS STATEMENT',
+      docNumber: 'PL-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: periodLabelFrom(filterFrom, filterTo),
+      bodyHtml: revSection + '<div style="height:8px"></div>' + expSection + '<div style="height:8px"></div>' + netSection + '<div style="height:14px"></div>' + memoSection,
+      footerNote: 'Prepared from catering invoices, purchase orders, payroll records, and the daily income/expense ledger. Figures reflect recorded transactions in the selected period and business scope; this statement is a management summary, not an audited financial statement.',
+      confidential: true,
+    });
+    printHtmlDocument(html, 'Profit & Loss Statement');
+    logActivity('print_report', `Printed P&L statement (${periodLabelFrom(filterFrom, filterTo)}${filterBiz ? ', ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ''})`);
+  }
 
   function exportExcel() {
     const wb = XLSX.utils.book_new();
@@ -182,6 +276,7 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
+        <button className="btn btn-primary btn-sm" onClick={printProfitAndLoss} title="Print a professional Profit & Loss statement for the selected period and business">🧾 P&amp;L Statement</button>
         <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</button>
         <button className="btn btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</button>
       </div>
