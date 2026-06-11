@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import pdfParse from 'pdf-parse';
 
@@ -26,6 +28,9 @@ const SCAN_MIN_FILE_AGE_MS = Number(process.env.SCAN_MIN_FILE_AGE_MS || 3000);
 const ATTENDANCE_FILE = path.join(STORE_DIR, 'attendance-db.json');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://taha-farooq.github.io/catering-inventory-manager/';
 const ATT_QR_TTL_SEC = Number(process.env.ATTENDANCE_QR_TTL_SEC || 60);
+const SESSION_TTL = process.env.SESSION_TTL || '30d';
+const BCRYPT_COST = Number(process.env.BCRYPT_COST || 10);
+const TIMEZONE = process.env.TIMEZONE || 'America/New_York';
 
 if (!JWT_SECRET || JWT_SECRET.length < 24) {
   console.error('ADMIN_RESET_JWT_SECRET is missing or too short.');
@@ -52,6 +57,51 @@ if (!fs.existsSync(ATTENDANCE_FILE)) fs.writeFileSync(ATTENDANCE_FILE, JSON.stri
   updatedAt: new Date().toISOString()
 }, null, 2));
 
+// SECURITY (docs/SECURITY_REVIEW.md A9): write JSON via temp+rename so a
+// crash mid-write can never leave a truncated credentials/attendance/scan
+// file. The rename is atomic on the same filesystem.
+function writeJsonAtomic(filePath, data) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, filePath);
+}
+
+// SECURITY (A6): server stores bcrypt(client_sha256). The client still sends
+// a SHA-256 hex string (no bcrypt in the browser, no UI change). Legacy
+// stored hashes (64 hex chars) are accepted once via constant-time compare,
+// then upgraded to bcrypt on first successful login.
+const LEGACY_HEX_RE = /^[a-f0-9]{64}$/i;
+function isBcryptHash(s) {
+  return typeof s === 'string' && /^\$2[aby]\$/.test(s);
+}
+function constantTimeEqualsString(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
+async function verifyHashAgainstStored(clientHash, storedHash) {
+  if (!clientHash || !storedHash) return false;
+  if (isBcryptHash(storedHash)) {
+    try { return await bcrypt.compare(String(clientHash), storedHash); }
+    catch { return false; }
+  }
+  if (LEGACY_HEX_RE.test(storedHash)) {
+    return constantTimeEqualsString(String(clientHash).toLowerCase(), storedHash.toLowerCase());
+  }
+  return false;
+}
+async function ensureHashUpgraded(users, username, clientHash) {
+  const u = users[username];
+  if (!u || isBcryptHash(u.password)) return;
+  u.password = await bcrypt.hash(String(clientHash), BCRYPT_COST);
+  writeUsers(users);
+  console.log(`[auth] Upgraded ${username} password storage to bcrypt`);
+}
+
 function readUsedStore() {
   try {
     return JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
@@ -60,7 +110,7 @@ function readUsedStore() {
   }
 }
 function writeUsedStore(store) {
-  fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
+  writeJsonAtomic(STORE_FILE, store);
 }
 function markUsed(jti, requestId, approver) {
   const store = readUsedStore();
@@ -84,7 +134,7 @@ function readUsers() {
   }
 }
 function writeUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  writeJsonAtomic(USERS_FILE, users);
 }
 function sanitizeCredentials(input) {
   const src = (input && typeof input === 'object') ? input : {};
@@ -101,6 +151,32 @@ function sanitizeCredentials(input) {
     };
   }
   return out;
+}
+
+// SECURITY (A6): incoming sync payload is from the client where hashes are
+// SHA-256 hex. Persist them as bcrypt so credentials.json on disk never
+// contains the same string the client sends. If a user already has a
+// matching bcrypt stored (i.e., the client is re-syncing a hash that
+// bcrypt-compares to what we already have), keep the existing bcrypt to
+// avoid pointless rehashing.
+async function bcryptifyForStorage(cleaned, existing) {
+  for (const [username, rec] of Object.entries(cleaned)) {
+    const incoming = String(rec.password);
+    if (isBcryptHash(incoming)) {
+      continue; // client somehow sent a bcrypt hash (e.g., backup restore) — accept as-is
+    }
+    const prev = existing[username]?.password;
+    if (prev && isBcryptHash(prev)) {
+      try {
+        if (await bcrypt.compare(incoming, prev)) {
+          rec.password = prev; // same password, keep existing bcrypt
+          continue;
+        }
+      } catch {}
+    }
+    rec.password = await bcrypt.hash(incoming, BCRYPT_COST);
+  }
+  return cleaned;
 }
 function readAttendanceDb() {
   try {
@@ -119,32 +195,66 @@ function readAttendanceDb() {
 }
 function writeAttendanceDb(db) {
   db.updatedAt = new Date().toISOString();
-  fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify(db, null, 2));
+  writeJsonAtomic(ATTENDANCE_FILE, db);
 }
-function verifyAnyUserFromRequest(req) {
+// SECURITY (A1): prefer Bearer session JWT. Fall back to x-auth-hash for
+// rolling-update compatibility — once all clients are on the new code we
+// can drop the fallback. The fallback now uses bcrypt-compare under the
+// hood so the stored credential is no longer the same string as what's
+// transmitted.
+async function verifyAnyUserFromRequest(req) {
+  const authHeader = String(req.headers['authorization'] || '');
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded.mode !== 'session') return { ok: false, error: 'Invalid token mode' };
+      const users = readUsers();
+      const u = users[decoded.sub];
+      if (!u) return { ok: false, error: 'Unknown user' };
+      const role = decoded.role || u.role || (decoded.sub === 'admin' ? 'admin' : 'user');
+      return { ok: true, username: decoded.sub, role };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Invalid session token' };
+    }
+  }
   const username = String(req.headers['x-auth-user'] || req.body?.auth?.username || '').trim().toLowerCase();
   const passwordHash = String(req.headers['x-auth-hash'] || req.body?.auth?.passwordHash || '').trim();
   if (!username || !passwordHash) return { ok: false, error: 'Missing auth' };
   const users = readUsers();
   const u = users[username];
   if (!u) return { ok: false, error: 'Unknown user' };
-  if (u.password !== passwordHash) return { ok: false, error: 'Invalid auth hash' };
+  const ok = await verifyHashAgainstStored(passwordHash, u.password);
+  if (!ok) return { ok: false, error: 'Invalid auth hash' };
   const role = u.role || (username === 'admin' ? 'admin' : 'user');
   return { ok: true, username, role };
 }
-function authUser(req, res, next) {
-  const auth = verifyAnyUserFromRequest(req);
+async function authUser(req, res, next) {
+  const auth = await verifyAnyUserFromRequest(req);
   if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
   req.authUser = auth;
   return next();
 }
+// SECURITY/CORRECTNESS (A19): payroll weeks roll over at NY local Monday,
+// not UTC. The old version mixed local getDay() with UTC toISOString() and
+// classified Sunday-evening NY shifts into the next week. We compute the
+// week start entirely in TIMEZONE (default America/New_York) so DST-safe.
+const _ISO_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit'
+});
+const _WKDAY_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: TIMEZONE, weekday: 'short'
+});
+const _WKDAY_OFFSET = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
 function weekStartISO(dateLike) {
   const d = new Date(dateLike || Date.now());
-  const day = d.getDay();
-  const diff = (day + 6) % 7;
-  d.setDate(d.getDate() - diff);
-  d.setHours(0,0,0,0);
-  return d.toISOString().slice(0, 10);
+  const localDate = _ISO_FMT.format(d);
+  const weekday = _WKDAY_FMT.format(d);
+  const offset = _WKDAY_OFFSET[weekday] ?? 0;
+  const [y, m, day] = localDate.split('-').map(Number);
+  const base = new Date(Date.UTC(y, m - 1, day));
+  base.setUTCDate(base.getUTCDate() - offset);
+  return base.toISOString().slice(0, 10);
 }
 function hoursBetween(startIso, endIso) {
   const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
@@ -168,7 +278,7 @@ function readScanDb() {
 }
 function writeScanDb(db) {
   db.updatedAt = new Date().toISOString();
-  fs.writeFileSync(SCAN_DB_FILE, JSON.stringify(db, null, 2));
+  writeJsonAtomic(SCAN_DB_FILE, db);
 }
 function scanActivity(db, message, extra = {}) {
   db.activity.push({ id: crypto.randomUUID(), at: new Date().toISOString(), message, ...extra });
@@ -279,20 +389,14 @@ function moveFileSafe(src, dst) {
     throw e;
   }
 }
-function verifyAdminFromRequest(req) {
-  const username = String(req.headers['x-auth-user'] || req.body?.auth?.username || '').trim().toLowerCase();
-  const passwordHash = String(req.headers['x-auth-hash'] || req.body?.auth?.passwordHash || '').trim();
-  if (!username || !passwordHash) return { ok: false, error: 'Missing admin auth' };
-  const users = readUsers();
-  const u = users[username];
-  if (!u) return { ok: false, error: 'Unknown user' };
-  if (u.password !== passwordHash) return { ok: false, error: 'Invalid auth hash' };
-  const role = u.role || (username === 'admin' ? 'admin' : 'user');
-  if (role !== 'admin') return { ok: false, error: 'Admin only' };
-  return { ok: true, username };
+async function verifyAdminFromRequest(req) {
+  const auth = await verifyAnyUserFromRequest(req);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Missing admin auth' };
+  if (auth.role !== 'admin') return { ok: false, error: 'Admin only' };
+  return { ok: true, username: auth.username };
 }
-function adminOnly(req, res, next) {
-  const auth = verifyAdminFromRequest(req);
+async function adminOnly(req, res, next) {
+  const auth = await verifyAdminFromRequest(req);
   if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
   req.adminUser = auth.username;
   return next();
@@ -381,6 +485,9 @@ function refreshScanTimer() {
 }
 
 const app = express();
+// Render (and most reverse proxies) sit in front of us; trust X-Forwarded-For
+// so express-rate-limit keys per real client IP, not Render's edge.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '256kb' }));
 app.use(cors({
   origin(origin, cb) {
@@ -391,6 +498,18 @@ app.use(cors({
   }
 }));
 
+// SECURITY (A5): friendly rate limit on auth + reset endpoints. Tuned so a
+// real user who mistypes their password a few times never gets blocked.
+// Limits apply per source IP across a 15-minute window.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many attempts. Please wait a moment and try again.' },
+  skipSuccessfulRequests: true
+});
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'admin-reset-backend' });
 });
@@ -400,27 +519,39 @@ app.get('/api/auth/status', (_req, res) => {
   res.json({ ok: true, hasUsers: Object.keys(users).length > 0, userCount: Object.keys(users).length });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { username, passwordHash } = req.body || {};
   if (!username || !passwordHash) return res.status(400).json({ ok: false, error: 'username and passwordHash required' });
   const users = readUsers();
   const key = String(username).trim().toLowerCase();
   const u = users[key];
   if (!u) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
-  if (u.password !== passwordHash) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+  const ok = await verifyHashAgainstStored(passwordHash, u.password);
+  if (!ok) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+
+  // Transparent migration: legacy plain-SHA-256 storage gets upgraded to
+  // bcrypt on first successful login (SECURITY_REVIEW.md A6).
+  await ensureHashUpgraded(users, key, passwordHash);
+
+  const role = u.role || (key === 'admin' ? 'admin' : 'user');
+  const token = jwt.sign({ sub: key, role, mode: 'session' }, JWT_SECRET, { expiresIn: SESSION_TTL });
+
+  // SECURITY (A2): no credentialsSnapshot. Each session sees only itself.
+  // The client recomputes the local SHA-256 from the password the user just
+  // typed for its offline-fallback cache; nothing about other users leaks.
   return res.json({
     ok: true,
+    token,
     user: {
       username: key,
-      role: u.role || (key === 'admin' ? 'admin' : 'user'),
+      role,
       displayName: u.displayName || key,
       permissions: u.permissions || []
-    },
-    credentialsSnapshot: users
+    }
   });
 });
 
-app.post('/api/auth/sync', (req, res) => {
+app.post('/api/auth/sync', async (req, res) => {
   // SECURITY (docs/SECURITY_REVIEW.md A0): this endpoint overwrites the entire
   // users file. Require admin auth unless the file is empty (first-run starter
   // ZIP bootstrap). The bootstrap window only exists between deploy and the
@@ -430,7 +561,7 @@ app.post('/api/auth/sync', (req, res) => {
   const isBootstrap = Object.keys(existingUsers).length === 0;
 
   if (!isBootstrap) {
-    const auth = verifyAdminFromRequest(req);
+    const auth = await verifyAdminFromRequest(req);
     if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
   }
 
@@ -446,6 +577,7 @@ app.post('/api/auth/sync', (req, res) => {
     console.warn(`[auth/sync] BOOTSTRAP: writing initial user file with ${Object.keys(cleaned).length} users.`);
   }
 
+  await bcryptifyForStorage(cleaned, existingUsers);
   writeUsers(cleaned);
   return res.json({ ok: true, userCount: Object.keys(cleaned).length });
 });
@@ -724,7 +856,7 @@ app.post('/api/scan/import', adminOnly, (req, res) => {
   return res.json({ ok: true, total: db.docs.length });
 });
 
-app.post('/api/admin-reset/validate', (req, res) => {
+app.post('/api/admin-reset/validate', authLimiter, (req, res) => {
   const { token, requestId } = req.body || {};
   if (!token || !requestId) return res.status(400).json({ valid: false, error: 'token and requestId are required' });
 
@@ -744,7 +876,7 @@ app.post('/api/admin-reset/validate', (req, res) => {
   }
 });
 
-app.post('/api/admin-reset/complete', (req, res) => {
+app.post('/api/admin-reset/complete', authLimiter, (req, res) => {
   const { token, requestId, approver, newPasswordHash } = req.body || {};
   if (!token || !requestId || !approver || !newPasswordHash) {
     return res.status(400).json({ ok: false, error: 'token, requestId, approver, newPasswordHash required' });

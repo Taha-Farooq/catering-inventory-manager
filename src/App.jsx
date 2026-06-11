@@ -35,6 +35,7 @@ import {
   getAuthStatus,
   loginViaBackend,
   syncCredentialsToBackend,
+  authFromCurrentUser,
   scanApiCall,
   attendanceApiCall,
   requestAdminResetEmail,
@@ -428,8 +429,7 @@ function App() {
     if (!currentUser || currentUser.role !== 'admin') return;
     const creds = load('credentials', {});
     if (!creds || !Object.keys(creds).length) return;
-    const auth = { username: currentUser.username, passwordHash: currentUser.authHash };
-    syncCredentialsToBackend(creds, loadAdminResetApiBase(), auth).then(result => {
+    syncCredentialsToBackend(creds, loadAdminResetApiBase(), authFromCurrentUser(currentUser)).then(result => {
       if (!result.ok) {
         logFailure({ area:'app', action:'admin_login_sync_credentials', error:result.error });
       }

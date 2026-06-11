@@ -9,9 +9,11 @@
     "create-link": "node tools/create-reset-link.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
     "jsonwebtoken": "^9.0.2",
     "pdf-parse": "^1.1.1"
   }

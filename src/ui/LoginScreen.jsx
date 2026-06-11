@@ -138,7 +138,8 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         role: remote.user.role,
         name: remote.user.displayName,
         permissions: remote.user.permissions || DEFAULT_USER_PERMS,
-        authHash: String(remembered.authHash || '')
+        authHash: String(remembered.authHash || ''),
+        sessionToken: remote.token || null,
       });
     }).catch(() => setLoading(false));
   }, []);
@@ -275,8 +276,28 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       if (!useCentralAuth) { setUseCentralAuth(true); setNeedsSetup(false); setServerRetrying(false); }
       if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: activeHash });
       else save('_rememberedCheckinLogin', null);
+
+      // SECURITY (A2): the server no longer returns credentialsSnapshot, so we
+      // patch our own entry into local creds for offline fallback. Other users'
+      // hashes are intentionally not stored on this device.
+      const localCredsAfter = load('credentials', {}) || {};
+      localCredsAfter[remote.user.username] = {
+        password: activeHash,
+        role: remote.user.role,
+        displayName: remote.user.displayName,
+        permissions: remote.user.permissions || DEFAULT_USER_PERMS,
+      };
+      save('credentials', localCredsAfter);
+
       setTimeout(() => {
-        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS, authHash: activeHash });
+        onLogin({
+          username: remote.user.username,
+          role: remote.user.role,
+          name: remote.user.displayName,
+          permissions: remote.user.permissions || DEFAULT_USER_PERMS,
+          authHash: activeHash,
+          sessionToken: remote.token || null,
+        });
       }, 400);
     } catch (e2) {
       logFailure({ area:'login', action:'handle_login_exception', error:e2 });

@@ -191,7 +191,7 @@ export async function loginViaBackend(username, passwordHash, preferredBase) {
   const resolved = await resolveResetApiBase(preferredBase);
   if (!resolved.ok) {
     reportError('DMG-E021', { phase: 'login', detail: 'resolve_failed' });
-    return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable', user: null };
+    return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable', user: null, token: null };
   }
   const path = '/api/auth/login';
   let r;
@@ -204,7 +204,7 @@ export async function loginViaBackend(username, passwordHash, preferredBase) {
   } catch (e) {
     const { code } = classifyFetchException(e, path);
     reportError(code, { phase: 'login', message: String(e?.message || e) });
-    return { ok: false, code, error: userMessageForCode(code), user: null };
+    return { ok: false, code, error: userMessageForCode(code), user: null, token: null };
   }
   const data = await r.json().catch(() => ({}));
   if (!r.ok || !data.ok) {
@@ -215,10 +215,35 @@ export async function loginViaBackend(username, passwordHash, preferredBase) {
       code,
       error: data.error || 'Login failed',
       user: null,
+      token: null,
     };
   }
+  // Old servers (pre-bearer-token migration) returned credentialsSnapshot
+  // (the entire users file). We tolerate it during the rolling deploy but
+  // don't depend on it. See SECURITY_REVIEW.md A2.
   if (data.credentialsSnapshot) save('credentials', data.credentialsSnapshot);
-  return { ok: true, code: null, user: data.user };
+  return { ok: true, code: null, user: data.user, token: data.token || null };
+}
+
+// SECURITY (A1): prefer Bearer session JWT, fall back to x-auth-* during the
+// rolling deploy window. Once every client has refreshed past this release,
+// we'll drop the legacy fallback.
+function buildAuthHeaders(auth) {
+  if (!auth) return {};
+  if (auth.sessionToken) return { 'Authorization': `Bearer ${auth.sessionToken}` };
+  if (auth.username && auth.passwordHash) {
+    return { 'x-auth-user': String(auth.username), 'x-auth-hash': String(auth.passwordHash) };
+  }
+  return {};
+}
+
+export function authFromCurrentUser(currentUser) {
+  if (!currentUser) return null;
+  return {
+    sessionToken: currentUser.sessionToken,
+    username: currentUser.username,
+    passwordHash: currentUser.authHash,
+  };
 }
 
 export async function syncCredentialsToBackend(credentials, preferredBase, auth = null) {
@@ -228,11 +253,7 @@ export async function syncCredentialsToBackend(credentials, preferredBase, auth 
     return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable' };
   }
   const path = '/api/auth/sync';
-  const headers = { 'Content-Type': 'application/json' };
-  if (auth?.username && auth?.passwordHash) {
-    headers['x-auth-user'] = String(auth.username);
-    headers['x-auth-hash'] = String(auth.passwordHash);
-  }
+  const headers = { 'Content-Type': 'application/json', ...buildAuthHeaders(auth) };
   let r;
   try {
     r = await fetch(`${resolved.base}${path}`, {
@@ -265,8 +286,7 @@ export async function scanApiCall(pathName, { method='GET', body=null, currentUs
   const qs = query ? '?' + new URLSearchParams(query).toString() : '';
   const headers = {
     'Content-Type': 'application/json',
-    'x-auth-user': String(currentUser?.username || ''),
-    'x-auth-hash': String(currentUser?.authHash || '')
+    ...buildAuthHeaders(authFromCurrentUser(currentUser)),
   };
   let r;
   try {
@@ -298,8 +318,7 @@ export async function attendanceApiCall(pathName, { method='GET', body=null, cur
   const qs = query ? '?' + new URLSearchParams(query).toString() : '';
   const headers = {
     'Content-Type': 'application/json',
-    'x-auth-user': String(currentUser?.username || ''),
-    'x-auth-hash': String(currentUser?.authHash || '')
+    ...buildAuthHeaders(authFromCurrentUser(currentUser)),
   };
   let r;
   try {
