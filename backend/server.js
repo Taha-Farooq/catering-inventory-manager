@@ -864,10 +864,14 @@ app.post('/api/admin-reset/validate', authLimiter, (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (decoded.requestId !== requestId) return res.status(401).json({ valid: false, error: 'requestId mismatch' });
     if (isUsed(decoded.jti)) return res.status(401).json({ valid: false, error: 'token already used' });
-
+    // SECURITY (A8): legacy tokens (pre-username-binding) had no `sub` claim.
+    // Tolerate them but default to "admin" so existing in-flight links keep
+    // working through the rolling deploy. New tokens carry sub explicitly.
+    const targetUser = String(decoded.sub || 'admin').trim().toLowerCase();
     return res.json({
       valid: true,
       requestId: decoded.requestId,
+      username: targetUser,
       source: decoded.source || 'email',
       expiresAt: decoded.exp ? decoded.exp * 1000 : null
     });
@@ -876,7 +880,7 @@ app.post('/api/admin-reset/validate', authLimiter, (req, res) => {
   }
 });
 
-app.post('/api/admin-reset/complete', authLimiter, (req, res) => {
+app.post('/api/admin-reset/complete', authLimiter, async (req, res) => {
   const { token, requestId, approver, newPasswordHash } = req.body || {};
   if (!token || !requestId || !approver || !newPasswordHash) {
     return res.status(400).json({ ok: false, error: 'token, requestId, approver, newPasswordHash required' });
@@ -890,9 +894,22 @@ app.post('/api/admin-reset/complete', authLimiter, (req, res) => {
     if (decoded.requestId !== requestId) return res.status(401).json({ ok: false, error: 'requestId mismatch' });
     if (isUsed(decoded.jti)) return res.status(401).json({ ok: false, error: 'token already used' });
 
+    // SECURITY (A3 + A8): actually write the new password on the server, bound
+    // to the username from the JWT. Pre-A3 this endpoint only marked the JTI
+    // used and trusted the client to persist the new hash — that was
+    // structurally broken because the client and server could diverge.
+    const targetUser = String(decoded.sub || 'admin').trim().toLowerCase();
+    const users = readUsers();
+    if (!users[targetUser]) {
+      return res.status(400).json({ ok: false, error: `User '${targetUser}' does not exist on this server` });
+    }
+    users[targetUser].password = await bcrypt.hash(String(newPasswordHash), BCRYPT_COST);
+    writeUsers(users);
+
     markUsed(decoded.jti, requestId, approver);
     const auditId = createAuditId();
-    return res.json({ ok: true, auditId });
+    console.log(`[admin-reset] ${targetUser} password reset complete (audit ${auditId}, approver=${approver})`);
+    return res.json({ ok: true, auditId, username: targetUser });
   } catch (e) {
     return res.status(401).json({ ok: false, error: e.message || 'invalid token' });
   }

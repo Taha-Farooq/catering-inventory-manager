@@ -146,6 +146,10 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A3 — High: admin reset link doesn't actually reset the server password
 
+- **Status:** **Fixed on this branch.** `/api/admin-reset/complete` now
+  decodes the username from the JWT `sub` claim and writes the new
+  bcrypt'd hash to `credentials.json` atomically. The client also
+  mirrors the new hash into local credentials for offline fallback.
 - **Severity:** High
 - **Location:** `backend/server.js:725-745`
   (`/api/admin-reset/complete`), `src/ui/AdminResetPortal.jsx:80-101`
@@ -282,6 +286,11 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A8 — High: reset link is not bound to a specific user
 
+- **Status:** **Fixed on this branch.** `create-reset-link.js` now
+  accepts an optional username argument and binds it via `sub` in the
+  JWT. The server uses `sub` to identify which user to reset; old
+  tokens without `sub` default to `admin` for in-flight compatibility
+  during the rolling deploy.
 - **Severity:** High
 - **Location:** `backend/tools/create-reset-link.js:22-31`,
   `backend/server.js:705-745`
@@ -420,6 +429,9 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A15 — Medium: `/api/admin-reset/complete` requires a sha256 hex hash but doesn't bind it
 
+- **Status:** **Fixed on this branch** (rolled into A3/A8). The new
+  hash now writes to the user identified by the JWT `sub` claim
+  inside the same handler that marks the JTI used.
 - **Severity:** Medium
 - **Location:** `backend/server.js:725-745`
 - **What it is:** the server validates that `newPasswordHash` is 64

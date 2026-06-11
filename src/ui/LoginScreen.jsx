@@ -401,33 +401,48 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         </form>
 
         <button type="button" onClick={()=>setShowForgot(f=>!f)} style={{background:'none',border:'none',color:'var(--brown)',fontSize:13,cursor:'pointer',textDecoration:'underline',display:'block',textAlign:'center',marginTop:12,width:'100%'}}>
-          Forgot your password?
+          Need help signing in?
         </button>
         {showForgot && (
-          <div style={{background:'#FFF8DC',borderRadius:8,padding:'14px 16px',marginTop:8,border:'1px solid #DEB887',fontSize:13,lineHeight:1.8}}>
-            <div>🔐 <strong>Admin password:</strong> To reset, email{' '}
-              <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>
+          <div style={{background:'#FFF8DC',borderRadius:8,padding:'14px 16px',marginTop:8,border:'1px solid #DEB887',fontSize:13.5,lineHeight:1.6}}>
+            {/* Primary path: one obvious action that handles 95% of cases */}
+            <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6}}>Forgot your password?</div>
+            <div style={{color:'#6b4b20',marginBottom:10}}>
+              Email your manager and they'll send you a one-time secure reset link.
             </div>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8}} onClick={()=>requestAdminResetEmail('login_forgot_password')}>
-              ✉️ Send Admin Password Reset Request
+            <Btn className="btn-primary" style={{width:'100%',marginBottom:14}} onClick={()=>requestAdminResetEmail('login_forgot_password')}>
+              ✉ Email manager for a reset link
             </Btn>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8,marginLeft:8}} onClick={()=>setShowQuickReset(v=>!v)}>
-              🔐 Quick Admin Reset
-            </Btn>
-            <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8,marginLeft:8}} onClick={downloadFailureLog}>
-              ⬇ Download Failure Log
-            </Btn>
+
+            {/* Secondary path: collapse the reset-code form behind a single toggle */}
+            <button type="button"
+              onClick={()=>setShowQuickReset(v=>!v)}
+              style={{background:'none',border:'none',color:'var(--brown)',fontSize:13,cursor:'pointer',textDecoration:'underline',padding:0}}>
+              {showQuickReset ? '▾ I have a reset code' : '▸ I have a reset code from my manager'}
+            </button>
             {showQuickReset && (
               <form onSubmit={handleQuickAdminReset} style={{marginTop:10,paddingTop:10,borderTop:'1px solid #E7CFA6'}}>
                 <FI label="Reset Code" type="password" value={resetCode} onChange={e=>{setResetCode(e.target.value);setResetErr('');}} placeholder="Manager reset code" />
-                <FI label="New Admin Password" type="password" value={resetPwd} onChange={e=>{setResetPwd(e.target.value);setResetErr('');}} placeholder="Min 6 characters" />
+                <FI label="New Password" type="password" value={resetPwd} onChange={e=>{setResetPwd(e.target.value);setResetErr('');}} placeholder="Min 6 characters" />
                 <FI label="Confirm New Password" type="password" value={resetPwdC} onChange={e=>{setResetPwdC(e.target.value);setResetErr('');}} placeholder="Re-enter password" />
                 {resetErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:12.5}}>{resetErr}</div>}
                 {resetMsg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:12.5}}>{resetMsg}</div>}
-                <button type="submit" className="btn btn-primary btn-sm">Save New Admin Password</button>
+                <button type="submit" className="btn btn-primary btn-sm">Save new password</button>
               </form>
             )}
+
+            {/* Staff hint — small, not alarming */}
+            <div style={{marginTop:14,paddingTop:10,borderTop:'1px solid #E7CFA6',color:'#7a5c20',fontSize:12.5}}>
+              Staff: ask your manager to reset your password from the Settings panel after they sign in.
+            </div>
+
+            {/* Tertiary: diagnostics tucked at the bottom, small */}
+            <div style={{marginTop:8,textAlign:'right'}}>
+              <button type="button" onClick={downloadFailureLog}
+                style={{background:'none',border:'none',color:'#999',fontSize:11.5,cursor:'pointer',textDecoration:'underline'}}>
+                Download diagnostics for support
+              </button>
+            </div>
           </div>
         )}
 

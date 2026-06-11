@@ -68,7 +68,10 @@ export default function AdminResetPortal() {
     if (pwd.length < 6) { setErr('Password must be at least 6 characters.'); return; }
     if (pwd !== confirm) { setErr('Passwords do not match.'); return; }
     setSaving(true);
-    const newPasswordHash = await hashPwd(pwd);
+    // The server stores bcrypt(SHA-256). Build the SHA-256 the same way the
+    // login flow does so the new password can immediately be used.
+    const targetUsername = String(meta?.username || 'admin').toLowerCase();
+    const newPasswordHash = await hashPwd(pwd, targetUsername);
     const resolved = await resolveResetApiBase(apiBase);
     if (!resolved.ok) {
       setSaving(false);
@@ -94,17 +97,21 @@ export default function AdminResetPortal() {
       logFailure({ area:'admin_reset_portal', action:'complete_reset_api', error:data.error || `HTTP ${r.status}`, extra:{ requestId: access.requestId, apiBase: resolved.base } });
       return;
     }
+    // Server-side reset succeeded. Mirror the new hash into local creds for
+    // the user the server actually updated (data.username), so the next
+    // login attempt — including offline — uses the right hash.
+    const updatedUser = String(data.username || targetUsername).toLowerCase();
     const creds = load('credentials', {});
-    if (!creds.admin) creds.admin = { role: 'admin', displayName: 'Administrator', password: '' };
-    creds.admin.password = newPasswordHash;
+    if (!creds[updatedUser]) creds[updatedUser] = { role: updatedUser === 'admin' ? 'admin' : 'user', displayName: updatedUser, password: '' };
+    creds[updatedUser].password = newPasswordHash;
     save('credentials', creds);
-    pushAuditEvent('admin_password_reset', `Completed ${access.requestId} by ${approver.trim()} (${data.auditId || 'no-audit'})`);
+    pushAuditEvent('admin_password_reset', `Completed ${access.requestId} for ${updatedUser} by ${approver.trim()} (${data.auditId || 'no-audit'})`);
     setPwd('');
     setConfirm('');
     setApprover('');
     setAuthorized(false);
     setSaving(false);
-    setMsg('Admin password has been reset successfully.');
+    setMsg(`Password reset successfully for ${updatedUser}. You can now sign in.`);
   }
 
   function closePortal() {
@@ -139,6 +146,7 @@ export default function AdminResetPortal() {
         )}
         {access && status === 'valid' && (
           <div style={{background:'#E8F4FC',border:'1px solid #B6DBF7',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:12.5,color:'#1e4f72',lineHeight:1.6}}>
+            <div><strong>Resetting:</strong> {meta?.username || 'admin'}</div>
             <div><strong>Request ID:</strong> {meta?.requestId || access.requestId}</div>
             <div><strong>Source:</strong> {meta?.source || 'app'}</div>
             <div><strong>Expires:</strong> {meta?.expiresAt ? new Date(meta.expiresAt).toLocaleString() : 'n/a'}</div>

@@ -19,10 +19,21 @@ function randomId(len = 20) {
   return out;
 }
 
+// Optional CLI: `node create-reset-link.js <username>` — defaults to "admin".
+// SECURITY (docs/SECURITY_REVIEW.md A8): bind the reset link to a specific
+// user via the JWT `sub` claim so a stolen link can't pivot to another
+// account.
+const targetUser = String(process.argv[2] || 'admin').trim().toLowerCase();
+if (!/^[a-z0-9_]+$/i.test(targetUser)) {
+  console.error('Username must contain only letters, digits, and underscore.');
+  process.exit(1);
+}
+
 const requestId = `APR-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${randomId(6).toUpperCase()}`;
 const token = jwt.sign(
   {
     jti: randomId(24),
+    sub: targetUser,
     requestId,
     source: 'fatim-manual'
   },
@@ -37,5 +48,6 @@ url.searchParams.set('adminResetReq', requestId);
 console.log('Reset link (send privately):');
 console.log(url.toString());
 console.log('');
+console.log(`Target user: ${targetUser}`);
 console.log(`Request ID: ${requestId}`);
 console.log(`Expires in: ${TTL_MIN} minutes`);
