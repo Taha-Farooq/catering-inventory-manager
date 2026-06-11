@@ -92,8 +92,23 @@ try {
   }
 } catch {}
 
+# SECURITY (docs/SECURITY_REVIEW.md A4): the previous installer registered a
+# SYSTEM-level AtStartup task at a user-writable script path (local
+# privilege escalation primitive). Remove it on update so existing installs
+# get the fix automatically.
+$legacySystemTask = "CateringAdminResetBackend-AtStartup"
+if (Get-ScheduledTask -TaskName $legacySystemTask -ErrorAction SilentlyContinue) {
+  try {
+    Stop-ScheduledTask -TaskName $legacySystemTask -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $legacySystemTask -Confirm:$false
+    Write-Host "Removed legacy SYSTEM-level startup task (security fix)."
+  } catch {
+    Write-Host "Could not remove legacy SYSTEM task: $($_.Exception.Message)"
+  }
+}
+
 Write-Host "Restarting scheduled tasks..."
-$taskNames = @("CateringAdminResetBackend-AtLogon", "CateringAdminResetBackend-AtStartup")
+$taskNames = @("CateringAdminResetBackend-AtLogon")
 foreach ($t in $taskNames) {
   if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) {
     try { Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue } catch {}
@@ -105,7 +120,7 @@ foreach ($t in $taskNames) {
       Write-Host "  Could not start $t — $($_.Exception.Message)"
     }
   } else {
-    Write-Host "  Task not registered: $t (skipping)"
+    Write-Host "  Task not registered: $t (skipping). Run ONE-CLICK-SETUP.cmd to register."
   }
 }
 

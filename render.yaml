@@ -17,5 +17,9 @@ services:
         value: https://taha-farooq.github.io
       - key: ALLOWED_ORIGINS
         value: https://taha-farooq.github.io,http://localhost:5500,http://127.0.0.1:5500
+      # SECURITY (docs/SECURITY_REVIEW.md A13): set this manually in the Render
+      # dashboard once and keep it stable across redeploys. With generateValue
+      # it could rotate on a blueprint re-apply, silently invalidating all
+      # in-flight reset links and attendance QR tokens.
       - key: ADMIN_RESET_JWT_SECRET
-        generateValue: true
+        sync: false

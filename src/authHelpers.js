@@ -88,10 +88,22 @@ const shouldSkipApiCandidate = (base) => {
   return false;
 };
 
+// SECURITY (docs/SECURITY_REVIEW.md A17): only honor ?apiBase= / ?authApi=
+// when the value points at a localhost loopback. Production users get their
+// backend URL from auth-api-config.json bundled with the site, so a phishing
+// link cannot rebind their login destination to evil.example.
 export const readApiBaseFromUrl = () => {
   try {
     const q = new URLSearchParams(window.location.search);
-    return normalizeApiBase(q.get('apiBase') || q.get('authApi') || '');
+    const raw = normalizeApiBase(q.get('apiBase') || q.get('authApi') || '');
+    if (!raw) return '';
+    const parsed = parseUrlSafe(raw);
+    if (!parsed) return '';
+    if (!isLoopbackHost(parsed.hostname)) {
+      reportError('DMG-E031', { phase: 'apiBase_url_param_rejected', rejected: raw });
+      return '';
+    }
+    return raw;
   } catch {
     return '';
   }

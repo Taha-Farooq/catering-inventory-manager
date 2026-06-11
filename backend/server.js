@@ -7,7 +7,9 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import pdfParse from 'pdf-parse';
+// SECURITY (docs/SECURITY_REVIEW.md A12): pdf-parse@1.1.1 was unmaintained.
+// pdf-parse-fork is the maintained drop-in replacement.
+import pdfParse from 'pdf-parse-fork';
 
 dotenv.config();
 
@@ -31,6 +33,16 @@ const ATT_QR_TTL_SEC = Number(process.env.ATTENDANCE_QR_TTL_SEC || 60);
 const SESSION_TTL = process.env.SESSION_TTL || '30d';
 const BCRYPT_COST = Number(process.env.BCRYPT_COST || 10);
 const TIMEZONE = process.env.TIMEZONE || 'America/New_York';
+// SECURITY (docs/SECURITY_REVIEW.md A11): when set, scan inboxPath /
+// libraryPath must live under this root. Refuses paths escaping via `..`
+// or pointing outside the allowlist. Empty string = disabled (legacy
+// behavior, useful only for dev).
+const SCAN_ROOT = String(process.env.SCAN_ROOT || '').trim();
+// SECURITY (A12): cap a single PDF parse to avoid OOM / DoS via malicious
+// PDFs. Files larger than this are skipped (logged as a failure). Per-file
+// parse wall-clock cap also applied via Promise.race below.
+const SCAN_MAX_PDF_BYTES = Number(process.env.SCAN_MAX_PDF_BYTES || 50 * 1024 * 1024);
+const SCAN_PARSE_TIMEOUT_MS = Number(process.env.SCAN_PARSE_TIMEOUT_MS || 30000);
 
 if (!JWT_SECRET || JWT_SECRET.length < 24) {
   console.error('ADMIN_RESET_JWT_SECRET is missing or too short.');
@@ -356,12 +368,31 @@ function collectPdfFiles(dir, out = []) {
 }
 async function extractPdfTextSafe(filePath) {
   try {
+    const stat = fs.statSync(filePath);
+    if (stat.size > SCAN_MAX_PDF_BYTES) {
+      return '';
+    }
     const data = fs.readFileSync(filePath);
-    const parsed = await pdfParse(data);
+    // SECURITY (A12): hard cap on parse wall-clock so a malformed PDF can't
+    // stall the scan loop. The single-file timeout falls through to an empty
+    // string and the file gets re-tried (or marked needs_review) on next pass.
+    const parsed = await Promise.race([
+      pdfParse(data),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('pdf parse timeout')), SCAN_PARSE_TIMEOUT_MS)),
+    ]);
     return String(parsed?.text || '').slice(0, 50000);
   } catch {
     return '';
   }
+}
+function isPathUnderScanRoot(p) {
+  if (!SCAN_ROOT) return true;
+  try {
+    const abs = path.resolve(p);
+    const root = path.resolve(SCAN_ROOT);
+    const rel = path.relative(root, abs);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch { return false; }
 }
 function getUniqueTargetPath(targetPath) {
   if (!fs.existsSync(targetPath)) return targetPath;
@@ -758,8 +789,24 @@ app.get('/api/scan/status', adminOnly, (_req, res) => {
 app.post('/api/scan/config', adminOnly, (req, res) => {
   const db = readScanDb();
   const { inboxPath, libraryPath, enabled } = req.body || {};
-  if (typeof inboxPath === 'string') db.config.inboxPath = inboxPath.trim();
-  if (typeof libraryPath === 'string') db.config.libraryPath = libraryPath.trim();
+  if (typeof inboxPath === 'string') {
+    const trimmed = inboxPath.trim();
+    // SECURITY (A11): require paths under SCAN_ROOT when configured. This
+    // prevents an authenticated admin (or anyone with the admin session token)
+    // from setting the scanner at, say, %USERPROFILE%\Documents to slurp every
+    // PDF on the machine.
+    if (trimmed && !isPathUnderScanRoot(trimmed)) {
+      return res.status(400).json({ ok: false, error: `inboxPath must live under ${SCAN_ROOT || '(SCAN_ROOT not configured)'}` });
+    }
+    db.config.inboxPath = trimmed;
+  }
+  if (typeof libraryPath === 'string') {
+    const trimmed = libraryPath.trim();
+    if (trimmed && !isPathUnderScanRoot(trimmed)) {
+      return res.status(400).json({ ok: false, error: `libraryPath must live under ${SCAN_ROOT || '(SCAN_ROOT not configured)'}` });
+    }
+    db.config.libraryPath = trimmed;
+  }
   if (typeof enabled === 'boolean') db.config.enabled = enabled;
   scanActivity(db, 'Updated scan configuration', { by: req.adminUser });
   writeScanDb(db);

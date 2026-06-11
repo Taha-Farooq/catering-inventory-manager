@@ -44,11 +44,33 @@ function Assert-Paths {
   if (-not (Test-Path $healthScript)) { throw "Missing required file: $healthScript" }
 }
 
+function Verify-NodeChecksum {
+  param([string]$ZipPath, [string]$ExpectedFileName)
+  # SECURITY (docs/SECURITY_REVIEW.md A18): verify the Node download against
+  # nodejs.org's published SHASUMS256.txt before extracting. HTTPS alone is
+  # not sufficient if a corporate proxy / fake root cert is in play.
+  $shaUrl = "https://nodejs.org/dist/$nodeVersion/SHASUMS256.txt"
+  Write-Host "Verifying Node download checksum..."
+  $shaResponse = Invoke-WebRequest -Uri $shaUrl -UseBasicParsing
+  $shaLines = $shaResponse.Content -split "`n"
+  $expectedLine = $shaLines | Where-Object { $_ -match [regex]::Escape($ExpectedFileName) } | Select-Object -First 1
+  if (-not $expectedLine) {
+    throw "Could not find $ExpectedFileName in $shaUrl. Refusing to install this download."
+  }
+  $expectedHash = ($expectedLine -split '\s+' | Select-Object -First 1).Trim().ToLower()
+  $actualHash = (Get-FileHash -Algorithm SHA256 -Path $ZipPath).Hash.ToLower()
+  if ($expectedHash -ne $actualHash) {
+    throw "Node download SHA256 mismatch! Expected $expectedHash, got $actualHash. The download may be tampered. Aborting."
+  }
+  Write-Host "  Node download verified (SHA256 OK)."
+}
+
 function Ensure-PortableNode {
   if (Test-Path $portableNodeExe) { return }
   New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
   Write-Host "Downloading portable Node runtime..."
   Invoke-WebRequest -Uri $nodeZipUrl -OutFile $nodeZipFile
+  Verify-NodeChecksum -ZipPath $nodeZipFile -ExpectedFileName "node-$nodeVersion-win-x64.zip"
 
   $extractDir = Join-Path $runtimeRoot "extract"
   if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
@@ -142,17 +164,22 @@ function Ensure-Dependencies {
 function Ensure-Task {
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`""
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-  # Some Windows builds use "Limited" instead of "LeastPrivilege" for RunLevel enum.
   $principalLogon = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-  $principalStartup = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
   $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
-  $triggerStartup = New-ScheduledTaskTrigger -AtStartup
 
   Register-ScheduledTask -TaskName $taskNameLogon -Action $action -Trigger $triggerLogon -Settings $settings -Principal $principalLogon -Force | Out-Null
-  Register-ScheduledTask -TaskName $taskNameStartup -Action $action -Trigger $triggerStartup -Settings $settings -Principal $principalStartup -Force | Out-Null
   Start-ScheduledTask -TaskName $taskNameLogon
-  Start-ScheduledTask -TaskName $taskNameStartup
+
+  # SECURITY (docs/SECURITY_REVIEW.md A4): the old installer also registered a
+  # SYSTEM-level AtStartup task pointing at a user-writable script path. Anyone
+  # who could replace start-backend.ps1 (a sibling user, a malicious browser
+  # extension, malware running as user) got SYSTEM execution at next reboot.
+  # The AtLogon task above is sufficient for the realistic uptime model.
+  # Clean up any legacy SYSTEM task so existing installs benefit on update.
+  if (Get-ScheduledTask -TaskName $taskNameStartup -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $taskNameStartup -Confirm:$false
+    Write-Host "Removed legacy SYSTEM startup task (security fix; see docs/SECURITY_REVIEW.md A4)."
+  }
 }
 
 function Wait-ForHealth {

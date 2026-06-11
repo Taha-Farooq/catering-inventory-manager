@@ -187,6 +187,10 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A4 — High: Windows installer creates a SYSTEM-level task whose script path is user-writable
 
+- **Status:** **Fixed on this branch.** `one-click-setup.ps1` no longer
+  registers the SYSTEM-level `AtStartup` task and explicitly removes
+  any legacy one. `update-backend.ps1` also cleans up the legacy task
+  on update so existing on-prem installs get the fix automatically.
 - **Severity:** High (local privilege escalation, on-prem only)
 - **Location:** `backend/windows/one-click-setup.ps1:123-137`
   (`Ensure-Task`); `Resolve-BackendDir` (same file, L5-16)
@@ -352,6 +356,10 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A11 — Medium: scan job has no path validation (admin-only, but worth flagging)
 
+- **Status:** **Fixed on this branch.** New `SCAN_ROOT` env var; when
+  set, `/api/scan/config` rejects `inboxPath` / `libraryPath` outside
+  it (including `..` escapes). The Windows on-prem install should set
+  `SCAN_ROOT=%USERPROFILE%\Documents\CateringScans` in `.env`.
 - **Severity:** Medium (post-auth)
 - **Location:** `backend/server.js:604-614` (`/api/scan/config`),
   `:302-371` (`processScanOnce`)
@@ -373,6 +381,11 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A12 — Medium: `pdf-parse` 1.1.1 is unmaintained and parses untrusted PDFs
 
+- **Status:** **Fixed on this branch.** Swapped to
+  `pdf-parse-fork ^1.2.0` (maintained drop-in). Added per-file size cap
+  (`SCAN_MAX_PDF_BYTES`, default 50 MB) and per-file parse timeout
+  (`SCAN_PARSE_TIMEOUT_MS`, default 30 s) so a malformed PDF can't
+  stall the scan loop.
 - **Severity:** Medium
 - **Location:** `backend/package.json` (`pdf-parse: ^1.1.1`),
   `backend/server.js:247-255` (`extractPdfTextSafe`)
@@ -391,6 +404,11 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A13 — Medium: JWT secret on Render rotates on every redeploy (`generateValue: true`)
 
+- **Status:** **Fixed on this branch.** `render.yaml` switched to
+  `sync: false`, meaning Render expects the value to be set manually in
+  the dashboard and persists it across redeploys. **One-time setup
+  required:** set `ADMIN_RESET_JWT_SECRET` manually in the Render
+  service's environment tab before merging.
 - **Severity:** Medium (operational, not exploit)
 - **Location:** `render.yaml:20-21`
 - **What it is:** `ADMIN_RESET_JWT_SECRET: generateValue: true` makes
@@ -467,6 +485,11 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A17 — Low: `BackendUnavailableBanner` accepts redirect-style probing without rate limit
 
+- **Status:** **Fixed on this branch.** `readApiBaseFromUrl` now only
+  honors `?apiBase=` / `?authApi=` when the URL points at a localhost
+  loopback. Production users get their backend URL from the bundled
+  `auth-api-config.json`; a phishing link can no longer rebind the
+  login target.
 - **Severity:** Low
 - **Location:** `src/authHelpers.js:113-158` (`probeResetApi`,
   `resolveResetApiBase`)
@@ -485,6 +508,9 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A18 — Low: portable Node download has no SHA verification
 
+- **Status:** **Fixed on this branch.** `one-click-setup.ps1` now
+  fetches `SHASUMS256.txt` from nodejs.org alongside the binary and
+  refuses to install a zip whose SHA256 doesn't match.
 - **Severity:** Low (HTTPS is the only line of defense)
 - **Location:** `backend/windows/one-click-setup.ps1:47-63`
 - **What it is:** `Invoke-WebRequest` over HTTPS to nodejs.org with no
@@ -498,6 +524,9 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A19 — Low: weekly-hours rollup is timezone-confused
 
+- **Status:** **Fixed on this branch (Chunk 1).** `weekStartISO`
+  computes the Monday in `TIMEZONE` (default `America/New_York`) via
+  `Intl.DateTimeFormat`, DST-safe.
 - **Severity:** Low (a correctness bug, not a security bug, but it
   affects payroll which is sensitive)
 - **Location:** `backend/server.js:141-148` (`weekStartISO`)
