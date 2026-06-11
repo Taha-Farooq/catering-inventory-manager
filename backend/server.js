@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 // SECURITY (docs/SECURITY_REVIEW.md A12): pdf-parse@1.1.1 was unmaintained.
 // pdf-parse-fork is the maintained drop-in replacement.
 import pdfParse from 'pdf-parse-fork';
-import { aiEnabled, aiModel, extractDocumentAI } from './scanAi.js';
+import { aiEnabled, aiModel, aiProvider, extractDocumentAI } from './scanAi.js';
 
 dotenv.config();
 
@@ -818,7 +818,7 @@ app.get('/api/scan/status', adminOnly, (_req, res) => {
     recentFailures: db.failures.slice(-10).reverse(),
     recentActivity: db.activity.slice(-15).reverse(),
     pollMs: SCAN_POLL_MS,
-    ai: { enabled: aiEnabled(), model: aiEnabled() ? aiModel() : null }
+    ai: { enabled: aiEnabled(), provider: aiProvider(), model: aiEnabled() ? aiModel() : null }
   });
 });
 

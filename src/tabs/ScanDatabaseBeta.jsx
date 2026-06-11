@@ -291,8 +291,8 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
             </div>
             <div style={{ fontSize: 11.5, color: '#999', marginTop: 8 }}>
               PDF, JPG, PNG · up to 20 at a time · {status?.ai?.enabled
-                ? <span style={{ color: '#15803d', fontWeight: 700 }}>🤖 AI reading ON — sender, date, amount &amp; type extracted automatically</span>
-                : <span style={{ color: '#b45309', fontWeight: 700 }}>AI reading OFF — set ANTHROPIC_API_KEY on the backend to enable (keyword matching only)</span>}
+                ? <span style={{ color: '#15803d', fontWeight: 700 }}>🤖 AI reading ON ({status.ai.provider === 'gemini' ? 'Gemini' : status.ai.provider === 'anthropic' ? 'Claude' : 'AI'}) — sender, date, amount &amp; type extracted automatically</span>
+                : <span style={{ color: '#b45309', fontWeight: 700 }}>AI reading OFF — set GEMINI_API_KEY (free) or ANTHROPIC_API_KEY on the backend to enable</span>}
             </div>
           </div>
 

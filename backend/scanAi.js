@@ -3,31 +3,58 @@
 // WHY THIS EXISTS: the original pipeline classified documents by regexing
 // text out of pdf-parse. Scanned documents are images — pdf-parse extracts
 // nothing from them, so every real-world scan landed as "other / Unknown
-// Sender / needs_review". This module sends the document to Claude (which
-// reads scanned PDFs and photos natively) and gets back structured fields.
+// Sender / needs_review". This module sends each document to a vision-
+// capable LLM and gets back structured fields.
 //
-// Enabled by setting ANTHROPIC_API_KEY in the backend environment. Without
-// a key the pipeline silently falls back to the legacy regex path.
+// Two providers are supported. Pick one by setting its API key in the
+// backend environment; if both are set, SCAN_AI_PROVIDER decides.
+//
+//   GEMINI_API_KEY      — Google Gemini (free tier: 1500 docs/day, 15/min).
+//                         The recommended option for a small business that
+//                         doesn't want to pay for AI. Quality is genuinely
+//                         close to Claude on typical printed paperwork.
+//                         Privacy note: Google's free tier uses your data
+//                         to improve their products; the paid tier opts out.
+//   ANTHROPIC_API_KEY   — Claude. Best quality on the hardest cases
+//                         (heavy handwriting, degraded scans). Paid only.
+//                         Anthropic does NOT train on customer API data.
+//
+// Without either key, the pipeline silently falls back to the keyword path.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 
-const SCAN_AI_MODEL = process.env.SCAN_AI_MODEL || 'claude-opus-4-8';
-// Claude's PDF limit is 32MB / 100 pages; stay under it and keep request
-// bodies sane. Larger docs fall back to the regex path.
+const ANTHROPIC_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
+const GEMINI_KEY = String(process.env.GEMINI_API_KEY || '').trim();
+const PROVIDER_ENV = String(process.env.SCAN_AI_PROVIDER || '').trim().toLowerCase();
+
+const ANTHROPIC_MODEL = process.env.SCAN_AI_MODEL_ANTHROPIC || process.env.SCAN_AI_MODEL || 'claude-opus-4-8';
+const GEMINI_MODEL = process.env.SCAN_AI_MODEL_GEMINI || 'gemini-2.0-flash';
+
 const AI_MAX_BYTES = Number(process.env.SCAN_AI_MAX_BYTES || 25 * 1024 * 1024);
 
-let client = null;
-export function aiEnabled() {
-  return Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
-}
-export function aiModel() {
-  return SCAN_AI_MODEL;
-}
-function getClient() {
-  if (!client) client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
-  return client;
+function activeProvider() {
+  if (PROVIDER_ENV === 'gemini') return GEMINI_KEY ? 'gemini' : null;
+  if (PROVIDER_ENV === 'anthropic') return ANTHROPIC_KEY ? 'anthropic' : null;
+  if (GEMINI_KEY) return 'gemini';
+  if (ANTHROPIC_KEY) return 'anthropic';
+  return null;
 }
 
+export function aiEnabled() { return activeProvider() !== null; }
+export function aiProvider() { return activeProvider(); }
+export function aiModel() {
+  const p = activeProvider();
+  if (p === 'anthropic') return ANTHROPIC_MODEL;
+  if (p === 'gemini') return GEMINI_MODEL;
+  return null;
+}
+
+const SYSTEM_PROMPT = `You read scanned business documents for a family-run catering company that operates three businesses: DeGrill, Parathas & Platters, and Dera Masala Grill (all in the NY/NJ area). Documents are typically supplier invoices, receipts, tax notices, bank statements, payroll records, legal letters, and credit memos — often phone photos or flatbed scans of paper, sometimes skewed, faded, or handwritten-on. Extract the requested fields exactly as printed. If a field is genuinely unreadable, use null rather than guessing.`;
+
+// Shared JSON schema describing the extraction shape. Both providers accept
+// this format (Anthropic's structured outputs and Gemini's responseSchema
+// both use JSON Schema with the same basic types).
 const EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -46,16 +73,16 @@ const EXTRACTION_SCHEMA = {
       description: 'Which of the three businesses this document belongs to: DeGrill, Parathas & Platters, or Dera Masala Grill. "unknown" if it cannot be determined.',
     },
     docDate: {
-      type: ['string', 'null'],
-      description: 'The date printed ON the document (invoice date, statement date) in YYYY-MM-DD. null if no date is visible.',
+      type: 'string',
+      description: 'The date printed ON the document (invoice date, statement date) in YYYY-MM-DD. Empty string if no date is visible.',
     },
     totalAmount: {
-      type: ['number', 'null'],
-      description: 'The main dollar amount (invoice total, amount due, statement balance). null if not applicable.',
+      type: 'number',
+      description: 'The main dollar amount (invoice total, amount due, statement balance). 0 if not applicable.',
     },
     referenceNumber: {
-      type: ['string', 'null'],
-      description: 'Invoice number, account number, or case number printed on the document. null if none.',
+      type: 'string',
+      description: 'Invoice number, account number, or case number printed on the document. Empty string if none.',
     },
     summary: {
       type: 'string',
@@ -67,64 +94,101 @@ const EXTRACTION_SCHEMA = {
     },
   },
   required: ['docType', 'sender', 'businessTag', 'docDate', 'totalAmount', 'referenceNumber', 'summary', 'confidence'],
-  additionalProperties: false,
 };
 
-const SYSTEM_PROMPT = `You read scanned business documents for a family-run catering company that operates three businesses: DeGrill, Parathas & Platters, and Dera Masala Grill (all in the NY/NJ area). Documents are typically supplier invoices, receipts, tax notices, bank statements, payroll records, legal letters, and credit memos — often phone photos or flatbed scans of paper, sometimes skewed, faded, or handwritten-on. Extract the requested fields exactly as printed. If a field is genuinely unreadable, use null rather than guessing.`;
+let anthropicClient = null;
+function getAnthropic() {
+  if (!anthropicClient) anthropicClient = new Anthropic();
+  return anthropicClient;
+}
 
-/**
- * Read one document with Claude. Returns the extracted fields object, or
- * null on any failure (caller falls back to the regex path).
- *
- * @param {Buffer} buffer  file contents
- * @param {string} mediaType  'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp'
- * @param {string} filename  original name, given to the model as context
- */
-export async function extractDocumentAI(buffer, mediaType, filename) {
-  if (!aiEnabled()) return null;
-  if (!buffer || buffer.length === 0 || buffer.length > AI_MAX_BYTES) return null;
+let geminiClient = null;
+function getGemini() {
+  if (!geminiClient) geminiClient = new GoogleGenAI({ apiKey: GEMINI_KEY });
+  return geminiClient;
+}
 
+// Normalize the LLM's raw extraction into the durable shape the pipeline
+// stores. Defensively coerces and clamps so a malformed model answer can
+// never poison the DB.
+function normalizeExtraction(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const docDateStr = String(raw.docDate || '').trim();
+  const refStr = String(raw.referenceNumber || '').trim();
+  return {
+    docType: String(raw.docType || 'other'),
+    sender: String(raw.sender || '').slice(0, 120) || 'Unknown Sender',
+    businessTag: ['degrill', 'parathas', 'dera'].includes(raw.businessTag) ? raw.businessTag : '',
+    docDate: /^\d{4}-\d{2}-\d{2}$/.test(docDateStr) ? docDateStr : null,
+    totalAmount: Number.isFinite(raw.totalAmount) && raw.totalAmount !== 0 ? +Number(raw.totalAmount).toFixed(2) : null,
+    referenceNumber: refStr ? refStr.slice(0, 80) : null,
+    summary: String(raw.summary || '').slice(0, 300),
+    confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0)),
+  };
+}
+
+async function extractWithAnthropic(buffer, mediaType, filename) {
   const isPdf = mediaType === 'application/pdf';
   const fileBlock = isPdf
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }
     : { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } };
+  const response = await getAnthropic().messages.create({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 2048,
+    system: SYSTEM_PROMPT,
+    output_config: {
+      format: { type: 'json_schema', schema: EXTRACTION_SCHEMA },
+      effort: 'low',
+    },
+    messages: [{
+      role: 'user',
+      content: [fileBlock, { type: 'text', text: `Filename: ${filename}\nExtract the document fields.` }],
+    }],
+  });
+  if (response.stop_reason === 'refusal') return null;
+  const textBlock = response.content.find(b => b.type === 'text');
+  if (!textBlock?.text) return null;
+  return normalizeExtraction(JSON.parse(textBlock.text));
+}
 
+async function extractWithGemini(buffer, mediaType, filename) {
+  const response = await getGemini().models.generateContent({
+    model: GEMINI_MODEL,
+    contents: [{
+      role: 'user',
+      parts: [
+        { inlineData: { mimeType: mediaType, data: buffer.toString('base64') } },
+        { text: `${SYSTEM_PROMPT}\n\nFilename: ${filename}\nExtract the document fields.` },
+      ],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: EXTRACTION_SCHEMA,
+      temperature: 0.1,
+    },
+  });
+  const text = typeof response?.text === 'function' ? response.text() : response?.text;
+  if (!text) return null;
+  return normalizeExtraction(JSON.parse(text));
+}
+
+/**
+ * Read one document with the active AI provider. Returns the extracted
+ * fields object, or null on any failure (caller falls back to the regex
+ * path).
+ *
+ * @param {Buffer} buffer       file contents
+ * @param {string} mediaType    'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp'
+ * @param {string} filename     original name, given to the model as context
+ */
+export async function extractDocumentAI(buffer, mediaType, filename) {
+  const provider = activeProvider();
+  if (!provider) return null;
+  if (!buffer || buffer.length === 0 || buffer.length > AI_MAX_BYTES) return null;
   try {
-    const response = await getClient().messages.create({
-      model: SCAN_AI_MODEL,
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      output_config: {
-        format: { type: 'json_schema', schema: EXTRACTION_SCHEMA },
-        effort: 'low',
-      },
-      messages: [{
-        role: 'user',
-        content: [
-          fileBlock,
-          { type: 'text', text: `Filename: ${filename}\nExtract the document fields.` },
-        ],
-      }],
-    });
-
-    if (response.stop_reason === 'refusal') return null;
-    const textBlock = response.content.find(b => b.type === 'text');
-    if (!textBlock?.text) return null;
-    const parsed = JSON.parse(textBlock.text);
-
-    // Light validation so a malformed answer can't poison the DB.
-    if (!parsed || typeof parsed !== 'object') return null;
-    return {
-      docType: String(parsed.docType || 'other'),
-      sender: String(parsed.sender || '').slice(0, 120) || 'Unknown Sender',
-      businessTag: ['degrill', 'parathas', 'dera'].includes(parsed.businessTag) ? parsed.businessTag : '',
-      docDate: /^\d{4}-\d{2}-\d{2}$/.test(String(parsed.docDate || '')) ? parsed.docDate : null,
-      totalAmount: Number.isFinite(parsed.totalAmount) ? +Number(parsed.totalAmount).toFixed(2) : null,
-      referenceNumber: parsed.referenceNumber ? String(parsed.referenceNumber).slice(0, 80) : null,
-      summary: String(parsed.summary || '').slice(0, 300),
-      confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
-    };
-  } catch (err) {
+    if (provider === 'gemini') return await extractWithGemini(buffer, mediaType, filename);
+    return await extractWithAnthropic(buffer, mediaType, filename);
+  } catch {
     // Rate limits, network failures, malformed JSON — fall back, log upstream.
     return null;
   }
