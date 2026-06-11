@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 // SECURITY (docs/SECURITY_REVIEW.md A12): pdf-parse@1.1.1 was unmaintained.
 // pdf-parse-fork is the maintained drop-in replacement.
 import pdfParse from 'pdf-parse-fork';
+import { aiEnabled, aiModel, extractDocumentAI } from './scanAi.js';
 
 dotenv.config();
 
@@ -357,12 +358,14 @@ function detectSender(filename, text) {
   const guess = path.basename(filename, path.extname(filename)).replace(/[_-]+/g, ' ').trim();
   return guess || 'Unknown Sender';
 }
+const SCAN_EXTS = /\.(pdf|jpe?g|png|webp)$/i;
+const SCAN_MEDIA_TYPES = { '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 function collectPdfFiles(dir, out = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const ent of entries) {
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) collectPdfFiles(full, out);
-    else if (ent.isFile() && /\.pdf$/i.test(ent.name)) out.push(full);
+    else if (ent.isFile() && SCAN_EXTS.test(ent.name)) out.push(full);
   }
   return out;
 }
@@ -461,18 +464,36 @@ async function processScanOnce() {
           scanActivity(db, 'Duplicate detected; skipping import', { filePath, existingId: duplicate.id });
           continue;
         }
-        const text = await extractPdfTextSafe(filePath);
         const baseName = path.basename(filePath);
-        const typeInfo = detectDocType(baseName, text);
+        const ext = path.extname(baseName).toLowerCase();
+        const mediaType = SCAN_MEDIA_TYPES[ext] || 'application/pdf';
+
+        // AI-first: Claude reads scanned PDFs and photos natively, which the
+        // legacy pdf-parse + regex path cannot (image-only PDFs yield no
+        // text). Falls back to the regex path if AI is disabled or fails.
+        let ai = null;
+        if (aiEnabled()) {
+          ai = await extractDocumentAI(fs.readFileSync(filePath), mediaType, baseName);
+          if (!ai) scanActivity(db, 'AI extraction failed; using keyword fallback', { filePath });
+        }
+
+        const text = ext === '.pdf' ? await extractPdfTextSafe(filePath) : '';
+        const typeInfo = ai
+          ? { docType: normalizeDocType(ai.docType), confidence: ai.confidence }
+          : detectDocType(baseName, text);
         const docType = typeInfo.docType;
-        const sender = detectSender(baseName, text);
-        const businessTag = detectBusiness(`${baseName}\n${text}`);
-        const dt = new Date(st.mtimeMs || Date.now());
+        const sender = ai ? ai.sender : detectSender(baseName, text);
+        const businessTag = ai ? ai.businessTag : detectBusiness(`${baseName}\n${text}`);
+
+        // File under the date printed ON the document when AI found one.
+        // A pile of old paper all scanned today gets today's mtime — the
+        // document's own date is what matters for the Year/Month folders.
+        const dt = ai?.docDate ? new Date(ai.docDate + 'T12:00:00') : new Date(st.mtimeMs || Date.now());
         const year = String(dt.getFullYear());
         const month = monthLabel(dt);
         const folder = path.join(libraryPath, year, month, docType);
         if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
-        const targetName = `${dt.toISOString().slice(0, 10)}__${slugSafe(sender, 'sender')}__${slugSafe(docType, 'other')}__${slugSafe(path.basename(baseName, '.pdf'), 'scan')}.pdf`;
+        const targetName = `${dt.toISOString().slice(0, 10)}__${slugSafe(sender, 'sender')}__${slugSafe(docType, 'other')}__${slugSafe(path.basename(baseName, ext), 'scan')}${ext}`;
         const targetPath = moveFileSafe(filePath, path.join(folder, targetName));
         const doc = {
           id: crypto.randomUUID(),
@@ -482,13 +503,18 @@ async function processScanOnce() {
           businessTag,
           year,
           month,
+          docDate: ai?.docDate || null,
+          totalAmount: ai?.totalAmount ?? null,
+          referenceNumber: ai?.referenceNumber || null,
+          summary: ai?.summary || '',
+          extractedBy: ai ? 'ai' : 'keywords',
           fileHash,
           fileName: path.basename(targetPath),
           filePath: targetPath,
           sourcePath: filePath,
-          textPreview: text.slice(0, 1200),
-          confidence: text ? typeInfo.confidence : 0.45,
-          status: (text && typeInfo.confidence >= 0.75) ? 'classified' : 'needs_review',
+          textPreview: ai?.summary || text.slice(0, 1200),
+          confidence: ai ? ai.confidence : (text ? typeInfo.confidence : 0.45),
+          status: (ai ? ai.confidence >= 0.75 : (text && typeInfo.confidence >= 0.75)) ? 'classified' : 'needs_review',
           notes: ''
         };
         db.docs.push(doc);
@@ -519,7 +545,16 @@ const app = express();
 // Render (and most reverse proxies) sit in front of us; trust X-Forwarded-For
 // so express-rate-limit keys per real client IP, not Render's edge.
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '256kb' }));
+// The scan-upload route carries base64 documents (phone photos, scanned
+// PDFs) and needs a much larger body cap than the rest of the API. It is
+// registered with its own parser BEFORE the global 256kb parser; everything
+// else stays tight.
+const scanUploadParser = express.json({ limit: '40mb' });
+const defaultJsonParser = express.json({ limit: '256kb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/scan/upload') return scanUploadParser(req, res, next);
+  return defaultJsonParser(req, res, next);
+});
 app.use(cors({
   origin(origin, cb) {
     if (!origin) return cb(null, true);
@@ -782,7 +817,67 @@ app.get('/api/scan/status', adminOnly, (_req, res) => {
     counts: { total: db.docs.length, needsReview, failures: db.failures.length },
     recentFailures: db.failures.slice(-10).reverse(),
     recentActivity: db.activity.slice(-15).reverse(),
-    pollMs: SCAN_POLL_MS
+    pollMs: SCAN_POLL_MS,
+    ai: { enabled: aiEnabled(), model: aiEnabled() ? aiModel() : null }
+  });
+});
+
+// Direct upload from the browser — lets the admin photograph documents on a
+// phone or drag PDFs into the web app, with no folder watcher required.
+// Files are written into the configured inbox and run through the same
+// pipeline (AI extraction, dedupe, foldering) as watcher-discovered files.
+app.post('/api/scan/upload', adminOnly, async (req, res) => {
+  const db = readScanDb();
+  const inboxPath = String(db.config?.inboxPath || '').trim();
+  if (!inboxPath) {
+    return res.status(400).json({ ok: false, error: 'Set the Inbox folder in scanner config first.' });
+  }
+  if (!fs.existsSync(inboxPath)) fs.mkdirSync(inboxPath, { recursive: true });
+
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ ok: false, error: 'No files in upload.' });
+  if (files.length > 20) return res.status(400).json({ ok: false, error: 'Upload at most 20 files at a time.' });
+
+  const saved = [];
+  for (const f of files) {
+    const rawName = String(f?.name || 'scan');
+    const ext = path.extname(rawName).toLowerCase();
+    if (!SCAN_EXTS.test(rawName)) {
+      return res.status(400).json({ ok: false, error: `Unsupported file type: ${rawName}. Use PDF, JPG, PNG, or WEBP.` });
+    }
+    let buf;
+    try {
+      buf = Buffer.from(String(f?.dataBase64 || ''), 'base64');
+    } catch {
+      return res.status(400).json({ ok: false, error: `Could not decode ${rawName}.` });
+    }
+    if (!buf.length) return res.status(400).json({ ok: false, error: `${rawName} is empty.` });
+    if (buf.length > SCAN_MAX_PDF_BYTES) {
+      return res.status(400).json({ ok: false, error: `${rawName} is too large.` });
+    }
+    const safeBase = slugSafe(path.basename(rawName, ext), 'scan');
+    const target = getUniqueTargetPath(path.join(inboxPath, `upload__${safeBase}${ext}`));
+    fs.writeFileSync(target, buf);
+    // Backdate mtime so the min-file-age guard doesn't delay processing.
+    const aged = new Date(Date.now() - SCAN_MIN_FILE_AGE_MS - 1000);
+    fs.utimesSync(target, aged, aged);
+    saved.push(path.basename(target));
+  }
+  scanActivity(db, `Uploaded ${saved.length} document(s) from the web app`, { by: req.adminUser });
+  writeScanDb(db);
+
+  // Process immediately so the uploader sees results in one round trip.
+  await processScanOnce();
+  const after = readScanDb();
+  return res.json({
+    ok: true,
+    uploaded: saved.length,
+    counts: { total: after.docs.length, needsReview: after.docs.filter(d => d.status === 'needs_review').length },
+    recent: after.docs.slice(-saved.length).reverse().map(d => ({
+      id: d.id, sender: d.sender, docType: d.docType, businessTag: d.businessTag,
+      docDate: d.docDate, totalAmount: d.totalAmount, summary: d.summary,
+      status: d.status, fileName: d.fileName, extractedBy: d.extractedBy,
+    })),
   });
 });
 

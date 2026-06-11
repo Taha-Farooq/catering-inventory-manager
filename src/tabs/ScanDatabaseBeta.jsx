@@ -43,6 +43,9 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
   const [filters, setFilters] = useState({ q: '', sender: '', docType: '', year: '', month: '', businessTag: '', status: '' });
   const [results, setResults] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [bulkBusiness, setBulkBusiness] = useState('');
   const [bulkType, setBulkType] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
@@ -160,6 +163,44 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
     runSearch();
   }
 
+  // Upload documents straight from the browser (drag-drop, file picker, or
+  // phone camera). Files go to the backend inbox and run through the same
+  // AI extraction pipeline as watcher-discovered files.
+  async function uploadFiles(fileList) {
+    const files = Array.from(fileList || []).filter(f =>
+      /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || /^(application\/pdf|image\/(jpeg|png|webp))$/.test(f.type));
+    if (!files.length) { showToast('Choose PDF or photo files (JPG/PNG).', 'error'); return; }
+    if (files.length > 20) { showToast('Upload at most 20 files at a time.', 'error'); return; }
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const payload = [];
+      for (const f of files) {
+        const buf = await f.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buf);
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        payload.push({ name: f.name, dataBase64: btoa(binary) });
+      }
+      const res = await scanApiCall('/api/scan/upload', { currentUser, method: 'POST', body: { files: payload } });
+      if (!res.ok) {
+        toastApiFailure(res, 'Upload failed');
+        setErr(res.error || 'Upload failed');
+        return;
+      }
+      setErr('');
+      setUploadResult(res.data);
+      showToast(`${res.data.uploaded} document${res.data.uploaded !== 1 ? 's' : ''} scanned and filed.`);
+      refreshStatus(true);
+      runSearch(true);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function exportDb() {
     const res = await scanApiCall('/api/scan/export', { currentUser });
     if (!res.ok) {
@@ -197,12 +238,13 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Scanned Documents Database <span className="badge badge-user" style={{ marginLeft: 8 }}>BETA · WIP</span></h2>
-        <div style={{ fontSize: 12, color: '#555' }}>Admin-only local-device scanner index</div>
+        <h2 style={{ margin: 0 }}>📄 Document Scanner</h2>
+        <div style={{ fontSize: 12, color: '#555' }}>Admin-only · reads, names, and files your paperwork</div>
       </div>
       <div style={{ fontSize: 12, color: '#888', marginBottom: 10, background: '#f8f8f8', borderRadius: 6, padding: '6px 10px' }}>
-        This tab requires the backend server running on the admin device (localhost:8787).
-        It organizes scanned files into a folder-based archive — separate from the invoice database.
+        Drop in PDFs or phone photos of paperwork — the computer reads each one, figures out who sent it,
+        what it is, the date and amount, and files it into Year / Month / Type folders with a clear name.
+        Requires the backend server running on the admin device.
       </div>
       {(!isOnline || backendDown) && <BackendUnavailableBanner code={backendDown ? 'DMG-E021' : 'DMG-E030'} />}
       {!hasAuth && (
@@ -217,6 +259,59 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
       {err && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '8px 12px', borderRadius: 6, marginBottom: 10, fontSize: 12.5 }}>{err}</div>}
       {hasAuth && (
         <>
+          {/* Drop zone — the main way mom feeds the pile of paper in */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
+            style={{
+              border: `2.5px dashed ${dragOver ? 'var(--brown,#8B4513)' : '#DEB887'}`,
+              background: dragOver ? '#FFF3DC' : '#FFFBF2',
+              borderRadius: 10, padding: '22px 16px', textAlign: 'center', marginBottom: 14,
+              transition: 'background .15s,border-color .15s',
+            }}
+          >
+            <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--brown,#8B4513)' }}>
+              Drop documents here — or
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+              <label className="btn btn-primary" style={{ margin: 0, cursor: 'pointer' }}>
+                {uploading ? '⏳ Reading…' : '📁 Choose files'}
+                <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" multiple disabled={uploading}
+                  style={{ display: 'none' }}
+                  onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
+              </label>
+              <label className="btn btn-outline" style={{ margin: 0, cursor: 'pointer' }}>
+                📷 Take photo
+                <input type="file" accept="image/*" capture="environment" disabled={uploading}
+                  style={{ display: 'none' }}
+                  onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
+              </label>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#999', marginTop: 8 }}>
+              PDF, JPG, PNG · up to 20 at a time · {status?.ai?.enabled
+                ? <span style={{ color: '#15803d', fontWeight: 700 }}>🤖 AI reading ON — sender, date, amount &amp; type extracted automatically</span>
+                : <span style={{ color: '#b45309', fontWeight: 700 }}>AI reading OFF — set ANTHROPIC_API_KEY on the backend to enable (keyword matching only)</span>}
+            </div>
+          </div>
+
+          {uploadResult && (
+            <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
+              <div style={{ fontWeight: 700, color: '#15803d', marginBottom: 6 }}>✓ {uploadResult.uploaded} document{uploadResult.uploaded !== 1 ? 's' : ''} filed</div>
+              {(uploadResult.recent || []).map(d => (
+                <div key={d.id} style={{ padding: '4px 0', borderTop: '1px solid #DCFCE7', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span className="badge badge-admin">{d.docType}</span>
+                  <strong>{d.sender}</strong>
+                  {d.totalAmount != null && <span style={{ color: '#15803d', fontWeight: 700 }}>${Number(d.totalAmount).toFixed(2)}</span>}
+                  {d.docDate && <span style={{ color: '#777' }}>{fmtDate(d.docDate)}</span>}
+                  {d.summary && <span style={{ color: '#555' }}>— {d.summary}</span>}
+                  {d.status === 'needs_review' && <span style={{ color: '#b45309', fontWeight: 700 }}>needs review</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10, marginBottom: 12 }}>
             <FI label="Watch Inbox Folder" value={config.inboxPath || ''} onChange={e => setConfig(c => ({ ...c, inboxPath: e.target.value }))} placeholder="C:\Scans\Inbox" />
             <FI label="Library Root Folder" value={config.libraryPath || ''} onChange={e => setConfig(c => ({ ...c, libraryPath: e.target.value }))} placeholder="C:\Scans\Library" />
@@ -273,27 +368,45 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
           <div style={{ maxHeight: 440, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
             <table className="table">
               <thead>
-                <tr><th></th><th>Date</th><th>Sender</th><th>Type</th><th>Business</th><th>Status</th><th>File</th><th>Actions</th></tr>
+                <tr><th></th><th>Doc Date</th><th>Sender</th><th>Type</th><th>Amount</th><th>Business</th><th>Status</th><th>Summary / File</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {results.map(item => {
                   const checked = selectedIds.includes(item.id);
+                  const needsReview = item.status === 'needs_review';
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} style={needsReview ? { background: '#FFFBEB' } : undefined}>
                       <td><input type="checkbox" checked={checked} onChange={e => setSelectedIds(ids => e.target.checked ? [...new Set([...ids, item.id])] : ids.filter(x => x !== item.id))} /></td>
-                      <td>{fmtDate(String(item.importedAt || '').slice(0, 10))}</td>
-                      <td>{item.sender}</td>
-                      <td>{item.docType}</td>
-                      <td>{item.businessTag || 'unknown'}</td>
-                      <td>{item.status}</td>
-                      <td style={{ maxWidth: 220, wordBreak: 'break-word' }}>{item.fileName}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(item.docDate || String(item.importedAt || '').slice(0, 10))}</td>
+                      <td style={{ fontWeight: 600 }}>{item.sender}</td>
                       <td>
-                        <Btn className="btn-outline btn-sm" onClick={() => updateOne(item, { status: 'classified' })}>Mark OK</Btn>
+                        <select className="input" style={{ padding: '2px 4px', fontSize: 12, minWidth: 110 }} value={item.docType}
+                          onChange={e => updateOne(item, { docType: e.target.value })}>
+                          {SCAN_DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#15803d' }}>{item.totalAmount != null ? `$${Number(item.totalAmount).toFixed(2)}` : ''}</td>
+                      <td>
+                        <select className="input" style={{ padding: '2px 4px', fontSize: 12 }} value={item.businessTag || 'unknown'}
+                          onChange={e => updateOne(item, { businessTag: e.target.value === 'unknown' ? '' : e.target.value })}>
+                          <option value="unknown">unknown</option>
+                          <option value="degrill">degrill</option>
+                          <option value="parathas">parathas</option>
+                          <option value="dera">dera</option>
+                        </select>
+                      </td>
+                      <td>{needsReview ? <span style={{ color: '#b45309', fontWeight: 700, fontSize: 12 }}>review</span> : <span style={{ color: '#15803d', fontSize: 12 }}>✓ ok</span>}</td>
+                      <td style={{ maxWidth: 280, wordBreak: 'break-word', fontSize: 12 }}>
+                        {item.summary ? <div style={{ color: '#444' }}>{item.summary}</div> : null}
+                        <div style={{ color: '#999', fontSize: 11 }}>{item.fileName}{item.extractedBy === 'ai' ? ' · 🤖' : ''}</div>
+                      </td>
+                      <td>
+                        {needsReview && <Btn className="btn-outline btn-sm" onClick={() => updateOne(item, { status: 'classified' })}>Mark OK</Btn>}
                       </td>
                     </tr>
                   );
                 })}
-                {!results.length && <tr><td colSpan={8}><div className="muted text-center">No scanned documents matched current filters.</div></td></tr>}
+                {!results.length && <tr><td colSpan={9}><div className="muted text-center">No scanned documents matched current filters.</div></td></tr>}
               </tbody>
             </table>
           </div>
