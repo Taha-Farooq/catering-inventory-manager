@@ -5,7 +5,9 @@ import { fmt$ } from '../formatters.js';
 import { showToast } from '../toastContext.jsx';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
-import { buildProfessionalDoc, docSection, docMoney } from '../utils/professionalDoc.js';
+import { buildProfessionalDoc, docSection, docMoney, esc } from '../utils/professionalDoc.js';
+import { load } from '../utils/storage.js';
+import { OWNERS_KEY } from '../constants.js';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
 const fmtD = d => d.toISOString().slice(0, 10);
@@ -201,6 +203,196 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     logActivity('print_report', `Printed P&L statement (${periodLabelFrom(filterFrom, filterTo)}${filterBiz ? ', ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ''})`);
   }
 
+  // Owner / partner distribution statement. Uses the same net-profit number
+  // as the P&L; subtracts each owner's salary draw recognized during the
+  // period; distributes the remainder by share %.
+  function printDistribution() {
+    const owners = load(OWNERS_KEY, []);
+    if (!Array.isArray(owners) || owners.length === 0) {
+      showToast('Add owners in Settings → Owners & Profit Distribution first.', 'error');
+      return;
+    }
+    const sharePctTotal = owners.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
+    if (Math.abs(sharePctTotal - 100) > 0.01) {
+      showToast(`Owner shares total ${sharePctTotal.toFixed(1)}%; set them to 100% in Settings before printing.`, 'error');
+      return;
+    }
+
+    const revenue = totalRevenue + manualIncome;
+    const expenses = totalSpending + payrollTotal + manualExpense;
+    const netProfit = +(revenue - expenses).toFixed(2);
+
+    const totalSalary = owners.reduce((s, o) => s + (Number(o.salary) || 0), 0);
+    const distributable = +(netProfit - totalSalary).toFixed(2);
+
+    const rows = owners.map(o => {
+      const share = Number(o.sharePct) || 0;
+      const salary = Number(o.salary) || 0;
+      const distribution = +((distributable * share) / 100).toFixed(2);
+      const totalComp = +(salary + distribution).toFixed(2);
+      return { name: o.name || '(unnamed)', share, salary, distribution, totalComp };
+    });
+
+    const head = `<tr style="background:#FBF6EC">
+      <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Owner</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Share</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Salary Drawn</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Profit Distribution</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Total Compensation</th>
+    </tr>`;
+    const bodyRows = rows.map(r => `<tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${r.share.toFixed(1)}%</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(r.salary))}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;color:${r.distribution >= 0 ? '#15803d' : '#b91c1c'};">${esc(docMoney(r.distribution))}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;">${esc(docMoney(r.totalComp))}</td>
+    </tr>`).join('');
+    const totalCompSum = rows.reduce((s, r) => s + r.totalComp, 0);
+    const totalRow = `<tr>
+      <td style="padding:10px;border-top:2px solid #333;font-weight:800;font-size:13px;">TOTAL</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${sharePctTotal.toFixed(1)}%</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(totalSalary))}</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(distributable))}</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;">${esc(docMoney(totalCompSum))}</td>
+    </tr>`;
+    const table = `<table style="width:100%;border-collapse:collapse;margin-bottom:6px;">${head}${bodyRows}${totalRow}</table>`;
+
+    const summary = docSection({
+      heading: 'Period Summary',
+      rows: [
+        { label: 'Total revenue', value: docMoney(revenue), indent: true, muted: true },
+        { label: 'Total expenses (incl. payroll)', value: docMoney(expenses), indent: true, muted: true },
+        { label: 'Net profit (before owner draws)', value: docMoney(netProfit), indent: true, strong: true },
+        { label: 'Less: salaries already drawn by owners', value: docMoney(totalSalary), indent: true, muted: true },
+      ],
+      total: { label: 'Distributable Profit', value: docMoney(distributable), accent: distributable >= 0 ? '#15803D' : '#DC2626' },
+    });
+
+    // Signature block.
+    const signatures = `<div style="margin-top:32px;display:flex;gap:24px;">
+      ${rows.map(r => `<div style="flex:1;">
+        <div style="border-bottom:1px solid #333;height:36px;"></div>
+        <div style="font-size:11.5px;color:#555;margin-top:4px;">${esc(r.name)} — date</div>
+      </div>`).join('')}
+    </div>`;
+
+    const html = buildProfessionalDoc({
+      branding: brandingForReport(),
+      docType: 'OWNER DISTRIBUTION STATEMENT',
+      docNumber: 'DIST-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: periodLabelFrom(filterFrom, filterTo) + (filterBiz ? ' · ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ''),
+      bodyHtml: summary + '<div style="height:14px"></div>' + table + signatures,
+      footerNote: 'Each owner signs to acknowledge agreement with the period results. Salary drawn reflects amounts already paid as salary during the period; profit distributions are pro-rated by share. This statement is a management record, not an audited financial statement.',
+      confidential: true,
+    });
+    printHtmlDocument(html, 'Owner Distribution Statement');
+    logActivity('print_report', `Printed owner distribution statement (${periodLabelFrom(filterFrom, filterTo)})`);
+  }
+
+  // One-page "Monthly Business Report" — the document she can print every
+  // month and hand to a partner / accountant. Combines P&L, top customers,
+  // payroll summary, and sales tax in a single page.
+  function printMonthlyReport() {
+    const revenue = totalRevenue + manualIncome;
+    const expenses = totalSpending + payrollTotal + manualExpense;
+    const net = +(revenue - expenses).toFixed(2);
+    const margin = revenue > 0 ? ((net / revenue) * 100).toFixed(1) + '%' : '—';
+
+    if (!filteredCatering.length && !filteredPurchase.length && !filteredDaily.length && !filteredPayroll.length) {
+      showToast('No data in this period to report on.', 'error');
+      return;
+    }
+
+    // Mini bar chart inline (no external lib — just divs scaled to the max).
+    const customersBlock = topCustomers.length === 0 ? '' : (() => {
+      const maxV = Math.max(...topCustomers.map(c => c.total), 1);
+      const bars = topCustomers.slice(0, 5).map(c => `
+        <tr>
+          <td style="padding:4px 8px;font-size:12.5px;color:#444;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;">${esc(c.name)}</td>
+          <td style="padding:4px 8px;width:100%;">
+            <div style="background:#EFF6FF;border-radius:4px;height:14px;overflow:hidden;">
+              <div style="width:${(c.total / maxV * 100).toFixed(1)}%;background:#1D4ED8;height:14px;"></div>
+            </div>
+          </td>
+          <td style="padding:4px 8px;font-size:12.5px;font-weight:700;color:#1D4ED8;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;">${esc(docMoney(c.total))}</td>
+          <td style="padding:4px 8px;font-size:11px;color:#888;text-align:right;white-space:nowrap;">${c.count} evt${c.count!==1?'s':''}</td>
+        </tr>`).join('');
+      return `<div style="margin-top:18px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.6px;color:#1D4ED8;text-transform:uppercase;border-bottom:1.5px solid #1D4ED8;padding-bottom:4px;margin-bottom:6px;">Top Customers</div>
+        <table style="width:100%;border-collapse:collapse;">${bars}</table>
+      </div>`;
+    })();
+
+    // Payroll summary by employee.
+    const empRollup = {};
+    filteredPayroll.forEach(p => {
+      const lines = Array.isArray(p.lines) && p.lines.length ? p.lines : [{ name: p.employeeName || p.name || '(employee)', total: p.total || 0, regularHours: p.regularHours, overtimeHours: p.overtimeHours, payRate: p.hourlyRate || p.payRate }];
+      lines.forEach(l => {
+        const k = (l.name || '').toLowerCase().trim() || 'unknown';
+        if (!empRollup[k]) empRollup[k] = { name: l.name || 'Unknown', regH: 0, otH: 0, total: 0 };
+        empRollup[k].regH += Number(l.regularHours) || 0;
+        empRollup[k].otH += Number(l.overtimeHours) || 0;
+        empRollup[k].total += Number(l.total) || 0;
+      });
+    });
+    const empRows = Object.values(empRollup).sort((a, b) => b.total - a.total).slice(0, 8);
+    const payrollBlock = empRows.length === 0 ? '' : (() => {
+      const rows = empRows.map(e => `<tr>
+        <td style="padding:4px 8px;font-size:12.5px;color:#444;">${esc(e.name)}</td>
+        <td style="padding:4px 8px;font-size:12px;color:#777;text-align:right;font-variant-numeric:tabular-nums;">${e.regH.toFixed(2)}</td>
+        <td style="padding:4px 8px;font-size:12px;color:#777;text-align:right;font-variant-numeric:tabular-nums;">${e.otH.toFixed(2)}</td>
+        <td style="padding:4px 8px;font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;">${esc(docMoney(e.total))}</td>
+      </tr>`).join('');
+      return `<div style="margin-top:18px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.6px;color:#8B4513;text-transform:uppercase;border-bottom:1.5px solid #8B4513;padding-bottom:4px;margin-bottom:6px;">Payroll by Employee</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><th style="text-align:left;padding:3px 8px;font-size:10px;color:#888;letter-spacing:.4px;">EMPLOYEE</th><th style="text-align:right;padding:3px 8px;font-size:10px;color:#888;">REG HRS</th><th style="text-align:right;padding:3px 8px;font-size:10px;color:#888;">OT HRS</th><th style="text-align:right;padding:3px 8px;font-size:10px;color:#888;">GROSS PAY</th></tr>
+          ${rows}
+        </table>
+      </div>`;
+    })();
+
+    // P&L mini summary table.
+    const plMini = `<div style="margin-top:6px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.6px;color:#15803D;text-transform:uppercase;border-bottom:1.5px solid #15803D;padding-bottom:4px;margin-bottom:6px;">Profit &amp; Loss</div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:4px 8px;font-size:13px;">Total revenue</td><td style="padding:4px 8px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(revenue))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Catering invoices</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(totalRevenue))}</td></tr>
+        ${manualIncome ? `<tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Other income</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(manualIncome))}</td></tr>` : ''}
+        <tr><td style="padding:4px 8px;font-size:13px;">Total expenses</td><td style="padding:4px 8px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(expenses))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Supplies &amp; purchases</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(totalSpending))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Payroll</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(payrollTotal))}</td></tr>
+        ${manualExpense ? `<tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Other expenses</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(manualExpense))}</td></tr>` : ''}
+        <tr><td style="padding:8px;font-size:14px;font-weight:800;border-top:2px solid #333;">${net >= 0 ? 'Net profit' : 'Net loss'}</td><td style="padding:8px;text-align:right;font-size:14px;font-weight:800;border-top:2px solid #333;color:${net >= 0 ? '#15803D' : '#DC2626'};font-variant-numeric:tabular-nums;">${esc(docMoney(net))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:12px;color:#777;">Margin</td><td style="padding:4px 8px;text-align:right;font-size:12px;color:#777;font-variant-numeric:tabular-nums;">${esc(margin)}</td></tr>
+      </table>
+    </div>`;
+
+    // Key stats strip.
+    const statTile = (lbl, val, color) => `<div style="background:#FBF6EC;border:1px solid #EED9B0;border-radius:6px;padding:10px;text-align:center;">
+      <div style="font-size:18px;font-weight:800;color:${color || '#8B4513'};font-variant-numeric:tabular-nums;">${esc(val)}</div>
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-top:3px;">${esc(lbl)}</div>
+    </div>`;
+    const stats = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:14px;">
+      ${statTile('Catering invoices', String(filteredCatering.length))}
+      ${statTile('Outstanding A/R', docMoney(outstanding), outstanding > 0 ? '#b91c1c' : '#8B4513')}
+      ${statTile('Sales tax due', docMoney(taxDue), taxDue > 0 ? '#b91c1c' : '#15803d')}
+      ${statTile('Avg invoice', filteredCatering.length > 0 ? docMoney(totalRevenue / filteredCatering.length) : '—')}
+      ${statTile('Repeat customers', repeatCustomers.total > 0 ? `${repeatCustomers.pct}%` : '—')}
+    </div>`;
+
+    const html = buildProfessionalDoc({
+      branding: brandingForReport(),
+      docType: 'MONTHLY BUSINESS REPORT',
+      docNumber: 'MBR-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: periodLabelFrom(filterFrom, filterTo) + (filterBiz ? ' · ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ' · All businesses'),
+      bodyHtml: plMini + stats + customersBlock + payrollBlock,
+      footerNote: 'Single-page management summary for the period. Detailed source documents (P&L statement, payroll register, sales-tax report) are available from their respective tabs.',
+    });
+    printHtmlDocument(html, 'Monthly Business Report');
+    logActivity('print_report', `Printed monthly business report (${periodLabelFrom(filterFrom, filterTo)})`);
+  }
+
   function exportExcel() {
     const wb = XLSX.utils.book_new();
     // Summary sheet
@@ -276,7 +468,9 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
+        <button className="btn btn-primary btn-sm" onClick={printMonthlyReport} title="Print a one-page monthly report combining P&L, top customers, and payroll summary">📈 Monthly Report</button>
         <button className="btn btn-primary btn-sm" onClick={printProfitAndLoss} title="Print a professional Profit & Loss statement for the selected period and business">🧾 P&amp;L Statement</button>
+        <button className="btn btn-primary btn-sm" onClick={printDistribution} title="Print the owner distribution statement (configure owners in Settings → Advanced → Owners)">🤝 Distribution</button>
         <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</button>
         <button className="btn btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</button>
       </div>

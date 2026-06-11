@@ -131,3 +131,7 @@ export const UI_MODE_KEY = '_uiMode';
 export const UI_MODE_SIMPLE = 'simple';
 export const UI_MODE_POWER = 'power';
 export const DEFAULT_UI_MODE = UI_MODE_SIMPLE;
+/** Owners / partners configured for the profit-distribution statement.
+ *  Shape: [{ id, name, sharePct, salary }]. salary = total paid as salary in
+ *  the reporting period (subtracted from net before distribution). */
+export const OWNERS_KEY = '_owners';

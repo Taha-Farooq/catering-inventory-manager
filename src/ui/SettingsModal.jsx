@@ -131,6 +131,26 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const [diagPayload, setDiagPayload] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
 
+  // Owners / partners configuration (used by the Distribution Statement).
+  const [owners, setOwners] = useState(() => {
+    const raw = load('_owners', []);
+    return Array.isArray(raw) ? raw : [];
+  });
+  function persistOwners(next) {
+    setOwners(next);
+    save('_owners', next);
+  }
+  function addOwner() {
+    persistOwners([...owners, { id: crypto.randomUUID(), name: '', sharePct: 0, salary: 0 }]);
+  }
+  function updateOwner(id, patch) {
+    persistOwners(owners.map(o => o.id === id ? { ...o, ...patch } : o));
+  }
+  function removeOwner(id) {
+    persistOwners(owners.filter(o => o.id !== id));
+  }
+  const sharePctTotal = owners.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
+
   // Staff user management
   const loadStaff = () => {
     const creds = load('credentials', {});
@@ -858,6 +878,37 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           showToast(`Session timeout set to ${sessionTimeoutInput}s.`);
           logActivity('settings_change', `Staff session timeout set to ${sessionTimeoutInput}s`);
         }}>💾 Save Timeout</Btn>
+      </div>
+      )}
+
+      {/* Owners / Partners — drives the Distribution Statement in Analytics */}
+      {showAdvanced && (
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>🤝 Owners &amp; Profit Distribution</div>
+        <p style={{fontSize:12.5,color:'#666',marginBottom:10,lineHeight:1.5}}>
+          List each owner / partner with their profit share (in percent) and any salary they take. The shares should add up to 100%. Used by the
+          “Distribution Statement” button in Analytics — net profit is computed for the selected period, salary drawn during the period is recognized,
+          and the remaining profit is distributed by share.
+        </p>
+        {owners.length === 0 && (
+          <div style={{padding:'12px 14px',background:'#FFF8DC',border:'1px dashed #DEB887',borderRadius:6,fontSize:12.5,color:'#7a5c20',marginBottom:10}}>
+            No owners configured yet. Add one to enable the Distribution Statement.
+          </div>
+        )}
+        {owners.map((o, idx) => (
+          <div key={o.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr auto',gap:8,alignItems:'end',marginBottom:8,padding:'10px 12px',background:'#FBF6EC',borderRadius:6}}>
+            <FI label={idx === 0 ? 'Name' : ''} value={o.name} onChange={e=>updateOwner(o.id, { name: e.target.value })} placeholder="e.g. Fatim Farooq" />
+            <FI label={idx === 0 ? 'Share %' : ''} type="number" min="0" max="100" step="0.5" value={o.sharePct} onChange={e=>updateOwner(o.id, { sharePct: e.target.value === '' ? '' : Number(e.target.value) })} />
+            <FI label={idx === 0 ? 'Salary drawn ($)' : ''} type="number" min="0" step="0.01" value={o.salary} onChange={e=>updateOwner(o.id, { salary: e.target.value === '' ? '' : Number(e.target.value) })} placeholder="Period total" />
+            <Btn className="btn-outline btn-sm" style={{marginBottom:2}} onClick={()=>removeOwner(o.id)} title="Remove this owner">✕</Btn>
+          </div>
+        ))}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
+          <Btn className="btn-outline btn-sm" onClick={addOwner}>＋ Add Owner</Btn>
+          <div style={{fontSize:12.5,color: Math.abs(sharePctTotal - 100) < 0.01 ? '#15803d' : (sharePctTotal > 0 ? '#b91c1c' : '#888')}}>
+            Total shares: <strong>{sharePctTotal.toFixed(1)}%</strong>{Math.abs(sharePctTotal - 100) >= 0.01 && sharePctTotal > 0 ? ' (must equal 100%)' : ''}
+          </div>
+        </div>
       </div>
       )}
 
