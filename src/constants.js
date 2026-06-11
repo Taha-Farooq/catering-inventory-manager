@@ -126,3 +126,8 @@ export const ATT_QR_QUERY_KEY = 'attToken';
 export const STAFF_SESSION_TIMEOUT_KEY = '_staffSessionTimeout';
 /** Default staff session timeout in seconds if not configured by admin. */
 export const DEFAULT_STAFF_SESSION_TIMEOUT = 120;
+/** Simple vs. power UI mode (see src/utils/uiMode.js). */
+export const UI_MODE_KEY = '_uiMode';
+export const UI_MODE_SIMPLE = 'simple';
+export const UI_MODE_POWER = 'power';
+export const DEFAULT_UI_MODE = UI_MODE_SIMPLE;

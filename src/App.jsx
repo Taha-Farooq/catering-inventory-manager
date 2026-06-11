@@ -106,7 +106,10 @@ import {
   ATT_QR_QUERY_KEY,
   STAFF_SESSION_TIMEOUT_KEY,
   DEFAULT_STAFF_SESSION_TIMEOUT,
+  UI_MODE_SIMPLE,
+  UI_MODE_POWER,
 } from './constants.js';
+import { getUiMode, setUiMode as persistUiMode, applyBodyClass } from './utils/uiMode.js';
 import {
   fmt$,
   fmtBytes,
@@ -134,7 +137,7 @@ function getInvoiceBranding(inv, brandingMap) {
   if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return b.transfer;
   return b[inv?.business] || { mark: 'INV', name: 'Invoice', location: '' };
 }
-function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchive }) {
+function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchive, uiMode }) {
   const hasResetCode = !!load(ADMIN_RESET_CODE_KEY, '');
   const creds = load('credentials', {});
   const hasStarterData = !!creds?.admin && itemsCount > 0;
@@ -143,6 +146,14 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
   const doneCount = [hasStarterData, hasResetCode, hasBackup].filter(Boolean).length;
   const allDone = doneCount === 3;
   if (allDone) return null;
+  const simple = uiMode === UI_MODE_SIMPLE;
+
+  // What's the next thing she should do? Just the first unchecked step.
+  const nextStep = !hasStarterData
+    ? { label: 'Import starter data', sub: 'Add admin login + items', cta: 'Open Settings → Backup', go: onOpenSettings }
+    : !hasResetCode
+    ? { label: 'Set a Quick Reset Code', sub: 'So you can recover if you forget your password', cta: 'Open Settings', go: onOpenSettings }
+    : { label: 'Export your first backup', sub: 'Keeps your data safe', cta: 'Open Settings → Backup', go: onOpenSettings };
 
   return (
     <div className="card" style={{border:'1.5px solid #EED9B0',background:'#fffdf8'}}>
@@ -150,19 +161,30 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
         <div style={{fontWeight:800,color:'var(--brown)',fontSize:16}}>✅ First-Time Setup Checklist</div>
         <span className="badge badge-user">{doneCount}/3 complete</span>
       </div>
-      <div style={{fontSize:13,color:'#6b4b20',marginBottom:10}}>Complete these once to reduce support issues.</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr',gap:6,fontSize:13,marginBottom:12}}>
         <div>{hasStarterData ? '✅' : '⬜'} Starter data imported (admin + items available)</div>
         <div>{hasResetCode ? '✅' : '⬜'} Quick Reset Code configured (Settings → Admin Credentials)</div>
         <div>{hasBackup ? '✅' : '⬜'} At least one backup exported</div>
       </div>
-      <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:8}}>⚡ Quick Actions</div>
-      <div className="flex gap-2 flex-wrap">
-        <Btn className="btn-primary btn-sm" onClick={onOpenSettings}>⚙ Open Settings</Btn>
-        <Btn className="btn-outline btn-sm" onClick={onGoTransfer}>🚚 Go to Transfer Invoices</Btn>
-        <Btn className="btn-outline btn-sm" onClick={onGoArchive}>🗂 Open Archive</Btn>
-        <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Download Failure Log</Btn>
-      </div>
+      {simple ? (
+        // In simple mode: one obvious action — what to do next — and nothing else.
+        <div style={{background:'#FFF8DC',border:'1px solid #E7CFA6',borderRadius:8,padding:'10px 12px'}}>
+          <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:2}}>Next: {nextStep.label}</div>
+          <div style={{fontSize:12.5,color:'#7a5c20',marginBottom:8}}>{nextStep.sub}</div>
+          <Btn className="btn-primary btn-sm" onClick={nextStep.go}>{nextStep.cta}</Btn>
+        </div>
+      ) : (
+        // Power mode: keep the original 4-button toolkit.
+        <>
+          <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:8}}>⚡ Quick Actions</div>
+          <div className="flex gap-2 flex-wrap">
+            <Btn className="btn-primary btn-sm" onClick={onOpenSettings}>⚙ Open Settings</Btn>
+            <Btn className="btn-outline btn-sm" onClick={onGoTransfer}>🚚 Go to Transfer Invoices</Btn>
+            <Btn className="btn-outline btn-sm" onClick={onGoArchive}>🗂 Open Archive</Btn>
+            <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Download Failure Log</Btn>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -310,6 +332,15 @@ function App() {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [confirmKiosk, setConfirmKiosk] = useState(false);
   const [confirmClearCorrupt, setConfirmClearCorrupt] = useState(false);
+  const [uiMode, setUiMode] = useState(() => getUiMode());
+  useEffect(() => { applyBodyClass(uiMode); }, [uiMode]);
+  function toggleUiMode() {
+    const next = uiMode === UI_MODE_SIMPLE ? UI_MODE_POWER : UI_MODE_SIMPLE;
+    persistUiMode(next);
+    setUiMode(next);
+    showToast(next === UI_MODE_SIMPLE ? 'Switched to simple mode' : 'Switched to power mode — all controls visible', 'success');
+  }
+  const isSimple = uiMode === UI_MODE_SIMPLE;
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
     return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
@@ -652,6 +683,12 @@ function App() {
                 {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
               </select>
             )}
+            {isAdmin && !kioskLock && (
+              <Btn className="btn-ghost btn-sm" onClick={toggleUiMode}
+                title={isSimple ? 'Simple mode hides advanced controls. Click to show everything.' : 'Power mode shows every control. Click for the calmer view.'}>
+                {isSimple ? '✨ Simple' : '🔧 Power'}
+              </Btn>
+            )}
             {isAdmin && !kioskLock && <Btn className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙ Settings</Btn>}
             <div
               title="Click to edit your profile"
@@ -702,22 +739,26 @@ function App() {
         <BrowserCapsBanner warnings={bootWarnings} />
         {!storageEnvOk && (
           <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#9a3412'}}>
-            <strong>DMG-E010:</strong> Browser storage is not available or blocked. The app cannot save changes reliably. Allow site data / exit strict private browsing, then refresh.
+            {isSimple
+              ? <>This browser isn’t saving your data right now. Turn off strict private browsing or allow this site to save data, then refresh the page.</>
+              : <><strong>DMG-E010:</strong> Browser storage is not available or blocked. The app cannot save changes reliably. Allow site data / exit strict private browsing, then refresh.</>
+            }
           </div>
         )}
         {storageQuotaWarn && (
           <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#92400e'}}>
-            <strong>DMG-E011:</strong> Device storage for this site is nearly full
-            {storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null && (
-              <> ({fmtBytes(storageQuotaWarn.usageBytes)} / {fmtBytes(storageQuotaWarn.quotaBytes)})</>
-            )}
-            . Export a backup from Settings, then remove old invoices or clear other sites’ data.
+            {isSimple
+              ? <>You’re running low on browser storage{storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null ? <> ({fmtBytes(storageQuotaWarn.usageBytes)} of {fmtBytes(storageQuotaWarn.quotaBytes)} used)</> : null}. Open <strong>Settings → Backup</strong> to save your data, then clear out old invoices.</>
+              : <><strong>DMG-E011:</strong> Device storage for this site is nearly full{storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null ? <> ({fmtBytes(storageQuotaWarn.usageBytes)} / {fmtBytes(storageQuotaWarn.quotaBytes)})</> : null}. Export a backup from Settings, then remove old invoices or clear other sites’ data.</>
+            }
           </div>
         )}
         {!!storageCorruptKeys.length && (
           <div style={{background:'#fefce8',border:'1px solid #fde047',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#713f12'}}>
-            <strong>DMG-E012:</strong> Some saved data could not be read (keys: {storageCorruptKeys.join(', ')}).
-            Export a backup if possible, then remove the bad keys.
+            {isSimple
+              ? <>Some saved data couldn’t be read. Export a backup first if you can, then click the button below to remove the unreadable entries — the rest of your data stays safe.</>
+              : <><strong>DMG-E012:</strong> Some saved data could not be read (keys: {storageCorruptKeys.join(', ')}). Export a backup if possible, then remove the bad keys.</>
+            }
             {' '}
             <button type="button" className="btn btn-outline btn-sm" style={{marginLeft:8}} onClick={handleClearCorruptKeys}>Remove unreadable keys</button>
           </div>
@@ -734,6 +775,7 @@ function App() {
               onOpenSettings={()=>setShowSettings(true)}
               onGoTransfer={()=>goToTab('transfer')}
               onGoArchive={()=>goToTab('archive')}
+              uiMode={uiMode}
             />
           </div>
         )}

@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { cleanUserMessage, isSimpleMode } from './utils/uiMode.js';
 
 const ToastContext = createContext(null);
 
@@ -11,7 +12,9 @@ export function showToast(msg, type = 'success') {
 
 export function toastApiFailure(res, fallback = 'Request failed') {
   if (!res || res.ok) return;
-  const suffix = res.code ? ` (${res.code})` : '';
+  // In simple mode, drop the DMG-Exxx suffix; the code still goes to the
+  // failure log via reportError() so support can trace it.
+  const suffix = (res.code && !isSimpleMode()) ? ` (${res.code})` : '';
   showToast(`${res.error || fallback}${suffix}`, 'warning');
 }
 
@@ -28,7 +31,7 @@ export function ToastProvider({ children }) {
 
   const addToast = useCallback((msg, type = 'success') => {
     const id = Date.now() + Math.random();
-    setToasts((p) => [...p, { id, msg, type }]);
+    setToasts((p) => [...p, { id, msg: cleanUserMessage(msg), type }]);
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3000);
   }, []);
 
