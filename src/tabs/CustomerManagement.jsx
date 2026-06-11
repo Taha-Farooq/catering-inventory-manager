@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId } from 'react';
+import React, { useState, useMemo, useId, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import Confirm from '../ui/Confirm.jsx';
@@ -30,12 +30,18 @@ function Btn({ className = '', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CustomerManagement({ customers, setCustomers, cateringInvoices, save, brandingMap = null, selectedBusiness = 'degrill' }) {
+export default function CustomerManagement({ customers, setCustomers, cateringInvoices, save, brandingMap = null, selectedBusiness = 'degrill', pendingOpen, onConsumePending }) {
   const blank = () => ({ name: '', phone: '', email: '', address: '', notes: '' });
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(blank());
   const [viewId, setViewId] = useState(null);
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      setViewId(pendingOpen.id);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('name'); // 'name' | 'revenue' | 'invoices'

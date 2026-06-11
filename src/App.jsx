@@ -78,6 +78,7 @@ import PriceHistory from './tabs/PriceHistory.jsx';
 import PriceUpdater from './tabs/PriceUpdater.jsx';
 import Confirm from './ui/Confirm.jsx';
 import Modal from './ui/Modal.jsx';
+import GlobalSearch from './ui/GlobalSearch.jsx';
 import {
   BUSINESSES,
   TABS_ADMIN,
@@ -296,6 +297,25 @@ function App() {
   const brandingMap = useMemo(() => mergeBrandingWithOverrides(logoOverrides, bizContact), [logoOverrides, bizContact]);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  // Global search: open via Cmd/Ctrl+K from anywhere or the Dashboard button.
+  // When a result is clicked it sets pendingOpen, which the destination tab
+  // consumes once and clears (so it doesn't re-open on re-renders).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState(null); // {kind, id, tab, query}
+  function handleSearchOpen(target) {
+    if (target?.tab) setTab(target.tab);
+    setPendingOpen(target);
+  }
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [navGroup, setNavGroup] = useState('ops');
   const [items, setItems] = useState(()=>load('items',[]));
   const [shopping, setShopping] = useState(()=>migrateShoppingList(load('shoppingList',[])));
@@ -787,16 +807,16 @@ function App() {
             />
           </div>
         )}
-        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} onOpenSettings={()=>setShowSettings(true)} />}
+        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} onOpenSettings={()=>setShowSettings(true)} onOpenSearch={()=>setSearchOpen(true)} />}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={staffAttToken || attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} sessionTimeLeft={staffSessionTimer} onAttendanceComplete={handleAttendanceComplete} brandingMap={brandingMap} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
-        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} />}
-        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
-        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
-        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} brandingMap={brandingMap} selectedBusiness={biz} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} pendingOpen={pendingOpen?.kind==='purchase'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
+        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='transfer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
+        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='catering'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
+        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} brandingMap={brandingMap} selectedBusiness={biz} pendingOpen={pendingOpen?.kind==='customer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
         {tab==='suppliers' && isAdmin && <SupplierManagement suppliers={suppliers} setSuppliers={setSuppliers} items={items} purchaseInvoices={purchaseInv} onCreateInvoice={name=>{setPurchasePreset(name);setTab('purchase');}} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} payrollInvoices={payrollInvoices} brandingMap={brandingMap} />}
         {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} save={save} brandingMap={brandingMap} />}
@@ -805,12 +825,26 @@ function App() {
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog save={save} />}
-        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} isOnline={online} scanApiCall={scanApiCall} hashPwd={hashPwd} />}
+        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} isOnline={online} scanApiCall={scanApiCall} hashPwd={hashPwd} pendingOpen={pendingOpen?.kind==='scan'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
         {tab==='help'      && <HelpCenter currentUser={currentUser} corruptKeys={storageCorruptKeys} onRepairStorageKey={handleRepairStorageKey} />}
       </div>
 
       {/* ── Modals ── */}
       <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} brandingMap={brandingMap} uiMode={uiMode} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
+      <GlobalSearch
+        open={searchOpen}
+        onClose={()=>setSearchOpen(false)}
+        onOpen={handleSearchOpen}
+        items={items}
+        cateringInvoices={cateringInv}
+        purchaseInvoices={purchaseInv}
+        transferInvoices={transferInv}
+        customers={customers}
+        suppliers={suppliers}
+        currentUser={currentUser}
+        isOnline={online}
+        scanApiCall={scanApiCall}
+      />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
 
       <Confirm

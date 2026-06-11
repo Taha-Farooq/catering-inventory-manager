@@ -33,7 +33,7 @@ function Btn({ className = '', children, ...p }) {
  * intentional but the two systems are not linked — scan DB tracks document metadata,
  * invoice DB tracks accounting records.
  */
-export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnline, scanApiCall, hashPwd }) {
+export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnline, scanApiCall, hashPwd, pendingOpen, onConsumePending }) {
   const [pwd, setPwd] = useState('');
   const [status, setStatus] = useState(null);
   const [err, setErr] = useState('');
@@ -88,6 +88,15 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
     const t = setInterval(() => { refreshStatus(true); }, 12000);
     return () => clearInterval(t);
   }, [hasAuth]);
+
+  // Pre-fill the search box when arriving here from a global-search "scan"
+  // hit so she lands on the relevant rows immediately.
+  useEffect(() => {
+    if (pendingOpen?.query) {
+      setFilters(f => ({ ...f, q: pendingOpen.query }));
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
 
   async function unlockAdmin() {
     setErr('');
@@ -312,9 +321,41 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
             </div>
           )}
 
+          {/* Watcher status — make it impossible to miss whether automatic
+              folder watching is on and where it points. Mom's scanner drops
+              files into the inbox; this is the load-bearing setting. */}
+          {(() => {
+            const watching = !!(config.enabled && config.inboxPath && config.libraryPath);
+            const haveConfig = !!(config.inboxPath && config.libraryPath);
+            const bg = watching ? '#F0FDF4' : (haveConfig ? '#FFFBEB' : '#FEF2F2');
+            const border = watching ? '#86EFAC' : (haveConfig ? '#FDE68A' : '#FCA5A5');
+            const dot = watching ? '#15803d' : (haveConfig ? '#A16207' : '#b91c1c');
+            return (
+              <div style={{ background: bg, border: `1.5px solid ${border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: haveConfig ? 8 : 0 }}>
+                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: dot, boxShadow: watching ? `0 0 0 4px ${dot}22` : 'none', animation: watching ? 'none' : undefined }} />
+                  <strong style={{ fontSize: 14, color: '#222' }}>
+                    {watching ? 'Auto-filing is ON' : haveConfig ? 'Auto-filing is paused' : 'Set up auto-filing'}
+                  </strong>
+                  {watching && status?.pollMs && <span style={{ fontSize: 11, color: '#15803d', marginLeft: 'auto' }}>checks every {Math.round(status.pollMs / 1000)}s</span>}
+                </div>
+                {haveConfig ? (
+                  <div style={{ fontSize: 12.5, color: '#444', lineHeight: 1.6 }}>
+                    <div>📥 Watches → <code style={{ background: '#fff', padding: '1px 6px', borderRadius: 3, border: '1px solid #ddd' }}>{config.inboxPath}</code></div>
+                    <div>📚 Files into → <code style={{ background: '#fff', padding: '1px 6px', borderRadius: 3, border: '1px solid #ddd' }}>{config.libraryPath}</code></div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: '#7a1f1f', lineHeight: 1.5 }}>
+                    Tell the scanner where to drop files (the inbox folder) and where the library should live below. Then press <strong>▶ Start Watcher</strong>.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10, marginBottom: 12 }}>
-            <FI label="Watch Inbox Folder" value={config.inboxPath || ''} onChange={e => setConfig(c => ({ ...c, inboxPath: e.target.value }))} placeholder="C:\Scans\Inbox" />
-            <FI label="Library Root Folder" value={config.libraryPath || ''} onChange={e => setConfig(c => ({ ...c, libraryPath: e.target.value }))} placeholder="C:\Scans\Library" />
+            <FI label="Watch Inbox Folder (where the scanner saves files)" value={config.inboxPath || ''} onChange={e => setConfig(c => ({ ...c, inboxPath: e.target.value }))} placeholder="C:\Scans\Inbox" />
+            <FI label="Library Root Folder (where filed documents go)" value={config.libraryPath || ''} onChange={e => setConfig(c => ({ ...c, libraryPath: e.target.value }))} placeholder="C:\Scans\Library" />
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             <Btn className="btn-outline btn-sm" disabled={busy} onClick={() => saveConfig(config.enabled)}>💾 Save Config</Btn>

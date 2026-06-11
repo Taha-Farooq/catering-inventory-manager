@@ -28,7 +28,7 @@ function isItemLowStock(item) {
   });
 }
 
-export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], payrollInvoices = [], setTab, shoppingList = [], setShoppingList, onOpenSettings }) {
+export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], payrollInvoices = [], setTab, shoppingList = [], setShoppingList, onOpenSettings, onOpenSearch }) {
   const stats = useMemo(() => {
     const totalItems = items.length;
 
@@ -329,9 +329,26 @@ Thanks!`
     if (added > 0) logActivity('add_item', `Added ${added} low-stock items to shopping list from Dashboard`);
   }
 
+  // Cross-platform keyboard shortcut hint: ⌘ on macOS, Ctrl on Windows/Linux.
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+
   return (
     <div>
       <div className="section-title">Dashboard</div>
+
+      {/* Global search bar — the "stop rooting around in tabs" feature */}
+      {onOpenSearch && (
+        <button onClick={onOpenSearch}
+          style={{ width: '100%', textAlign: 'left', background: '#fff', border: '1.5px solid #DEB887', borderRadius: 10, padding: '12px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, transition: 'background .15s, border-color .15s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#FFF8EC'; e.currentTarget.style.borderColor = '#8B4513'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#DEB887'; }}>
+          <span style={{ fontSize: 22 }}>🔎</span>
+          <span style={{ flex: 1, color: '#888', fontSize: 14 }}>Search invoices, customers, scanned documents…</span>
+          {window.matchMedia?.('(min-width:601px)').matches !== false && (
+            <span style={{ fontSize: 11, color: '#aaa', border: '1px solid #ddd', borderRadius: 4, padding: '2px 6px', fontFamily: 'Menlo,Consolas,monospace' }}>{isMac ? '⌘K' : 'Ctrl+K'}</span>
+          )}
+        </button>
+      )}
 
       {/* One-time welcome tour — dismissable, never reappears */}
       {showWelcome && (
@@ -342,13 +359,14 @@ Thanks!`
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 10 }}>
             {[
-              { icon: '📄', title: 'Scan Documents', text: 'Photograph or drop in paperwork — the computer reads and files it for you.', tab: 'scanbeta' },
+              { icon: '🔎', title: 'Search Everything', text: `One bar to find any invoice, customer, or scanned document. ${isMac ? '⌘K' : 'Ctrl+K'} from anywhere.`, search: true },
+              { icon: '📄', title: 'Scan Documents', text: 'Drop scanner files in one folder — the computer reads and files them.', tab: 'scanbeta' },
               { icon: '🍽️', title: 'Catering Invoices', text: 'Create, print, and track invoices for events.', tab: 'catering' },
               { icon: '✅', title: 'Check In/Out', text: 'Staff QR clock-in; print pay stubs from here.', tab: 'checkio' },
               { icon: '📊', title: 'Analytics → Reports', text: 'Monthly report, P&L, and owner profit split — one button.', tab: 'analytics' },
               { icon: '⚙️', title: 'Settings', text: 'Backups, owners & profit shares, staff accounts, branding.', settings: true },
             ].map(c => (
-              <button key={c.title} onClick={() => { if (c.settings) { onOpenSettings?.(); } else { setTab?.(c.tab); } }}
+              <button key={c.title} onClick={() => { if (c.settings) { onOpenSettings?.(); } else if (c.search) { onOpenSearch?.(); } else { setTab?.(c.tab); } }}
                 style={{ textAlign: 'left', background: '#fff', border: '1px solid #EED9B0', borderRadius: 8, padding: '10px 12px', cursor: 'pointer' }}>
                 <div style={{ fontWeight: 700, fontSize: 13.5, color: '#5a3010' }}>{c.icon} {c.title}</div>
                 <div style={{ fontSize: 12, color: '#777', marginTop: 3, lineHeight: 1.4 }}>{c.text}</div>

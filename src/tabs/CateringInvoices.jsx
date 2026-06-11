@@ -46,7 +46,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CateringInvoices({ getInvoiceBranding, cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [], brandingMap }) {
+export default function CateringInvoices({ getInvoiceBranding, cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [], brandingMap, pendingOpen, onConsumePending }) {
   const isAdmin = userRole==='admin';
   const blankF = () => ({
     customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:'',
@@ -68,6 +68,14 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   const [editingCateringId, setEditingCateringId] = useState(null);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
+  // Global search may ask us to open a specific invoice on mount.
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      const inv = cateringInvoices.find(i => i.id === pendingOpen.id);
+      if (inv) setViewInv(inv);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [payingInv, setPayingInv] = useState(null);
   const [payForm, setPayForm] = useState({ amount: '', date: today(), note: '' });

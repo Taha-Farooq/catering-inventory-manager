@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId } from 'react';
+import React, { useState, useMemo, useId, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
@@ -31,7 +31,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function TransferInvoices({ getInvoiceBranding, transferInvoices, setTransferInvoices, items = [], brandingMap }) {
+export default function TransferInvoices({ getInvoiceBranding, transferInvoices, setTransferInvoices, items = [], brandingMap, pendingOpen, onConsumePending }) {
   const COMMISSION_RATE = 0.15;
   const transferItemListId = useId();
   const itemSuggestions = useMemo(()=>{
@@ -53,6 +53,13 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   const [showForm, setShowForm] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState(null);
   const [viewId, setViewId] = useState(null);
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      const inv = transferInvoices.find(i => i.id === pendingOpen.id);
+      if (inv) setViewId(inv.id);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');

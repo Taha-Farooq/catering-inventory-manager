@@ -81,7 +81,17 @@
     /* ── Grids ── */
     .grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
     .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
-    @media(max-width:600px){ .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+    @media(max-width:600px){
+      .grid-2,.grid-3 { grid-template-columns: 1fr; }
+      /* Bigger tap targets on phones — Apple recommends ≥44pt, Material ≥48dp */
+      .btn { padding: 10px 14px; font-size: 14.5px; min-height: 40px; }
+      .btn-sm { padding: 7px 10px; font-size: 13px; min-height: 36px; }
+      .input { padding: 10px 12px; font-size: 16px; /* 16px prevents iOS zoom on focus */ }
+      .tab-btn { padding: 9px 12px; font-size: 13px; }
+      /* Tables tend to overflow horizontally on phones — scroll instead of squish */
+      .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .card { padding: 14px 12px; }
+    }
 
     /* ── Badges ── */
     .badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11.5px; font-weight: 600; }

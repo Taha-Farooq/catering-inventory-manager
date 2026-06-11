@@ -44,7 +44,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [], initialSupplier, onConsumeInitialSupplier }) {
+export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [], initialSupplier, onConsumeInitialSupplier, pendingOpen, onConsumePending }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),dueDate:'',taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
@@ -68,6 +68,13 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [editingPurchaseId, setEditingPurchaseId] = useState(null);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      const inv = purchaseInvoices.find(i => i.id === pendingOpen.id);
+      if (inv) setViewInv(inv);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [stockUpdateInv, setStockUpdateInv] = useState(null);
   const [stockUpdateLoc, setStockUpdateLoc] = useState(LOCATIONS[1]);
