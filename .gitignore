@@ -3,3 +3,6 @@ dist/
 
 _part1.js
 _part2.js
+
+# Backend runtime state (credentials, attendance, scan DB) — never commit
+backend/data/
