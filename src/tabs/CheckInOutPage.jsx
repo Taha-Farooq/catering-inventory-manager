@@ -7,12 +7,26 @@ import { fmt$ } from '../formatters.js';
 import { load, save } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
+import { buildProfessionalDoc, docSection, docMoney } from '../utils/professionalDoc.js';
 
 function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline, sessionTimeLeft = 0, onAttendanceComplete }) {
+// "Week of Oct 6 – Oct 12, 2026" from a Monday yyyy-mm-dd.
+function payPeriodLabel(weekStartStr) {
+  try {
+    const start = new Date(weekStartStr + 'T00:00:00');
+    const end = new Date(start); end.setDate(end.getDate() + 6);
+    const m = { month: 'short', day: 'numeric' };
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const s = start.toLocaleDateString('en-US', m);
+    const e = end.toLocaleDateString('en-US', { ...m, year: 'numeric' });
+    return `Week of ${s} – ${e}${sameYear ? '' : ''}`;
+  } catch { return `Week of ${weekStartStr}`; }
+}
+
+export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline, sessionTimeLeft = 0, onAttendanceComplete, brandingMap = null }) {
   const isAdmin = currentUser?.role === 'admin';
   const isKioskStation = isAdmin && kioskLock;
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
@@ -238,37 +252,62 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
     logActivity('export_xlsx', 'Exported weekly payroll pack Excel');
     showToast('Weekly salary invoices and employee docs exported.');
   }
+  function brandingForStub() {
+    const key = selectedBusiness || 'degrill';
+    if (brandingMap?.[key]) return brandingMap[key];
+    return { name: 'DMG Restaurant Group', address: '', phone: '', email: '', logo: '' };
+  }
+
+  // Build one professional pay stub (earnings statement) for an employee row.
+  function buildStubHtml(r) {
+    const rate = Number(r.hourlyRate) || 0;
+    const regH = Number(r.regularHours) || 0;
+    const otH = Number(r.overtimeHours) || 0;
+    const regPay = +(regH * rate).toFixed(2);
+    const otPay = +(otH * rate * 1.5).toFixed(2);
+    const gross = +(r.weeklyPay != null ? r.weeklyPay : regPay + otPay).toFixed(2);
+
+    const earnings = docSection({
+      heading: 'Earnings',
+      rows: [
+        { label: `Regular  (${regH.toFixed(2)} hrs × ${docMoney(rate)})`, value: docMoney(regPay), indent: true },
+        ...(otH > 0 ? [{ label: `Overtime  (${otH.toFixed(2)} hrs × ${docMoney(rate * 1.5)})`, value: docMoney(otPay), indent: true }] : []),
+      ],
+      total: { label: 'Gross Pay', value: docMoney(gross), accent: '#15803D' },
+    });
+    const detail = docSection({
+      heading: 'This Pay Period',
+      rows: [
+        { label: 'Total hours worked', value: (Number(r.hours) || (regH + otH)).toFixed(2), indent: true, muted: true },
+        { label: 'Regular hours', value: regH.toFixed(2), indent: true, muted: true },
+        { label: 'Overtime hours (paid at 1.5×)', value: otH.toFixed(2), indent: true, muted: true },
+        { label: 'Hourly rate', value: docMoney(rate), indent: true, muted: true },
+        { label: 'Shifts recorded (clock-ins)', value: String(r.sessions || 0), indent: true, muted: true },
+      ],
+    });
+
+    return buildProfessionalDoc({
+      branding: brandingForStub(),
+      docType: 'PAY STUB / EARNINGS STATEMENT',
+      docNumber: `PS-${weekStart}-${r.username}`,
+      periodLabel: payPeriodLabel(weekStart),
+      recipient: { title: 'Paid To', lines: [r.displayName || r.username, `@${r.username}`] },
+      bodyHtml: earnings + '<div style="height:10px"></div>' + detail,
+      footerNote: 'Hours are calculated from recorded QR check-in / check-out sessions. Overtime is paid at 1.5× for hours over 40 in the week. Questions about your pay? Speak with management.',
+    });
+  }
+
   function printSalaryInvoices() {
     const rows = summary.rows || [];
     if (!rows.length) { showToast('No payroll rows to print.', 'error'); return; }
-    const html = `
-      <div>
-        <h2 style="margin:0 0 10px;color:#8B4513;">Weekly Salary Invoices</h2>
-        <div style="margin-bottom:12px;color:#555;">Week Start: ${weekStart}</div>
-        ${rows.map((r, idx) => `
-          <div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:0 0 10px;">
-            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-              <div>
-                <div style="font-size:16px;font-weight:700;color:#8B4513;">${r.displayName || r.username}</div>
-                <div style="font-size:12px;color:#666;">@${r.username}</div>
-              </div>
-              <div style="text-align:right;">
-                <div style="font-size:12px;color:#666;">Invoice # PAY-${weekStart}-${idx+1}</div>
-                <div style="font-size:12px;color:#666;">Generated ${new Date().toLocaleDateString()}</div>
-              </div>
-            </div>
-            <table style="margin-top:10px;width:100%;border-collapse:collapse;">
-              <tr><td style="padding:6px;border:1px solid #eee;">Regular Hours</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.regularHours || 0}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;">Overtime Hours</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.overtimeHours || 0}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;">Hourly Rate</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${fmt$(r.hourlyRate || 0)}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;">Attendance Sessions</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.sessions || 0}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;font-weight:700;">Weekly Salary Due</td><td style="padding:6px;border:1px solid #eee;text-align:right;font-weight:700;">${fmt$(r.weeklyPay || 0)}</td></tr>
-            </table>
-          </div>
-        `).join('')}
-      </div>
-    `;
-    printHtmlDocument(html, `Weekly Salary Invoices ${weekStart}`);
+    const body = rows.map(r => `<div style="page-break-after:always">${buildStubHtml(r)}</div>`).join('\n');
+    printHtmlDocument(body, `Pay Stubs — ${payPeriodLabel(weekStart)}`);
+    logActivity('print_paystubs', `Printed ${rows.length} pay stubs for ${weekStart}`);
+  }
+
+  function printOneStub(r) {
+    printHtmlDocument(buildStubHtml(r), `Pay Stub — ${r.displayName || r.username}`);
+    logActivity('print_paystub', `Printed pay stub for ${r.username} (${weekStart})`);
   }
   useEffect(() => {
     if (!qr?.url) { setQrDataUrl(''); return; }
@@ -450,7 +489,7 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
                 <Btn className="btn-outline btn-sm" onClick={loadSummary}>Refresh</Btn>
                 <Btn className="btn-success btn-sm" onClick={exportPayrollCsv}>Export CSV</Btn>
                 <Btn className="btn-success btn-sm" onClick={exportPayrollPackExcel}>Export Payroll Pack</Btn>
-                <Btn className="btn-outline btn-sm" onClick={printSalaryInvoices}>Print Salary Invoices</Btn>
+                <Btn className="btn-primary btn-sm" onClick={printSalaryInvoices}>🧾 Print Pay Stubs</Btn>
               </div>
             </div>
             <div className="tbl-wrap">
@@ -472,7 +511,10 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
                       </td>
                       <td style={{fontWeight:700}}>{fmt$(r.weeklyPay)}</td>
                       <td>{summary.active?.[r.username] ? <span className="badge badge-admin">In</span> : '—'}</td>
-                      <td>{summary.active?.[r.username] && <Btn className="btn-danger btn-sm" onClick={()=>forceOut(r.username)}>Force Out</Btn>}</td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        <Btn className="btn-outline btn-sm" onClick={()=>printOneStub(r)} title="Print this employee's pay stub">🧾 Stub</Btn>
+                        {summary.active?.[r.username] && <Btn className="btn-danger btn-sm" style={{marginLeft:4}} onClick={()=>forceOut(r.username)}>Force Out</Btn>}
+                      </td>
                     </tr>
                   ))}
                   {!(summary.rows || []).length && <tr><td colSpan={8}><div className="empty-state">No attendance sessions for this week yet.</div></td></tr>}
