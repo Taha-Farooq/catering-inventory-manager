@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import jsQR from 'jsqr';
 
-const MAX_ATTEMPTS = 3;
+// Chunk 4: bumped from 3 to 5. A real staff member fumbling the camera in
+// a bright kitchen burns through 3 attempts faster than you'd think; 5 gives
+// breathing room without meaningfully helping an attacker (each attempt
+// still requires a valid live JWT token from the admin's kiosk).
+const MAX_ATTEMPTS = 5;
 const ATT_TOKEN_PARAM = 'attToken';
 
 function Btn({ style = {}, children, ...p }) {
@@ -156,9 +160,9 @@ export default function QrScanGate({ onPassed, onFailed, attendanceApiCallFn, cu
     return (
       <div style={fullScreen('#fff7f7')}>
         <div style={{ fontSize: 72, marginBottom: 12 }}>🔒</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#991b1b', marginBottom: 10 }}>Access Denied</div>
-        <div style={{ fontSize: 14, color: '#7f1d1d', textAlign: 'center', maxWidth: 300, lineHeight: 1.6, marginBottom: 20 }}>
-          {MAX_ATTEMPTS} invalid scan attempts. You have been locked out. Please ask your manager to reset your access.
+        <div style={{ fontSize: 22, fontWeight: 700, color: '#991b1b', marginBottom: 10 }}>Too many tries</div>
+        <div style={{ fontSize: 14, color: '#7f1d1d', textAlign: 'center', maxWidth: 320, lineHeight: 1.6, marginBottom: 20 }}>
+          That QR code didn't work {MAX_ATTEMPTS} times in a row. Ask your manager to show you a fresh QR code on the check-in kiosk, then sign in again.
         </div>
         <Btn style={{ background: '#991b1b', color: 'white' }} onClick={onFailed}>Return to Login</Btn>
       </div>
@@ -168,19 +172,22 @@ export default function QrScanGate({ onPassed, onFailed, attendanceApiCallFn, cu
   if (phase === 'error') {
     return (
       <div style={fullScreen('#1a1a2e')}>
-        <div style={{ fontSize: 60, marginBottom: 12 }}>❌</div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: 'white', marginBottom: 8, textAlign: 'center' }}>Invalid QR Code</div>
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: 300, lineHeight: 1.6, marginBottom: 8 }}>
+        <div style={{ fontSize: 60, marginBottom: 12 }}>📷</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: 'white', marginBottom: 8, textAlign: 'center' }}>Didn't read that QR</div>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: 320, lineHeight: 1.6, marginBottom: 12 }}>
           {errMsg}
         </div>
+        <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.6)', textAlign: 'center', maxWidth: 320, lineHeight: 1.5, marginBottom: 12 }}>
+          The QR refreshes every minute — ask the kiosk for the latest one, then try again.
+        </div>
         <div style={{ fontSize: 13, color: '#f87171', marginBottom: 24 }}>
-          Attempt {attempts} of {MAX_ATTEMPTS} — {MAX_ATTEMPTS - attempts} remaining
+          Try {attempts} of {MAX_ATTEMPTS} — {MAX_ATTEMPTS - attempts} {MAX_ATTEMPTS - attempts === 1 ? 'try' : 'tries'} left
         </div>
         <Btn style={{ background: 'white', color: '#1a1a2e', marginBottom: 12 }} onClick={retry}>
           Try Again
         </Btn>
         <Btn style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.2)', fontSize: 13, padding: '10px 20px' }} onClick={onFailed}>
-          Log Out
+          Sign Out
         </Btn>
       </div>
     );
