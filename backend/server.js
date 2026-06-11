@@ -421,9 +421,31 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/sync', (req, res) => {
+  // SECURITY (docs/SECURITY_REVIEW.md A0): this endpoint overwrites the entire
+  // users file. Require admin auth unless the file is empty (first-run starter
+  // ZIP bootstrap). The bootstrap window only exists between deploy and the
+  // first valid sync — keep it short by uploading the starter ZIP immediately
+  // after creating the service.
+  const existingUsers = readUsers();
+  const isBootstrap = Object.keys(existingUsers).length === 0;
+
+  if (!isBootstrap) {
+    const auth = verifyAdminFromRequest(req);
+    if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
+  }
+
   const { credentials } = req.body || {};
   const cleaned = sanitizeCredentials(credentials);
   if (!Object.keys(cleaned).length) return res.status(400).json({ ok: false, error: 'No valid credentials to sync' });
+
+  if (isBootstrap && !Object.values(cleaned).some(u => u.role === 'admin')) {
+    return res.status(400).json({ ok: false, error: 'Bootstrap sync must include at least one admin user' });
+  }
+
+  if (isBootstrap) {
+    console.warn(`[auth/sync] BOOTSTRAP: writing initial user file with ${Object.keys(cleaned).length} users.`);
+  }
+
   writeUsers(cleaned);
   return res.json({ ok: true, userCount: Object.keys(cleaned).length });
 });

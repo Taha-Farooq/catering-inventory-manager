@@ -221,18 +221,23 @@ export async function loginViaBackend(username, passwordHash, preferredBase) {
   return { ok: true, code: null, user: data.user };
 }
 
-export async function syncCredentialsToBackend(credentials, preferredBase) {
+export async function syncCredentialsToBackend(credentials, preferredBase, auth = null) {
   const resolved = await resolveResetApiBase(preferredBase);
   if (!resolved.ok) {
     reportError('DMG-E021', { phase: 'sync_credentials', detail: 'resolve_failed' });
     return { ok: false, code: 'DMG-E021', error: 'Auth backend unavailable' };
   }
   const path = '/api/auth/sync';
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth?.username && auth?.passwordHash) {
+    headers['x-auth-user'] = String(auth.username);
+    headers['x-auth-hash'] = String(auth.passwordHash);
+  }
   let r;
   try {
     r = await fetch(`${resolved.base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ credentials }),
     });
   } catch (e) {

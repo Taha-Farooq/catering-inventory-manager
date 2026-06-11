@@ -30,6 +30,11 @@ blast radius) → **High** (exploitable now, requires conditions) →
 
 ## A0 — Critical: `/api/auth/sync` overwrites the users file with no auth
 
+- **Status:** **Fixed on this branch.** `backend/server.js` now requires
+  `adminOnly`-style auth, with a single-shot exception when
+  `credentials.json` is empty (first-run starter ZIP bootstrap). The
+  bootstrap window only exists between deploy and the first valid sync;
+  on the live Render service it's already closed because users exist.
 - **Severity:** Critical
 - **Location:** `backend/server.js:423-429`
 - **What it is:** The endpoint accepts a `credentials` object body and

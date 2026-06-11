@@ -30,6 +30,8 @@ export default function FirstRunSetup({ onDone, apiBase }) {
       }
       if (loadedCredentials) {
         const creds = load('credentials', {});
+        // First-run bootstrap: server allows unauthenticated sync only when its
+        // users file is empty (see docs/SECURITY_REVIEW.md A0).
         const syncResult = await syncCredentialsToBackend(creds, apiBase);
         if (!syncResult.ok) {
           logFailure({ area:'setup', action:'sync_credentials_backend', error:syncResult.error });

@@ -165,6 +165,9 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       setStarterLoading(false);
       if (loadedCredentials) {
         const creds = load('credentials', {});
+        // First-run bootstrap: server allows unauthenticated sync only when its
+        // users file is empty. Subsequent syncs from this device will carry the
+        // logged-in admin's auth via App.jsx and handleLogin paths below.
         const syncResult = await syncCredentialsToBackend(creds, authApiBase);
         if (!syncResult.ok) {
           logFailure({ area:'setup', action:'sync_credentials_backend', error:syncResult.error });
@@ -217,10 +220,13 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         if (stored === saltedHash) {
           activeHash = saltedHash;
         } else if (stored === legacyHash) {
-          // Legacy unsalted hash matched — upgrade stored hash and sync to backend
+          // Legacy unsalted hash matched — upgrade stored hash and sync to backend.
+          // Use legacyHash for the sync auth: backend (if reachable and populated)
+          // still has the legacy hash too; succeeds for admin, silently 403s for
+          // non-admin staff and lets backend catch up the next time admin syncs.
           const upgraded = { ...creds, [key]: { ...creds[key], password: saltedHash } };
           save('credentials', upgraded);
-          syncCredentialsToBackend(upgraded, authApiBase).catch(() => {});
+          syncCredentialsToBackend(upgraded, authApiBase, { username: key, passwordHash: legacyHash }).catch(() => {});
           activeHash = saltedHash;
         }
         if (!activeHash) { setLoading(false); setErr('Invalid username or password.'); return; }
@@ -244,11 +250,14 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         if (legacyRemote.ok && legacyRemote.user) {
           remote = legacyRemote;
           activeHash = legacyHash;
-          // Upgrade backend to salted hash immediately
+          // Upgrade backend to salted hash immediately. Authenticate the sync
+          // with the legacy hash we just proved valid; succeeds for admin,
+          // 403s for non-admin (backend stays on legacy for them — see
+          // docs/SECURITY_REVIEW.md A0).
           const freshCreds = load('credentials', {});
           freshCreds[key] = { ...(freshCreds[key] || {}), password: saltedHash };
           save('credentials', freshCreds);
-          syncCredentialsToBackend(freshCreds, authApiBase).catch(() => {});
+          syncCredentialsToBackend(freshCreds, authApiBase, { username: key, passwordHash: legacyHash }).catch(() => {});
         }
       }
       if (!remote.ok || !remote.user) {
@@ -296,15 +305,20 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
     if (!creds.admin) creds.admin = { role:'admin', displayName:'Administrator', password:'' };
     creds.admin.password = await hashPwd(resetPwd);
     save('credentials', creds);
-    const syncResult = await syncCredentialsToBackend(creds, authApiBase);
-    if (!syncResult.ok) {
-      logFailure({ area:'login', action:'quick_admin_reset_sync', error:syncResult.error });
-    }
-    pushAuditEvent('admin_password_reset', 'Quick reset completed from login screen');
+    // No backend sync here — the central server requires admin auth (which the
+    // reset code alone can't satisfy) and accepting a "knows the reset code"
+    // proof at the server is a separate endpoint we haven't built yet. If
+    // central auth is in use, the user must follow up with a proper signed
+    // reset link via the manager. See docs/SECURITY_REVIEW.md A0 / A3.
+    pushAuditEvent('admin_password_reset', 'Quick reset completed (local only)');
     setResetCode('');
     setResetPwd('');
     setResetPwdC('');
-    setResetMsg('Admin password reset complete. You can now sign in with the new password.');
+    if (useCentralAuth) {
+      setResetMsg('Admin password reset on this device. Central server NOT updated — request a signed reset link from your manager to update the server.');
+    } else {
+      setResetMsg('Admin password reset complete. You can now sign in with the new password.');
+    }
   }
 
   return (
