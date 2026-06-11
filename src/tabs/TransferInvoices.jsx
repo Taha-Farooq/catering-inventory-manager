@@ -6,7 +6,8 @@ import Modal from '../ui/Modal.jsx';
 import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { buildTransferInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextTransferId, normalizeTransferInvoice } from '../utils/invoiceIds.js';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
@@ -430,7 +431,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
             </div>
             {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>{ printHtmlDocument(buildTransferInvoiceDoc(viewInv, getInvoiceBranding(viewInv, brandingMap) || {}), `Transfer Invoice ${viewInv.id}`); logActivity('print_invoice', `Printed transfer invoice ${viewInv.id}`); }}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyTransferInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewId(null); openTransferEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>

@@ -7,7 +7,19 @@ import { BUSINESSES, PAYMENT_TERMS } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { load, save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printInvoiceById, printHtmlDocument } from '../utils/print.js';
+import { buildCateringInvoiceDoc, buildPurchaseInvoiceDoc, buildTransferInvoiceDoc } from '../utils/invoiceDoc.js';
+
+function printArchivedInvoice(inv, brand) {
+  const brandIn = brand || {};
+  if (inv?._type === 'catering') return printHtmlDocument(buildCateringInvoiceDoc(inv, brandIn), `Catering Invoice ${inv.id}`);
+  if (inv?._type === 'purchase') return printHtmlDocument(buildPurchaseInvoiceDoc(inv, brandIn), `Purchase Invoice ${inv.id}`);
+  if (inv?._type === 'transfer') return printHtmlDocument(buildTransferInvoiceDoc(inv, brandIn), `Transfer Invoice ${inv.id}`);
+  // Payroll archive falls through to the legacy in-place DOM print so the
+  // on-screen JSX (rich, with employee tables) is preserved verbatim. Pay
+  // stubs are produced from Check In/Out, which is the authoritative path.
+  return printInvoiceById(`archive-view-${inv.id}`);
+}
 
 function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
@@ -278,7 +290,7 @@ export default function InvoiceArchive({ getInvoiceBranding, purchaseInvoices, s
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`archive-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>{ printArchivedInvoice(viewInv, getInvoiceBranding(viewInv, brandingMap) || {}); logActivity('print_invoice', `Printed archived ${viewInv._type || ''} invoice ${viewInv.id}`); }}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>
             </div>
           </div>

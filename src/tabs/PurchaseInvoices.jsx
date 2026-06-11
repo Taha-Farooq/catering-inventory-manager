@@ -8,7 +8,8 @@ import { BUSINESSES, LOCATIONS, PURCHASE_UNITS, CASE_UNITS } from '../constants.
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { buildPurchaseInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextId } from '../utils/invoiceIds.js';
 
 function Toggle({ checked, onChange, label }) {
@@ -577,7 +578,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>{ printHtmlDocument(buildPurchaseInvoiceDoc(viewInv, getInvoiceBranding(viewInv, brandingMap) || {}), `Purchase Invoice ${viewInv.id}`); logActivity('print_invoice', `Printed purchase invoice ${viewInv.id}`); }}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openPurchaseEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>

@@ -6,6 +6,8 @@ import Modal from '../ui/Modal.jsx';
 import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
 import { today } from '../utils/storage.js';
 import { logActivity } from '../tabUtils.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { buildProfessionalDoc, docSection, docMoney, esc } from '../utils/professionalDoc.js';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
   const listId = useId();
@@ -27,7 +29,7 @@ function Btn({ className = '', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CustomerManagement({ customers, setCustomers, cateringInvoices, save }) {
+export default function CustomerManagement({ customers, setCustomers, cateringInvoices, save, brandingMap = null, selectedBusiness = 'degrill' }) {
   const blank = () => ({ name: '', phone: '', email: '', address: '', notes: '' });
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -221,34 +223,68 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
           const lastDate = sorted[0]?.date || sorted[0]?.dateStart;
 
           function printStatement() {
-            const rows = sorted.map(inv => `<tr>
-              <td>${inv.id}</td>
-              <td>${inv.useRange ? `${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}` : fmtDate(inv.date)}</td>
-              <td>${inv.eventType || ''}</td>
-              <td style="text-align:right">${fmt$(inv.grandTotal)}</td>
-              <td style="text-align:right;color:${inv.balanceDue > 0 ? '#DC2626' : '#15803D'}">${fmt$(inv.balanceDue)}</td>
-              <td>${inv.status}</td>
-            </tr>`).join('');
-            const html = `<!DOCTYPE html><html><head><title>Statement — ${viewCust.name}</title><style>
-              body{font-family:Arial,sans-serif;font-size:13px;padding:20px;color:#333}
-              h2{color:#8B4513;margin-bottom:4px} .meta{color:#666;font-size:12px;margin-bottom:16px}
-              table{border-collapse:collapse;width:100%} th{background:#FFF0D4;padding:7px 10px;text-align:left;border-bottom:2px solid #D2691E}
-              td{padding:6px 10px;border-bottom:1px solid #eee} .totals{text-align:right;margin-top:14px;font-size:14px}
-              @media print{body{padding:0}}
-            </style></head><body>
-              <h2>${viewCust.name}</h2>
-              <div class="meta">${viewCust.phone ? `📞 ${viewCust.phone}  ` : ''}${viewCust.email ? `✉ ${viewCust.email}  ` : ''}${viewCust.address ? `📍 ${viewCust.address}` : ''}</div>
-              <table><thead><tr><th>Invoice #</th><th>Date</th><th>Event</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead>
-              <tbody>${rows}</tbody></table>
-              <div class="totals">
-                Total Invoiced: <strong>${fmt$(totalRevenue)}</strong> &nbsp;|&nbsp;
-                Outstanding: <strong style="color:${outstanding > 0 ? '#DC2626' : '#15803D'}">${fmt$(outstanding)}</strong>
-              </div>
-              <div style="margin-top:20px;font-size:11px;color:#aaa">Printed ${new Date().toLocaleString()}</div>
-            </body></html>`;
-            const w = window.open('', '_blank');
-            if (!w) { showToast('Pop-up blocked. Allow pop-ups for printing.', 'error'); return; }
-            w.document.write(html); w.document.close(); w.focus(); w.print();
+            // Professional customer statement on letterhead. Picks the
+            // business letterhead from the most-frequent business across
+            // this customer's invoices, falling back to the currently
+            // selected business.
+            const counts = {};
+            custInvs.forEach(i => { const b = i.business || ''; if (b) counts[b] = (counts[b] || 0) + 1; });
+            const dominantBiz = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || selectedBusiness || 'degrill';
+            const branding = (brandingMap?.[dominantBiz]) || { name: 'Statement of Account', address: '', phone: '', email: '', logo: '' };
+
+            // Invoice list table.
+            const head = `<tr style="background:#FBF6EC">
+              <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">INVOICE</th>
+              <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">DATE</th>
+              <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">EVENT</th>
+              <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">TOTAL</th>
+              <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">BALANCE</th>
+              <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">STATUS</th>
+            </tr>`;
+            const rowsHtml = sorted.map(inv => {
+              const dateStr = inv.useRange ? `${fmtDate(inv.dateStart)} – ${fmtDate(inv.dateEnd)}` : fmtDate(inv.date);
+              const bal = Number(inv.balanceDue || 0);
+              const status = String(inv.status || 'unpaid').toLowerCase();
+              const badgeColor = status === 'paid' ? '#15803D' : status === 'partial' ? '#1D4ED8' : '#b91c1c';
+              return `<tr>
+                <td style="padding:6px 10px;border-bottom:1px solid #eee;font-family:Menlo,Consolas,monospace;font-size:12px;color:#444;">${esc(inv.id)}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12.5px;color:#444;">${esc(dateStr)}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12.5px;color:#444;">${esc(inv.eventType || '')}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;">${esc(docMoney(inv.grandTotal))}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:${bal > 0 ? '#b91c1c' : '#15803D'};">${esc(docMoney(bal))}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:11.5px;color:${badgeColor};text-transform:uppercase;letter-spacing:.4px;font-weight:700;">${esc(status)}</td>
+              </tr>`;
+            }).join('');
+            const totalsRow = `<tr>
+              <td colspan="3" style="padding:9px 10px;border-top:2px solid #333;font-weight:800;font-size:13px;">TOTAL ON THIS STATEMENT</td>
+              <td style="padding:9px 10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(totalRevenue))}</td>
+              <td style="padding:9px 10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:14px;color:${outstanding > 0 ? '#b91c1c' : '#15803D'};font-variant-numeric:tabular-nums;">${esc(docMoney(outstanding))}</td>
+              <td style="padding:9px 10px;border-top:2px solid #333;"></td>
+            </tr>`;
+            const table = `<table style="width:100%;border-collapse:collapse;">${head}${rowsHtml}${totalsRow}</table>`;
+
+            const callout = outstanding > 0
+              ? `<div style="margin-top:14px;padding:12px 16px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;">
+                  <span style="font-size:13px;color:#444;">Balance due:</span>
+                  <span style="font-size:18px;font-weight:800;color:#b91c1c;margin-left:8px;">${esc(docMoney(outstanding))}</span>
+                  <div style="margin-top:6px;font-size:11.5px;color:#7a5c20;">Please remit at your earliest convenience. Reach out with any questions.</div>
+                </div>`
+              : `<div style="margin-top:14px;padding:12px 16px;background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;font-size:13px;color:#15803d;">Account is current. Thank you for your business.</div>`;
+
+            const html = buildProfessionalDoc({
+              branding,
+              docType: 'STATEMENT OF ACCOUNT',
+              docNumber: `STM-${today().replace(/-/g, '')}-${(viewCust.name || 'customer').replace(/[^a-z0-9]/gi, '').slice(0, 10).toUpperCase()}`,
+              periodLabel: 'All recorded invoices',
+              recipient: {
+                title: 'Statement For',
+                lines: [viewCust.name, viewCust.address, [viewCust.phone, viewCust.email].filter(Boolean).join(' · ')].filter(Boolean),
+              },
+              bodyHtml: table + callout,
+              footerNote: 'This statement summarizes invoices recorded under this account. If you believe an entry is incorrect, please contact us so we can review it.',
+            });
+            printHtmlDocument(html, `Statement — ${viewCust.name}`);
+            logActivity('print_statement', `Printed customer statement for ${viewCust.name}`);
           }
 
           function exportStatementExcel() {
