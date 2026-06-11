@@ -28,7 +28,7 @@ const ANTHROPIC_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const GEMINI_KEY = String(process.env.GEMINI_API_KEY || '').trim();
 const PROVIDER_ENV = String(process.env.SCAN_AI_PROVIDER || '').trim().toLowerCase();
 
-const ANTHROPIC_MODEL = process.env.SCAN_AI_MODEL_ANTHROPIC || process.env.SCAN_AI_MODEL || 'claude-opus-4-8';
+const ANTHROPIC_MODEL = process.env.SCAN_AI_MODEL_ANTHROPIC || process.env.SCAN_AI_MODEL || 'claude-sonnet-4-6';
 const GEMINI_MODEL = process.env.SCAN_AI_MODEL_GEMINI || 'gemini-2.0-flash';
 
 const AI_MAX_BYTES = Number(process.env.SCAN_AI_MAX_BYTES || 25 * 1024 * 1024);
@@ -50,7 +50,15 @@ export function aiModel() {
   return null;
 }
 
-const SYSTEM_PROMPT = `You read scanned business documents for a family-run catering company that operates three businesses: DeGrill, Parathas & Platters, and Dera Masala Grill (all in the NY/NJ area). Documents are typically supplier invoices, receipts, tax notices, bank statements, payroll records, legal letters, and credit memos — often phone photos or flatbed scans of paper, sometimes skewed, faded, or handwritten-on. Extract the requested fields exactly as printed. If a field is genuinely unreadable, use null rather than guessing.`;
+const SYSTEM_PROMPT = `You read scanned documents for a family-run business owner. Documents fall into two broad categories:
+
+  1. Catering business paperwork for three companies in NY/NJ — DeGrill, Parathas & Platters, and Dera Masala Grill: supplier invoices, receipts, purchase orders, payroll records, bank statements, vendor correspondence.
+
+  2. Personal and tax documents — IRS notices, W-2s, 1099s, state tax forms, personal bank statements, medical bills, insurance documents, utility bills, legal correspondence, government mail.
+
+Documents are usually phone photos or flatbed scans of paper, often skewed, faded, glare-affected, or with handwritten annotations. Read carefully and extract the requested fields exactly as printed. For dense forms (tax documents, multi-column statements), match field labels precisely. If a field is genuinely unreadable, return an empty string or 0 rather than guessing.
+
+For businessTag: choose 'degrill', 'parathas', or 'dera' if the document clearly belongs to one of the three catering businesses. Choose 'personal' for tax documents, personal mail, medical bills, insurance, utilities, or anything addressed to an individual rather than a business. Use 'unknown' only when the document genuinely cannot be categorized.`;
 
 // Shared JSON schema describing the extraction shape. Both providers accept
 // this format (Anthropic's structured outputs and Gemini's responseSchema
@@ -60,33 +68,33 @@ const EXTRACTION_SCHEMA = {
   properties: {
     docType: {
       type: 'string',
-      enum: ['transaction_invoice', 'tax', 'legal', 'credit', 'bank', 'payroll', 'other'],
-      description: 'Document category. transaction_invoice covers invoices, receipts, bills, purchase orders, and delivery slips.',
+      enum: ['transaction_invoice', 'tax', 'legal', 'credit', 'bank', 'payroll', 'medical', 'insurance', 'utility', 'other'],
+      description: 'Document category. transaction_invoice covers business invoices, receipts, bills, and purchase orders. medical covers doctor bills and EOBs. utility covers electric/gas/water/internet. legal covers court documents and legal correspondence.',
     },
     sender: {
       type: 'string',
-      description: 'The company or person that issued this document (vendor, agency, bank, law firm). Short — just the name.',
+      description: 'The company, agency, or person that issued this document. Short — just the name (e.g. "Restaurant Depot", "Internal Revenue Service", "Bergen Medical Center").',
     },
     businessTag: {
       type: 'string',
-      enum: ['degrill', 'parathas', 'dera', 'unknown'],
-      description: 'Which of the three businesses this document belongs to: DeGrill, Parathas & Platters, or Dera Masala Grill. "unknown" if it cannot be determined.',
+      enum: ['degrill', 'parathas', 'dera', 'personal', 'unknown'],
+      description: 'Which bucket this document belongs to. Use personal for tax documents, medical bills, personal mail; the three business tags for catering paperwork; unknown only if genuinely indeterminate.',
     },
     docDate: {
       type: 'string',
-      description: 'The date printed ON the document (invoice date, statement date) in YYYY-MM-DD. Empty string if no date is visible.',
+      description: 'The date printed ON the document (invoice date, statement date, notice date) in YYYY-MM-DD. Empty string if no date is visible.',
     },
     totalAmount: {
       type: 'number',
-      description: 'The main dollar amount (invoice total, amount due, statement balance). 0 if not applicable.',
+      description: 'The main dollar amount (invoice total, amount due, statement balance, refund amount). 0 if not applicable.',
     },
     referenceNumber: {
       type: 'string',
-      description: 'Invoice number, account number, or case number printed on the document. Empty string if none.',
+      description: 'Invoice number, account number, case number, or claim number printed on the document. Empty string if none.',
     },
     summary: {
       type: 'string',
-      description: 'One sentence a busy restaurant owner can file by, e.g. "Restaurant Depot invoice for $412.86, due Nov 12".',
+      description: 'One sentence that helps the owner file this by, e.g. "Restaurant Depot invoice for $412.86, due Nov 12" or "IRS CP2000 notice — proposed adjustment for tax year 2024".',
     },
     confidence: {
       type: 'number',
@@ -118,7 +126,7 @@ function normalizeExtraction(raw) {
   return {
     docType: String(raw.docType || 'other'),
     sender: String(raw.sender || '').slice(0, 120) || 'Unknown Sender',
-    businessTag: ['degrill', 'parathas', 'dera'].includes(raw.businessTag) ? raw.businessTag : '',
+    businessTag: ['degrill', 'parathas', 'dera', 'personal'].includes(raw.businessTag) ? raw.businessTag : '',
     docDate: /^\d{4}-\d{2}-\d{2}$/.test(docDateStr) ? docDateStr : null,
     totalAmount: Number.isFinite(raw.totalAmount) && raw.totalAmount !== 0 ? +Number(raw.totalAmount).toFixed(2) : null,
     referenceNumber: refStr ? refStr.slice(0, 80) : null,

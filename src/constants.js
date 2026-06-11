@@ -120,7 +120,7 @@ export const LOGO_OVERRIDES_KEY = '_logoOverrides';
 /** Optional per-business contact info overrides (phone/address/email) editable in Settings. */
 export const BIZ_CONTACT_KEY = '_bizContact';
 export const FAILURE_LOG_KEY = '_failureLog';
-export const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
+export const SCAN_DOC_TYPES = ['transaction_invoice','tax','legal','credit','bank','payroll','medical','insurance','utility','other'];
 export const ATT_QR_QUERY_KEY = 'attToken';
 /** localStorage key for admin-configured staff check-in session timeout (seconds). */
 export const STAFF_SESSION_TIMEOUT_KEY = '_staffSessionTimeout';

@@ -242,8 +242,8 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
         <div style={{ fontSize: 12, color: '#555' }}>Admin-only · reads, names, and files your paperwork</div>
       </div>
       <div style={{ fontSize: 12, color: '#888', marginBottom: 10, background: '#f8f8f8', borderRadius: 6, padding: '6px 10px' }}>
-        Drop in PDFs or phone photos of paperwork — the computer reads each one, figures out who sent it,
-        what it is, the date and amount, and files it into Year / Month / Type folders with a clear name.
+        Drop in PDFs or photos of any paperwork — business invoices, receipts, payroll, tax forms, IRS notices, personal mail, medical bills, bank statements.
+        The computer reads each one, figures out who sent it, what it is, the date and amount, and files it into Year / Month / Type folders.
         Requires the backend server running on the admin device.
       </div>
       {(!isOnline || backendDown) && <BackendUnavailableBanner code={backendDown ? 'DMG-E021' : 'DMG-E030'} />}
@@ -344,10 +344,11 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
             <input className="input" placeholder="Year (e.g. 2026)" value={filters.year} onChange={e => setFilters(f => ({ ...f, year: e.target.value }))} />
             <input className="input" placeholder="Month (e.g. March)" value={filters.month} onChange={e => setFilters(f => ({ ...f, month: e.target.value }))} />
             <select className="input" value={filters.businessTag} onChange={e => setFilters(f => ({ ...f, businessTag: e.target.value }))}>
-              <option value="">All Businesses</option>
+              <option value="">All Buckets</option>
               <option value="degrill">degrill</option>
               <option value="parathas">parathas</option>
               <option value="dera">dera</option>
+              <option value="personal">personal / tax</option>
               <option value="unknown">unknown</option>
             </select>
           </div>
@@ -393,6 +394,7 @@ export default function ScanDatabaseBeta({ currentUser, onAuthHashSaved, isOnlin
                           <option value="degrill">degrill</option>
                           <option value="parathas">parathas</option>
                           <option value="dera">dera</option>
+                          <option value="personal">personal / tax</option>
                         </select>
                       </td>
                       <td>{needsReview ? <span style={{ color: '#b45309', fontWeight: 700, fontSize: 12 }}>review</span> : <span style={{ color: '#15803d', fontSize: 12 }}>✓ ok</span>}</td>
