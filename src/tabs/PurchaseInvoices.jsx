@@ -9,6 +9,7 @@ import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
 import { buildPurchaseInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextId } from '../utils/invoiceIds.js';
 
@@ -200,7 +201,13 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     logActivity('create_invoice', 'Created purchase invoice ' + inv.id);
   }
 
-  function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
+  function deleteInv(id){
+    const removed = purchaseInvoices.find(x=>x.id===id);
+    if (removed) moveToTrash('purchaseInvoices', `Purchase ${id} — ${removed.supplier || ''} (${fmt$(removed.total||0)})`, removed);
+    const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);
+    showToast('Purchase invoice deleted. Restore it from Settings → Recently Deleted if needed.');
+    logActivity('delete_invoice','Deleted purchase invoice '+id);
+  }
   function markPaid(id) {
     const inv = purchaseInvoices.find(x => x.id === id);
     const paidDate = today();

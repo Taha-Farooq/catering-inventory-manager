@@ -7,6 +7,7 @@ import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
 import { buildTransferInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextTransferId, normalizeTransferInvoice } from '../utils/invoiceIds.js';
 
@@ -215,12 +216,14 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   }
 
   function deleteTransferInvoice(id) {
+    const removed = transferInvoices.find(x => x.id === id);
+    if (removed) moveToTrash('transferInvoices', `Transfer ${id} — ${removed.from || ''} → ${removed.to || ''}`, removed);
     const updated = transferInvoices.filter(x => x.id !== id);
     setTransferInvoices(updated);
     save('transferInvoices', updated);
     setConfirmId(null);
     logActivity('delete_invoice', 'Deleted transfer invoice ' + id);
-    showToast('Transfer invoice deleted.');
+    showToast('Transfer invoice deleted. Restore it from Settings → Recently Deleted if needed.');
   }
   function exportTransferExcel() {
     const byMonth = {};

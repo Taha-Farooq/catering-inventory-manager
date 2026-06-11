@@ -301,8 +301,12 @@ function scanFailure(db, filePath, error) {
   db.failures.push({ id: crypto.randomUUID(), at: new Date().toISOString(), filePath, error: String(error?.message || error || 'Unknown error') });
   if (db.failures.length > 500) db.failures = db.failures.slice(-500);
 }
+const SCAN_DOC_TYPE_SET = new Set(['transaction_invoice', 'tax', 'legal', 'credit', 'bank', 'payroll', 'medical', 'insurance', 'utility', 'other']);
 function normalizeDocType(raw) {
   const s = String(raw || '').toLowerCase();
+  // Exact enum values (AI extraction, dropdown corrections) pass through.
+  if (SCAN_DOC_TYPE_SET.has(s)) return s;
+  // Fuzzy keyword fallback for free-text input.
   if (s.includes('legal')) return 'legal';
   if (s.includes('tax')) return 'tax';
   if (s.includes('credit')) return 'credit';
@@ -310,6 +314,9 @@ function normalizeDocType(raw) {
   if (s.includes('transaction')) return 'transaction_invoice';
   if (s.includes('bank')) return 'bank';
   if (s.includes('payroll')) return 'payroll';
+  if (s.includes('medical') || s.includes('doctor') || s.includes('hospital')) return 'medical';
+  if (s.includes('insurance')) return 'insurance';
+  if (s.includes('utilit') || s.includes('electric') || s.includes('water bill')) return 'utility';
   return 'other';
 }
 function monthLabel(dateObj) {

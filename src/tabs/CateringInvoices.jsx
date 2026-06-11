@@ -8,6 +8,7 @@ import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
 import { buildCateringInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextId } from '../utils/invoiceIds.js';
 
@@ -241,7 +242,13 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     logActivity('create_invoice', 'Created catering invoice ' + inv.id);
   }
 
-  function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);showToast('Catering invoice deleted.');logActivity('delete_invoice','Deleted catering invoice '+id);}
+  function deleteInv(id){
+    const removed = cateringInvoices.find(x=>x.id===id);
+    if (removed) moveToTrash('cateringInvoices', `Catering ${id} — ${removed.customerName || ''} (${fmt$(removed.grandTotal||0)})`, removed);
+    const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);
+    showToast('Catering invoice deleted. Restore it from Settings → Recently Deleted if needed.');
+    logActivity('delete_invoice','Deleted catering invoice '+id);
+  }
 
   function totalPaidFor(inv) { return (parseFloat(inv.deposit)||0) + (inv.payments||[]).reduce((s,p) => s+(p.amount||0), 0); }
   function balanceFor(inv) { return Math.max(0, (inv.grandTotal||0) - totalPaidFor(inv)); }

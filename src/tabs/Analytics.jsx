@@ -6,8 +6,9 @@ import { showToast } from '../toastContext.jsx';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
 import { buildProfessionalDoc, docSection, docMoney, esc } from '../utils/professionalDoc.js';
-import { load } from '../utils/storage.js';
+import { load, save } from '../utils/storage.js';
 import { OWNERS_KEY } from '../constants.js';
+import Modal from '../ui/Modal.jsx';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
 const fmtD = d => d.toISOString().slice(0, 10);
@@ -26,6 +27,10 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   const [preset, setPreset] = useState('');
   const [filterBiz, setFilterBiz] = useState('');
   const [showReportsMenu, setShowReportsMenu] = useState(false);
+  // In-place owner editor: opens when Owner Profit Split is clicked but
+  // owners aren't configured (or shares don't total 100%), so she never
+  // has to dig through Settings → Advanced to use the feature.
+  const [ownerEditor, setOwnerEditor] = useState(null); // null | [{id,name,sharePct,salary}]
 
   function applyPreset(p) {
     const now = new Date();
@@ -210,12 +215,14 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
   function printDistribution() {
     const owners = load(OWNERS_KEY, []);
     if (!Array.isArray(owners) || owners.length === 0) {
-      showToast('Add owners in Settings → Owners & Profit Distribution first.', 'error');
+      // First use: set up owners right here instead of sending her to Settings.
+      setOwnerEditor([{ id: crypto.randomUUID(), name: '', sharePct: 50, salary: 0 }, { id: crypto.randomUUID(), name: '', sharePct: 50, salary: 0 }]);
       return;
     }
     const sharePctTotal = owners.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
     if (Math.abs(sharePctTotal - 100) > 0.01) {
-      showToast(`Owner shares total ${sharePctTotal.toFixed(1)}%; set them to 100% in Settings before printing.`, 'error');
+      showToast(`Owner shares total ${sharePctTotal.toFixed(1)}% — fix them below so they add to 100%.`, 'error');
+      setOwnerEditor(owners.map(o => ({ ...o })));
       return;
     }
 
@@ -613,6 +620,62 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
           />
         </Suspense>
       )}
+
+      {/* In-place owner setup for the Profit Split report */}
+      <Modal open={!!ownerEditor} onClose={() => setOwnerEditor(null)} title="🤝 Set Up Owner Profit Split" maxW={560}>
+        {ownerEditor && (() => {
+          const totalPct = ownerEditor.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
+          const pctOk = Math.abs(totalPct - 100) < 0.01;
+          const namesOk = ownerEditor.every(o => String(o.name).trim());
+          const patch = (id, p) => setOwnerEditor(list => list.map(o => o.id === id ? { ...o, ...p } : o));
+          return (
+            <div>
+              <p style={{ fontSize: 13, color: '#666', marginBottom: 12, lineHeight: 1.5 }}>
+                List each owner, their share of profits, and any salary they already took during the period.
+                The report subtracts salaries from net profit, then splits the rest by share.
+              </p>
+              {ownerEditor.map((o, idx) => (
+                <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, alignItems: 'end', marginBottom: 8, padding: '10px 12px', background: '#FBF6EC', borderRadius: 6 }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    {idx === 0 && <label>Name</label>}
+                    <input className="input" value={o.name} placeholder="e.g. Fatim Farooq" onChange={e => patch(o.id, { name: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    {idx === 0 && <label>Share %</label>}
+                    <input className="input" type="number" min="0" max="100" step="0.5" value={o.sharePct} onChange={e => patch(o.id, { sharePct: e.target.value === '' ? '' : Number(e.target.value) })} />
+                  </div>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    {idx === 0 && <label>Salary drawn ($)</label>}
+                    <input className="input" type="number" min="0" step="0.01" value={o.salary} onChange={e => patch(o.id, { salary: e.target.value === '' ? '' : Number(e.target.value) })} />
+                  </div>
+                  <button className="btn btn-outline btn-sm" style={{ marginBottom: 2 }} title="Remove" disabled={ownerEditor.length <= 1}
+                    onClick={() => setOwnerEditor(list => list.filter(x => x.id !== o.id))}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                <button className="btn btn-outline btn-sm" onClick={() => setOwnerEditor(list => [...list, { id: crypto.randomUUID(), name: '', sharePct: 0, salary: 0 }])}>＋ Add Owner</button>
+                <div style={{ fontSize: 13, color: pctOk ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+                  Shares: {totalPct.toFixed(1)}%{pctOk ? ' ✓' : ' (must equal 100%)'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-outline" onClick={() => setOwnerEditor(null)}>Cancel</button>
+                <button className="btn btn-primary" disabled={!pctOk || !namesOk}
+                  title={!namesOk ? 'Every owner needs a name' : !pctOk ? 'Shares must total 100%' : 'Save and print the report'}
+                  onClick={() => {
+                    const cleaned = ownerEditor.map(o => ({ id: o.id, name: String(o.name).trim(), sharePct: Number(o.sharePct) || 0, salary: Number(o.salary) || 0 }));
+                    save(OWNERS_KEY, cleaned);
+                    setOwnerEditor(null);
+                    logActivity('edit_owners', `Configured ${cleaned.length} owners for profit split`);
+                    printDistribution();
+                  }}>
+                  💾 Save &amp; Print Report
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 }

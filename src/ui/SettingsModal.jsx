@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useId } from 'react';
 import JSZip from 'jszip';
 import { secureGet, secureSet, secureDel } from '../utils/secureStore.js';
 import { load, save, today } from '../utils/storage.js';
+import { listTrash, restoreFromTrash, purgeTrash } from '../utils/trash.js';
 import { logActivity } from '../utils/activity.js';
 import { documentBaseHref } from '../utils/print.js';
 import { showToast } from '../toastContext.jsx';
@@ -130,6 +131,25 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const importRef = useRef();
   const [diagPayload, setDiagPayload] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
+
+  // Recently-deleted bin (soft delete). Restoring writes the record back to
+  // storage AND syncs the matching React state so no reload is needed.
+  const [trashItems, setTrashItems] = useState(() => listTrash());
+  useEffect(() => { if (open) setTrashItems(listTrash()); }, [open]);
+  function doRestore(t) {
+    const restored = restoreFromTrash(t.trashId);
+    if (!restored) { showToast('Could not restore — entry no longer exists.', 'error'); setTrashItems(listTrash()); return; }
+    const sync = {
+      cateringInvoices: setCateringInv,
+      purchaseInvoices: setPurchaseInv,
+      transferInvoices: setTransferInv,
+      customers: setCustomers,
+    }[t.kind];
+    if (sync) sync(load(t.kind, []));
+    setTrashItems(listTrash());
+    logActivity('restore_deleted', `Restored ${t.label}`);
+    showToast(`Restored: ${t.label}`);
+  }
 
   // Owners / partners configuration (used by the Distribution Statement).
   const [owners, setOwners] = useState(() => {
@@ -805,6 +825,28 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         <p style={{fontSize:11.5,color:'#aaa',marginTop:10}}>
           💡 Tip: Save backups to Google Drive, OneDrive, or email them to yourself for safekeeping.
         </p>
+      </div>
+
+      {/* Recently Deleted — soft-delete safety net */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>🗑️ Recently Deleted</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:10,lineHeight:1.5}}>
+          Deleted invoices and customers stay here for 30 days. Click Restore to bring one back.
+        </p>
+        {trashItems.length === 0
+          ? <div style={{fontSize:12.5,color:'#999',padding:'8px 0'}}>Nothing in the bin.</div>
+          : trashItems.map(t => (
+            <div key={t.trashId} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'7px 10px',background:'#FBF6EC',borderRadius:6,marginBottom:6}}>
+              <div style={{fontSize:12.5,minWidth:0}}>
+                <div style={{fontWeight:600,color:'#5a3010',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.label}</div>
+                <div style={{fontSize:11,color:'#999'}}>deleted {new Date(t.deletedAt).toLocaleString()}</div>
+              </div>
+              <div style={{display:'flex',gap:6,flexShrink:0}}>
+                <Btn className="btn-primary btn-sm" onClick={()=>doRestore(t)}>↩ Restore</Btn>
+                <Btn className="btn-outline btn-sm" title="Delete permanently" onClick={()=>{ purgeTrash(t.trashId); setTrashItems(listTrash()); showToast('Permanently deleted.'); }}>✕</Btn>
+              </div>
+            </div>
+          ))}
       </div>
 
       {/* Custom Categories */}

@@ -7,6 +7,7 @@ import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
 import { today } from '../utils/storage.js';
 import { logActivity } from '../tabUtils.js';
 import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
 import { buildProfessionalDoc, docSection, docMoney, esc } from '../utils/professionalDoc.js';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
@@ -127,11 +128,12 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
 
   function delCust(id) {
     const removed = customers.find(c => c.id === id);
+    if (removed) moveToTrash('customers', `Customer — ${removed.name || id}`, removed);
     const u = customers.filter(c => c.id !== id);
     setCustomers(u);
     save('customers', u);
     setConfirmId(null);
-    showToast('Customer deleted.');
+    showToast('Customer deleted. Restore from Settings → Recently Deleted if needed.');
     logActivity('delete_customer', 'Deleted customer ' + (removed?.name || id));
   }
 
