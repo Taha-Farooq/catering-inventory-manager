@@ -79,6 +79,8 @@ import PriceUpdater from './tabs/PriceUpdater.jsx';
 import Confirm from './ui/Confirm.jsx';
 import Modal from './ui/Modal.jsx';
 import GlobalSearch from './ui/GlobalSearch.jsx';
+import MobileReadOnlyBanner from './ui/MobileReadOnlyBanner.jsx';
+import { getSyncMode, schedulePush, pullSnapshot, fetchSyncStatus, isReadOnly, shouldShowMobileFirstHint, dismissMobileFirstHint } from './utils/mobileSync.js';
 import {
   BUSINESSES,
   TABS_ADMIN,
@@ -316,6 +318,29 @@ function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Mobile sync: desktop pushes localStorage snapshots, phone pulls them.
+  // The mode is auto-picked by screen width (wide ⇒ desktop, narrow ⇒
+  // mobile) and overridable from Settings. Admin-only — staff phones
+  // never see any of this.
+  const [syncMode, setSyncModeState] = useState(() => getSyncMode());
+  const [readOnly, setReadOnly] = useState(() => isReadOnly());
+  const [syncStatus, setSyncStatus] = useState({ snapshotAt: null, pulling: false, pushing: false, lastError: '' });
+  function refreshSyncMode() {
+    setSyncModeState(getSyncMode());
+    setReadOnly(isReadOnly());
+  }
+  // Re-detect on screen-size changes — laptop docked to a big monitor,
+  // phone rotated, etc. Cheap and prevents an awkward "you said this
+  // was a phone an hour ago" mismatch.
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(min-width:1024px)');
+    const handler = () => refreshSyncMode();
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, []);
+
   const [navGroup, setNavGroup] = useState('ops');
   const [items, setItems] = useState(()=>load('items',[]));
   const [shopping, setShopping] = useState(()=>migrateShoppingList(load('shoppingList',[])));
@@ -652,7 +677,80 @@ function App() {
     setSuppliers,
     logoOverrides, setLogoOverrides,
     bizContact, setBizContact,
+    // Mobile sync surface, used by SettingsModal's "📱 Phone Sync" section
+    // and consumed by tab components for read-only enforcement.
+    syncMode, refreshSyncMode, readOnly, syncStatus, setSyncStatus,
+    onManualPush: () => doPush(true),
+    onManualPull: () => doPull(true),
   };
+
+  // ── Mobile sync wiring ────────────────────────────────────────────────
+  // Desktop mode: every save() pushes a debounced snapshot. We watch the
+  // big data slices and reschedule on any change.
+  async function doPush(showToastOnSuccess = false) {
+    if (!isAdmin || !online) return;
+    setSyncStatus(s => ({ ...s, pushing: true, lastError: '' }));
+    try {
+      const { pushSnapshot } = await import('./utils/mobileSync.js');
+      const res = await pushSnapshot(attendanceApiCall, currentUser);
+      if (res.ok) {
+        setSyncStatus(s => ({ ...s, pushing: false, snapshotAt: res.data?.snapshotAt || new Date().toISOString() }));
+        if (showToastOnSuccess) showToast('Pushed snapshot to phone-sync cloud.', 'success');
+      } else {
+        setSyncStatus(s => ({ ...s, pushing: false, lastError: res.error || 'Push failed' }));
+        if (showToastOnSuccess) showToast(`Push failed: ${res.error || 'unknown'}`, 'error');
+      }
+    } catch (e) {
+      setSyncStatus(s => ({ ...s, pushing: false, lastError: String(e?.message || e) }));
+    }
+  }
+  async function doPull(showToastOnSuccess = false) {
+    if (!isAdmin || !online) return;
+    setSyncStatus(s => ({ ...s, pulling: true, lastError: '' }));
+    try {
+      const res = await pullSnapshot(attendanceApiCall, currentUser);
+      if (res.ok) {
+        setSyncStatus(s => ({ ...s, pulling: false, snapshotAt: res.data?.snapshotAt }));
+        if (showToastOnSuccess) showToast(`Refreshed (${res.applied} sections updated). Reloading…`);
+        // Hydrate React state from the just-applied localStorage.
+        setItems(load('items', []));
+        setShopping(load('shoppingList', []));
+        setPurchaseInv(load('purchaseInvoices', []));
+        setCateringInv(load('cateringInvoices', []));
+        setTransferInv(load('transferInvoices', []));
+        setPayrollInvoices(load('payrollInvoices', []));
+        setDailyFinanceEntries(load('_dailyFinanceEntries', []));
+        setCustomers(load('customers', []));
+        setSuppliers(load('_suppliers', []));
+        setPriceHist(load('priceHistory', []));
+      } else {
+        setSyncStatus(s => ({ ...s, pulling: false, lastError: res.error || 'Pull failed' }));
+        if (showToastOnSuccess) showToast(`Refresh failed: ${res.error || 'unknown'}`, 'error');
+      }
+    } catch (e) {
+      setSyncStatus(s => ({ ...s, pulling: false, lastError: String(e?.message || e) }));
+    }
+  }
+
+  // Desktop auto-push on data change. We watch the big slices; the
+  // schedulePush debounce coalesces rapid edits into a single push.
+  useEffect(() => {
+    if (!isAdmin || syncMode !== 'desktop' || !online) return;
+    schedulePush(attendanceApiCall, currentUser, 2500);
+  }, [items, cateringInv, purchaseInv, transferInv, payrollInvoices, customers, suppliers, dailyFinanceEntries, priceHist, isAdmin, syncMode, online]);
+
+  // Mobile auto-pull on first mount after login. Also fetch status.
+  useEffect(() => {
+    if (!isAdmin || syncMode !== 'mobile' || !online) return;
+    let cancelled = false;
+    (async () => {
+      const status = await fetchSyncStatus(attendanceApiCall, currentUser);
+      if (cancelled) return;
+      if (status.ok) setSyncStatus(s => ({ ...s, snapshotAt: status.data?.snapshotAt }));
+      await doPull(false);
+    })();
+    return () => { cancelled = true; };
+  }, [isAdmin, syncMode, online, currentUser?.username]);
 
   function handleClearCorruptKeys() {
     const keys = [...storageCorruptKeys];
@@ -695,6 +793,12 @@ function App() {
 
   return (
     <div id="app-shell">
+      {isAdmin && <MobileReadOnlyBanner
+        syncMode={syncMode}
+        syncStatus={syncStatus}
+        onRefresh={() => doPull(true)}
+        onOpenSettings={() => setShowSettings(true)}
+      />}
       <div className="app-header no-print">
         <div className="header-row">
           <div>
@@ -808,15 +912,15 @@ function App() {
           </div>
         )}
         {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} onOpenSettings={()=>setShowSettings(true)} onOpenSearch={()=>setSearchOpen(true)} />}
-        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
+        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} readOnly={readOnly} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
         {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={staffAttToken || attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} sessionTimeLeft={staffSessionTimer} onAttendanceComplete={handleAttendanceComplete} brandingMap={brandingMap} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
-        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} pendingOpen={pendingOpen?.kind==='purchase'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
-        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='transfer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
-        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='catering'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
-        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} brandingMap={brandingMap} selectedBusiness={biz} pendingOpen={pendingOpen?.kind==='customer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} pendingOpen={pendingOpen?.kind==='purchase'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
+        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='transfer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
+        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='catering'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
+        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} brandingMap={brandingMap} selectedBusiness={biz} pendingOpen={pendingOpen?.kind==='customer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
         {tab==='suppliers' && isAdmin && <SupplierManagement suppliers={suppliers} setSuppliers={setSuppliers} items={items} purchaseInvoices={purchaseInv} onCreateInvoice={name=>{setPurchasePreset(name);setTab('purchase');}} />}
         {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} payrollInvoices={payrollInvoices} brandingMap={brandingMap} />}
         {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} save={save} brandingMap={brandingMap} />}

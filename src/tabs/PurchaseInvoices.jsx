@@ -407,7 +407,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
           </select>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
-          <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>}
         </div>
       </div>
 

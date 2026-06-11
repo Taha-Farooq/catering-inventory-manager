@@ -26,6 +26,8 @@ const STORE_DIR = path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(STORE_DIR, 'used-reset-tokens.json');
 const USERS_FILE = path.join(STORE_DIR, 'credentials.json');
 const SCAN_DB_FILE = path.join(STORE_DIR, 'scan-db.json');
+const SYNC_FILE = path.join(STORE_DIR, 'sync-snapshot.json');
+const SYNC_MAX_BYTES = Number(process.env.SYNC_MAX_BYTES || 25 * 1024 * 1024);
 const SCAN_POLL_MS = Number(process.env.SCAN_POLL_MS || 8000);
 const SCAN_MIN_FILE_AGE_MS = Number(process.env.SCAN_MIN_FILE_AGE_MS || 3000);
 const ATTENDANCE_FILE = path.join(STORE_DIR, 'attendance-db.json');
@@ -557,9 +559,11 @@ app.set('trust proxy', 1);
 // registered with its own parser BEFORE the global 256kb parser; everything
 // else stays tight.
 const scanUploadParser = express.json({ limit: '40mb' });
+const syncSnapshotParser = express.json({ limit: '25mb' });
 const defaultJsonParser = express.json({ limit: '256kb' });
 app.use((req, res, next) => {
   if (req.path === '/api/scan/upload') return scanUploadParser(req, res, next);
+  if (req.path === '/api/sync/snapshot') return syncSnapshotParser(req, res, next);
   return defaultJsonParser(req, res, next);
 });
 app.use(cors({
@@ -1003,6 +1007,54 @@ app.post('/api/scan/import', adminOnly, (req, res) => {
   writeScanDb(db);
   refreshScanTimer();
   return res.json({ ok: true, total: db.docs.length });
+});
+
+// ── Mobile sync ──
+// One JSON snapshot of the admin's localStorage app data (invoices,
+// customers, items, etc.). The desktop pushes on save (debounced) and
+// the phone pulls on login / refresh. Admin role only — the snapshot
+// can contain financial info the phone-side employees never see.
+// Credentials are NOT included in the snapshot; those flow through
+// /api/auth/*. Source of truth remains localStorage on the desktop —
+// this file is a mirror that lets her see the same data on her phone.
+function readSync() {
+  try { return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8')); }
+  catch { return null; }
+}
+function writeSync(payload) {
+  writeJsonAtomic(SYNC_FILE, payload);
+}
+app.post('/api/sync/snapshot', adminOnly, (req, res) => {
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') {
+    return res.status(400).json({ ok: false, error: 'data object required' });
+  }
+  // Cheap size guard — the JSON parser cap already enforces 25MB, but
+  // measure post-parse so a payload of 25MB of `[null,null,…]` doesn't
+  // succeed silently.
+  const serialized = JSON.stringify(data);
+  if (Buffer.byteLength(serialized, 'utf8') > SYNC_MAX_BYTES) {
+    return res.status(413).json({ ok: false, error: 'Snapshot exceeds maximum size' });
+  }
+  const snapshot = {
+    data,
+    snapshotAt: new Date().toISOString(),
+    by: req.adminUser,
+    sizeBytes: Buffer.byteLength(serialized, 'utf8'),
+    version: 1,
+  };
+  writeSync(snapshot);
+  return res.json({ ok: true, snapshotAt: snapshot.snapshotAt, sizeBytes: snapshot.sizeBytes });
+});
+app.get('/api/sync/snapshot', adminOnly, (_req, res) => {
+  const snap = readSync();
+  if (!snap) return res.status(404).json({ ok: false, error: 'No snapshot pushed yet from the desktop.' });
+  return res.json({ ok: true, ...snap });
+});
+app.get('/api/sync/status', adminOnly, (_req, res) => {
+  const snap = readSync();
+  if (!snap) return res.json({ ok: true, snapshotAt: null, sizeBytes: 0, by: null });
+  return res.json({ ok: true, snapshotAt: snap.snapshotAt, sizeBytes: snap.sizeBytes || 0, by: snap.by || null });
 });
 
 app.post('/api/admin-reset/validate', authLimiter, (req, res) => {

@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { secureGet, secureSet, secureDel } from '../utils/secureStore.js';
 import { load, save, today } from '../utils/storage.js';
 import { listTrash, restoreFromTrash, purgeTrash } from '../utils/trash.js';
+import { getStoredSyncMode, setSyncMode as setSyncModeUtil } from '../utils/mobileSync.js';
 import { logActivity } from '../utils/activity.js';
 import { documentBaseHref } from '../utils/print.js';
 import { showToast } from '../toastContext.jsx';
@@ -131,6 +132,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const importRef = useRef();
   const [diagPayload, setDiagPayload] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
+
+  // Phone-sync mode toggle — persisted in storage; effective mode is also
+  // recomputed in App.jsx via refreshSyncMode after this changes.
+  const [syncModeChoice, setSyncModeChoice] = useState(() => getStoredSyncMode());
 
   // Recently-deleted bin (soft delete). Restoring writes the record back to
   // storage AND syncs the matching React state so no reload is needed.
@@ -808,6 +813,54 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           If the page looks unchanged, wait a minute and refresh again (school networks sometimes cache the old file).
           Major risky fixes are developed and merged carefully on GitHub; this menu cannot auto-install them.
         </div>
+      </div>
+
+      {/* Phone Sync */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>📱 Phone Sync</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:12,lineHeight:1.6}}>
+          The <strong>desktop</strong> is the source of truth. It pushes a snapshot to the cloud whenever data changes.
+          The <strong>phone</strong> pulls that snapshot to view (but not edit) your invoices, customers, and items.
+          The mode is picked automatically from the screen size — override it here if needed.
+        </p>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:8,marginBottom:12}}>
+          {[
+            { v: 'auto', label: 'Automatic', hint: 'Wide screen → Desktop, phone → Mobile' },
+            { v: 'desktop', label: '🖥️ Desktop (push)', hint: 'This device is the master' },
+            { v: 'mobile', label: '📱 Mobile (read-only)', hint: 'Phone view; pulls snapshot' },
+            { v: 'off', label: '🚫 Off', hint: 'Don\'t push or pull' },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => { setSyncModeChoice(opt.v); setSyncModeUtil(opt.v); appState.refreshSyncMode?.(); }}
+              style={{
+                textAlign: 'left', padding: '10px 12px', background: syncModeChoice === opt.v ? '#FFF3DC' : '#fff',
+                border: `1.5px solid ${syncModeChoice === opt.v ? '#8B4513' : '#DEB887'}`, borderRadius: 6, cursor: 'pointer',
+              }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#5a3010' }}>{opt.label}</div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{opt.hint}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12.5, color: '#555', padding: '8px 12px', background: '#FBF6EC', borderRadius: 6 }}>
+          <div>Active mode: <strong style={{ color: '#5a3010' }}>{appState.syncMode || 'auto'}</strong></div>
+          {appState.syncStatus?.snapshotAt && (
+            <div>Last snapshot: <strong>{new Date(appState.syncStatus.snapshotAt).toLocaleString()}</strong></div>
+          )}
+          {appState.syncStatus?.lastError && (
+            <div style={{ color: '#b91c1c', marginTop: 4 }}>⚠ {appState.syncStatus.lastError}</div>
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap" style={{ marginTop: 10 }}>
+          <Btn className="btn-outline btn-sm" onClick={() => appState.onManualPush?.()} disabled={appState.syncStatus?.pushing}>
+            {appState.syncStatus?.pushing ? '⏳ Pushing…' : '⬆ Push snapshot now'}
+          </Btn>
+          <Btn className="btn-outline btn-sm" onClick={() => appState.onManualPull?.()} disabled={appState.syncStatus?.pulling}>
+            {appState.syncStatus?.pulling ? '⏳ Pulling…' : '⬇ Pull snapshot now'}
+          </Btn>
+        </div>
+        <p style={{fontSize:11.5,color:'#aaa',marginTop:10,lineHeight:1.5}}>
+          🔒 Sync transfers data through your existing admin backend over HTTPS. Credentials and per-device prefs are <strong>not</strong> included.
+          The desktop is always the source of truth — if you accidentally edit the wrong thing, the next push restores it on the phone.
+        </p>
       </div>
 
       {/* Backup / Restore */}

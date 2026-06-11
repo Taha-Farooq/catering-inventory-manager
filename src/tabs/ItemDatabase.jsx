@@ -59,7 +59,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole, purchaseInvoices = [] }) {
+export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole, purchaseInvoices = [], readOnly = false }) {
   const isAdmin = userRole === 'admin';
   const locQtyBlank = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
   const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',caseSize:'',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:'',locQty:{...locQtyBlank},locMinQty:{...locQtyBlank}};
@@ -450,7 +450,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
               <Btn className="btn-outline" onClick={downloadImportTemplate} title="Download a blank CSV template with the correct column headers">📋 Template</Btn>
             </>
           )}
-          <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>}
         </div>
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">

@@ -153,7 +153,7 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
         <div className="flex gap-2 flex-wrap" style={{ alignItems: 'center' }}>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-outline" onClick={exportCustomersExcel}>⬇ Excel</Btn>
-          <Btn className="btn-primary" onClick={() => { setForm(blank()); setEditId(null); setShowForm(true); }}>+ Add Customer</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={() => { setForm(blank()); setEditId(null); setShowForm(true); }}>+ Add Customer</Btn>}
         </div>
       </div>
       <div className="flex gap-2 mb-4" style={{ flexWrap: 'wrap' }}>

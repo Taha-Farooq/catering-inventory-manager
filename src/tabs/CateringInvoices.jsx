@@ -417,7 +417,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
           <Btn className="btn-outline" onClick={printAllVisible} title="Print every invoice currently shown in the list, one per page">🖨 Print all</Btn>
-          <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>}
         </div>
       </div>
 

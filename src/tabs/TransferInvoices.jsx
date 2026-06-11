@@ -302,7 +302,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
           {(filterDateFrom||filterDateTo) && <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px',marginBottom:0}} onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}}>✕</button>}
           <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
-          <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>}
         </div>
       </div>
       <p style={{fontSize:13,color:'#666',marginBottom:12}}>
