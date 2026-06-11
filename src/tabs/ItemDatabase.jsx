@@ -472,7 +472,20 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       )}
 
       {filtered.length===0
-        ? <div className="card empty-state">{items.length===0?'No items yet. Click "Add Item" to get started.':'No items match your search.'}</div>
+        ? (items.length === 0 ? (
+            <div className="card empty-state" style={{padding:'40px 24px',color:'#7a5c20'}}>
+              <div style={{fontSize:48,marginBottom:12}}>📦</div>
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginBottom:6}}>Your item catalog is empty</div>
+              <div style={{fontSize:14,lineHeight:1.6,maxWidth:420,margin:'0 auto 16px'}}>
+                This is where you keep every ingredient and supply you order — sellers, prices, units, stock per location. Once you add a few, shopping lists and invoices get a lot faster.
+              </div>
+              {userRole === 'admin' && (
+                <button className="btn btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>+ Add your first item</button>
+              )}
+            </div>
+          ) : (
+            <div className="card empty-state">No items match your search.</div>
+          ))
         : (
           <>
           {selectedIds.size > 0 && (

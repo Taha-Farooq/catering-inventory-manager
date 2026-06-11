@@ -7,7 +7,7 @@ import { BUSINESSES, PAYMENT_TERMS } from '../constants.js';
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printInvoiceById, printHtmlDocument } from '../utils/print.js';
 import { nextId } from '../utils/invoiceIds.js';
 
 function Toggle({ checked, onChange, label }) {
@@ -89,7 +89,34 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
       return { ...f, lineItems: l };
     });
   }
-  function selCust(id){const c=customers.find(x=>x.id===id);if(c)setForm(f=>({...f,customerId:c.id,customerName:c.name,customerPhone:c.phone||'',customerEmail:c.email||'',customerAddress:c.address||''}));else setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:''}));}
+  // Pull the most recent invoice for a given customer, used to prefill
+  // event type + business when starting a new invoice for someone she's
+  // already done business with. Saves her from re-typing the same
+  // wedding/corporate/etc. she has every Tuesday.
+  function recentInvoiceFor(custId) {
+    if (!custId) return null;
+    return [...cateringInvoices]
+      .filter(inv => inv.customerId === custId)
+      .sort((a,b) => String(b.date||b.createdAt||'').localeCompare(String(a.date||a.createdAt||'')))[0] || null;
+  }
+  function selCust(id){
+    const c=customers.find(x=>x.id===id);
+    if(c){
+      const recent = recentInvoiceFor(c.id);
+      setForm(f=>({
+        ...f,
+        customerId:c.id,
+        customerName:c.name,
+        customerPhone:c.phone||'',
+        customerEmail:c.email||'',
+        customerAddress:c.address||'',
+        eventType: f.eventType && f.eventType !== 'Catering' ? f.eventType : (recent?.eventType || f.eventType),
+        business: f.business || recent?.business || selectedBusiness,
+      }));
+    } else {
+      setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:''}));
+    }
+  }
 
   function calcT(){
     const fb=BUSINESSES[form.business]||BUSINESSES[selectedBusiness];
@@ -275,6 +302,77 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     [cateringInvoices]
   );
 
+  // Bulk-print every visible invoice, one per page. Builds the same content
+  // the view modal would render but as static HTML so the browser print
+  // dialog handles page breaks across many invoices.
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function buildInvoiceBlock(inv) {
+    const brand = getInvoiceBranding(inv, brandingMap) || {};
+    const eventDate = inv.useRange && inv.dateStart ? `${inv.dateStart}${inv.dateEnd ? ' – ' + inv.dateEnd : ''}` : (inv.date || '');
+    const lineRows = (inv.lineItems || []).map(l => `
+      <tr>
+        <td style="padding:6px 8px;border:1px solid #ddd">${escHtml(l.description)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right">${escHtml(l.qty ?? l.quantity ?? '')}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right">$${Number(l.price ?? l.unitPrice ?? 0).toFixed(2)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right">$${Number(l.total || 0).toFixed(2)}</td>
+      </tr>`).join('');
+    const totalPaid = totalPaidFor(inv);
+    const balance = balanceFor(inv);
+    return `
+      <div style="padding:18px 12px;page-break-after:always;font-family:Georgia,serif;color:#222">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8B4513;padding-bottom:10px">
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#8B4513">${escHtml(brand.name || 'Invoice')}</div>
+            <div style="font-size:11.5px;color:#666;margin-top:3px">${escHtml(brand.address || '')}</div>
+            <div style="font-size:11.5px;color:#666">${escHtml(brand.phone || '')} · ${escHtml(brand.email || '')}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:#888">CATERING INVOICE</div>
+            <div style="font-size:18px;font-weight:700">${escHtml(inv.id)}</div>
+            <div style="font-size:12px;color:#666;margin-top:3px">${escHtml(eventDate)}</div>
+            <div style="margin-top:6px;font-size:12px"><span style="background:#f3f4f6;border-radius:10px;padding:2px 9px">${escHtml(inv.status || 'unpaid')}</span></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:14px">
+          <div style="flex:1">
+            <div style="font-size:10.5px;color:#888;letter-spacing:.5px">BILL TO</div>
+            <div style="font-weight:700;margin-top:3px">${escHtml(inv.customerName)}</div>
+            <div style="font-size:12px;color:#444">${escHtml(inv.customerAddress || '')}</div>
+            <div style="font-size:12px;color:#444">${escHtml(inv.customerPhone || '')}${inv.customerEmail ? ' · ' + escHtml(inv.customerEmail) : ''}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10.5px;color:#888;letter-spacing:.5px">EVENT</div>
+            <div style="font-weight:700;margin-top:3px">${escHtml(inv.eventType || 'Catering')}</div>
+            ${inv.guestCount ? `<div style="font-size:12px;color:#444">${inv.guestCount} guests</div>` : ''}
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:12.5px">
+          <thead><tr style="background:#f7f7f7"><th style="text-align:left;padding:6px 8px;border:1px solid #ddd">Description</th><th style="text-align:right;padding:6px 8px;border:1px solid #ddd">Qty</th><th style="text-align:right;padding:6px 8px;border:1px solid #ddd">Price</th><th style="text-align:right;padding:6px 8px;border:1px solid #ddd">Total</th></tr></thead>
+          <tbody>${lineRows}</tbody>
+          <tfoot style="font-size:12.5px">
+            <tr><td colspan="3" style="text-align:right;padding:6px 8px">Subtotal</td><td style="text-align:right;padding:6px 8px">$${Number(inv.subtotal || 0).toFixed(2)}</td></tr>
+            ${inv.ccFee ? `<tr><td colspan="3" style="text-align:right;padding:6px 8px">CC Fee</td><td style="text-align:right;padding:6px 8px">$${Number(inv.ccFee || 0).toFixed(2)}</td></tr>` : ''}
+            ${inv.taxAmount ? `<tr><td colspan="3" style="text-align:right;padding:6px 8px">Tax</td><td style="text-align:right;padding:6px 8px">$${Number(inv.taxAmount || 0).toFixed(2)}</td></tr>` : ''}
+            <tr style="font-weight:700"><td colspan="3" style="text-align:right;padding:8px;border-top:2px solid #ddd">Grand Total</td><td style="text-align:right;padding:8px;border-top:2px solid #ddd">$${Number(inv.grandTotal || 0).toFixed(2)}</td></tr>
+            ${totalPaid > 0 ? `<tr><td colspan="3" style="text-align:right;padding:6px 8px;color:#15803d">Paid</td><td style="text-align:right;padding:6px 8px;color:#15803d">$${totalPaid.toFixed(2)}</td></tr>` : ''}
+            ${balance > 0 ? `<tr style="font-weight:700"><td colspan="3" style="text-align:right;padding:6px 8px;color:#b91c1c">Balance Due</td><td style="text-align:right;padding:6px 8px;color:#b91c1c">$${balance.toFixed(2)}</td></tr>` : ''}
+          </tfoot>
+        </table>
+        ${inv.notes ? `<div style="margin-top:14px;font-size:12px;color:#555;border-top:1px solid #eee;padding-top:10px"><strong>Notes:</strong> ${escHtml(inv.notes)}</div>` : ''}
+      </div>`;
+  }
+  function printAllVisible() {
+    if (!visibleCatering.length) { showToast('No invoices in the current filter to print.', 'error'); return; }
+    if (visibleCatering.length > 50 && !window.confirm(`Print ${visibleCatering.length} invoices? You can narrow the date range above first if this is too many.`)) return;
+    const body = visibleCatering.map(buildInvoiceBlock).join('\n');
+    printHtmlDocument(body, `Catering invoices (${visibleCatering.length})`);
+    logActivity('print_invoices', `Bulk-printed ${visibleCatering.length} catering invoices`);
+  }
+
   function exportCsv() {
     if (!visibleCatering.length) { showToast('No invoices to export.', 'error'); return; }
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -356,6 +454,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
           </select>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
+          <Btn className="btn-outline" onClick={printAllVisible} title="Print every invoice currently shown in the list, one per page">🖨 Print all</Btn>
           <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
         </div>
       </div>
@@ -436,8 +535,24 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
           <FI label="Customer Name *" value={form.customerName} onChange={e=>{
             const name=e.target.value;
             const match=customers.find(c=>c.name.toLowerCase()===name.toLowerCase());
-            if(match)setForm(f=>({...f,customerName:name,customerId:match.id,customerPhone:f.customerPhone||match.phone||'',customerEmail:f.customerEmail||match.email||'',customerAddress:f.customerAddress||match.address||''}));
-            else setForm(f=>({...f,customerName:name,customerId:''}));
+            if(match){
+              // Auto-fill contact info + suggest event type / business from
+              // the customer's most recent invoice so a repeat booking is one
+              // step instead of seven.
+              const recent = recentInvoiceFor(match.id);
+              setForm(f=>({
+                ...f,
+                customerName:name,
+                customerId:match.id,
+                customerPhone:f.customerPhone||match.phone||'',
+                customerEmail:f.customerEmail||match.email||'',
+                customerAddress:f.customerAddress||match.address||'',
+                eventType: f.eventType && f.eventType !== 'Catering' ? f.eventType : (recent?.eventType || f.eventType),
+                business: f.business || recent?.business || selectedBusiness,
+              }));
+            } else {
+              setForm(f=>({...f,customerName:name,customerId:''}));
+            }
           }} placeholder="Full name" suggestions={customers.map(c=>c.name)} />
         </div>
         <div className="grid-2 mb-3">

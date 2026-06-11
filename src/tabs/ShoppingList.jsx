@@ -348,7 +348,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
       </div>
 
       {shoppingList.length===0
-        ? <div className="card empty-state">Search for an item above and click to add it to your shopping list.</div>
+        ? (
+            <div className="card empty-state" style={{padding:'36px 24px',color:'#7a5c20'}}>
+              <div style={{fontSize:48,marginBottom:12}}>🛒</div>
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginBottom:6}}>Your shopping list is empty</div>
+              <div style={{fontSize:14,lineHeight:1.6,maxWidth:420,margin:'0 auto'}}>
+                Type an item name above and add it, or use <strong>⚠ Low Stock</strong> to auto-fill items that are below their reorder point.
+              </div>
+            </div>
+          )
         : (
           <>
             <div className="card" style={{padding:0}}>

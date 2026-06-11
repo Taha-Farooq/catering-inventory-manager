@@ -779,7 +779,7 @@ function App() {
             />
           </div>
         )}
-        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} />}
+        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} onOpenSettings={()=>setShowSettings(true)} />}
         {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
@@ -802,7 +802,7 @@ function App() {
       </div>
 
       {/* ── Modals ── */}
-      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} brandingMap={brandingMap} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
+      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} brandingMap={brandingMap} uiMode={uiMode} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
 
       <Confirm

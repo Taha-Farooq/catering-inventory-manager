@@ -156,7 +156,18 @@ export default function CustomerManagement({ customers, setCustomers, cateringIn
       </div>
 
       {filtered.length === 0
-        ? <div className="card empty-state">No customers yet.</div>
+        ? (customers.length === 0 ? (
+            <div className="card empty-state" style={{padding:'36px 24px',color:'#7a5c20'}}>
+              <div style={{fontSize:48,marginBottom:12}}>👥</div>
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginBottom:6}}>No customers yet</div>
+              <div style={{fontSize:14,lineHeight:1.6,maxWidth:420,margin:'0 auto 16px'}}>
+                Your customers will appear here automatically the first time you create a catering invoice for them. You can also add one manually below.
+              </div>
+              <button className="btn btn-primary" onClick={() => { setForm(blank()); setEditId(null); setShowForm(true); }}>+ Add your first customer</button>
+            </div>
+          ) : (
+            <div className="card empty-state">No customers match your search.</div>
+          ))
         : (
           <div className="card" style={{ padding: 0 }}>
             <div className="tbl-wrap">

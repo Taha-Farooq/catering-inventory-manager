@@ -115,7 +115,11 @@ function LogoField({ label, fieldKey, logoFields, setLogoFields, fileRef, onFile
 }
 
 // SETTINGS MODAL (admin only)
-export default function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap }) {
+export default function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap, uiMode = 'simple' }) {
+  // In simple mode, the advanced sections (staff session timeout, employee
+  // pay-rate registry, reset-service endpoint) start collapsed. They're never
+  // removed — just hidden behind one click.
+  const [showAdvanced, setShowAdvanced] = useState(uiMode !== 'simple');
   const { items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
           dailyFinanceEntries, customers, priceHist, suppliers,
           setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
@@ -807,7 +811,18 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         </div>
       </div>
 
+      {/* Advanced-settings toggle. Simple mode keeps the dense / power-user
+          panels collapsed until she actually wants them. */}
+      <div style={{marginBottom:12,textAlign:'center'}}>
+        <button type="button"
+          onClick={()=>setShowAdvanced(v=>!v)}
+          style={{background:'none',border:'1px solid var(--border)',borderRadius:18,padding:'6px 16px',fontSize:12.5,color:'var(--brown)',cursor:'pointer'}}>
+          {showAdvanced ? '▴ Hide advanced settings' : '▾ Show advanced settings (timeouts, pay rates, server endpoint)'}
+        </button>
+      </div>
+
       {/* Security Settings */}
+      {showAdvanced && (
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔐 Staff Security Settings</div>
         <div style={{marginBottom:12}}>
@@ -844,9 +859,10 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           logActivity('settings_change', `Staff session timeout set to ${sessionTimeoutInput}s`);
         }}>💾 Save Timeout</Btn>
       </div>
+      )}
 
       {/* Employee Pay Rate Registry */}
-      {Object.keys(empRegistry).length > 0 && (
+      {showAdvanced && Object.keys(empRegistry).length > 0 && (
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>💼 Employee Pay Rate Registry</div>
         <p style={{fontSize:12.5,color:'#666',marginBottom:10,lineHeight:1.5}}>
@@ -1157,6 +1173,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         </div>
       </div>
 
+      {showAdvanced && (
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:15}}>🛡️ Reset Service Endpoint</div>
         <p style={{fontSize:13,color:'#666',lineHeight:1.6,marginBottom:10}}>
@@ -1181,6 +1198,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           </div>
         )}
       </div>
+      )}
 
       <div style={{marginTop:4,textAlign:'right'}}>
         <Btn className="btn-outline" onClick={onClose}>Close</Btn>

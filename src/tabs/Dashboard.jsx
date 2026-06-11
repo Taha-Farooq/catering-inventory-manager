@@ -27,7 +27,7 @@ function isItemLowStock(item) {
   });
 }
 
-export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], payrollInvoices = [], setTab, shoppingList = [], setShoppingList }) {
+export default function Dashboard({ items = [], purchaseInvoices = [], cateringInvoices = [], payrollInvoices = [], setTab, shoppingList = [], setShoppingList, onOpenSettings }) {
   const stats = useMemo(() => {
     const totalItems = items.length;
 
@@ -102,6 +102,72 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
     const log = load('_activityLog', []);
     return [...log].reverse().slice(0, 10);
   }, []);
+
+  // ── Today summary, backup nudge, overdue customers (added in the security+UX release) ──
+  const todayStr = today();
+  const todayStats = useMemo(() => {
+    const cInvToday = cateringInvoices.filter(i => String(i.date || i.createdAt || '').slice(0,10) === todayStr);
+    const pInvToday = purchaseInvoices.filter(i => String(i.date || i.createdAt || '').slice(0,10) === todayStr);
+    const cRevToday = cInvToday.reduce((s, i) => s + (i.grandTotal || i.total || 0), 0);
+    const paymentsToday = cateringInvoices.reduce((s, i) => {
+      const ps = (i.payments || []).filter(p => String(p.date || '').slice(0,10) === todayStr);
+      return s + ps.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    }, 0);
+    let checkInsToday = 0;
+    try {
+      const cache = load('_attendanceCache', []);
+      checkInsToday = (Array.isArray(cache) ? cache : []).filter(e => String(e?.at || e?.checkInAt || '').slice(0,10) === todayStr).length;
+    } catch {}
+    return {
+      invoicesToday: cInvToday.length + pInvToday.length,
+      cateringBookedToday: cRevToday,
+      paymentsToday,
+      checkInsToday,
+    };
+  }, [cateringInvoices, purchaseInvoices, todayStr]);
+
+  const lastBackupDays = useMemo(() => {
+    const log = load('_activityLog', []);
+    const last = [...log].reverse().find(e => e?.action === 'export_backup');
+    if (!last?.timestamp) return null;
+    const diff = Date.now() - new Date(last.timestamp).getTime();
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  }, []);
+  const needsBackupNudge = lastBackupDays === null || lastBackupDays > 7;
+
+  const overdueCustomers = useMemo(() => {
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - THIRTY_DAYS;
+    const byCust = {};
+    cateringInvoices.forEach(inv => {
+      if ((inv.status || 'unpaid') === 'paid') return;
+      const dStr = inv.date || inv.createdAt || '';
+      const d = new Date(dStr).getTime();
+      if (!isFinite(d) || d > cutoff) return;
+      const name = inv.customerName || inv.customer || 'Unknown';
+      const email = inv.customerEmail || inv.email || '';
+      const balance = (inv.balanceDue != null ? inv.balanceDue : (inv.grandTotal || inv.total || 0));
+      if (!byCust[name]) byCust[name] = { name, email, count: 0, total: 0, oldestDays: 0 };
+      byCust[name].count++;
+      byCust[name].total += balance;
+      byCust[name].oldestDays = Math.max(byCust[name].oldestDays, Math.floor((Date.now() - d) / (1000 * 60 * 60 * 24)));
+    });
+    return Object.values(byCust).sort((a, b) => b.oldestDays - a.oldestDays).slice(0, 5);
+  }, [cateringInvoices]);
+
+  function emailReminder(c) {
+    if (!c?.email) return;
+    const subject = encodeURIComponent('Friendly reminder — outstanding balance');
+    const body = encodeURIComponent(
+`Hi ${c.name},
+
+We noticed an unpaid balance of ${fmt$(c.total)} from your recent catering order${c.count > 1 ? 's' : ''}. Could you let us know when we can expect payment?
+
+Thanks!`
+    );
+    window.location.href = `mailto:${c.email}?subject=${subject}&body=${body}`;
+    logActivity('customer_reminder_sent', `Reminder sent to ${c.name} (${fmt$(c.total)} overdue)`);
+  }
 
   const topSuppliers = useMemo(() => {
     const m = {};
@@ -257,6 +323,82 @@ export default function Dashboard({ items = [], purchaseInvoices = [], cateringI
   return (
     <div>
       <div className="section-title">Dashboard</div>
+
+      {/* Today summary */}
+      <div className="card mb-4" style={{ borderLeft: '4px solid #15803D' }}>
+        <div style={{ fontWeight: 700, color: '#15803D', marginBottom: 10, fontSize: 14 }}>
+          📅 Today — {fmtDate(todayStr)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+          <div className="stat-card" style={{ background: '#F0FDF4' }}>
+            <div className="stat-val" style={{ color: '#15803D' }}>{todayStats.invoicesToday}</div>
+            <div className="stat-lbl">Invoices created</div>
+          </div>
+          <div className="stat-card" style={{ background: '#F0FDF4' }}>
+            <div className="stat-val" style={{ color: '#15803D' }}>{fmt$(todayStats.cateringBookedToday)}</div>
+            <div className="stat-lbl">Catering booked</div>
+          </div>
+          <div className="stat-card" style={{ background: '#F0FDF4' }}>
+            <div className="stat-val" style={{ color: '#15803D' }}>{fmt$(todayStats.paymentsToday)}</div>
+            <div className="stat-lbl">Payments received</div>
+          </div>
+          <div className="stat-card" style={{ background: '#F0FDF4' }}>
+            <div className="stat-val" style={{ color: '#15803D' }}>{todayStats.checkInsToday}</div>
+            <div className="stat-lbl">Check-in events</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Backup nudge — only shown when overdue */}
+      {needsBackupNudge && (
+        <div className="card mb-4" style={{ background: '#FFF8DC', border: '1px solid #DEB887', borderLeft: '4px solid #B8860B' }}>
+          <div style={{ fontWeight: 700, color: '#7a5c00', marginBottom: 6 }}>💾 Time for a backup</div>
+          <div style={{ fontSize: 13.5, color: '#6b4b20', marginBottom: 10, lineHeight: 1.5 }}>
+            {lastBackupDays === null
+              ? 'You haven’t exported a backup yet. Click below to download one — keep it somewhere safe.'
+              : `It’s been ${lastBackupDays} days since your last backup. A quick export keeps your data safe.`}
+          </div>
+          {onOpenSettings && (
+            <button className="btn btn-primary btn-sm" onClick={onOpenSettings}>
+              ⬇ Back up now
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Overdue customers — only shown when any */}
+      {overdueCustomers.length > 0 && (
+        <div className="card mb-4" style={{ borderLeft: '4px solid #DC2626' }}>
+          <div style={{ fontWeight: 700, color: '#991b1b', marginBottom: 6, fontSize: 15 }}>
+            📬 Customers overdue 30+ days
+          </div>
+          <div style={{ fontSize: 12.5, color: '#7a5c20', marginBottom: 10 }}>
+            {overdueCustomers.length} customer{overdueCustomers.length === 1 ? '' : 's'} with unpaid catering invoices over 30 days old.
+          </div>
+          {overdueCustomers.map(c => (
+            <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid #fee2e2' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, color: 'var(--text)' }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: '#7f1d1d' }}>
+                  {c.count} invoice{c.count === 1 ? '' : 's'} · {fmt$(c.total)} overdue · oldest {c.oldestDays} days
+                </div>
+              </div>
+              {c.email ? (
+                <button className="btn btn-outline btn-sm" onClick={() => emailReminder(c)}>
+                  ✉ Email reminder
+                </button>
+              ) : (
+                <span style={{ fontSize: 11.5, color: '#999' }}>no email on file</span>
+              )}
+            </div>
+          ))}
+          {setTab && (
+            <button className="btn btn-outline btn-sm" style={{ marginTop: 10 }} onClick={() => setTab('customers')}>
+              View all customers →
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Quick Actions */}
       {setTab && (
