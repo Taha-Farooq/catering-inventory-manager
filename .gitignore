@@ -4,5 +4,8 @@ dist/
 _part1.js
 _part2.js
 
-# Backend runtime state (credentials, attendance, scan DB) — never commit
+# Backend runtime state (credentials, attendance, scan DB, sync mirror) —
+# never commit. Both paths covered because process.cwd() depends on where
+# the backend was started from.
 backend/data/
+data/
