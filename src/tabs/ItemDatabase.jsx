@@ -436,8 +436,12 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
 
   return (
     <div>
+      <div className="hint-card" style={{ marginBottom: 10 }}>
+        📦 <strong>Pantry &amp; Supplies</strong> — things you <em>buy</em> (rice, chicken, naan, plates).
+        Track stock here and pick from this list when shopping. For things you <em>sell</em> to customers (menu items, prices, margins), use the <strong>🍴 Menu Items</strong> tab.
+      </div>
       <div className="flex-between mb-4 flex-wrap gap-2">
-        <div className="section-title" style={{margin:0}}>Item Database ({items.length})</div>
+        <div className="section-title" style={{margin:0}}>Pantry &amp; Supplies ({items.length})</div>
         <div className="flex gap-2 flex-wrap">
           {isAdmin && <Btn className="btn-outline" onClick={cleanupInternalSellers}>🧹 Clean Seller List</Btn>}
           {isAdmin && (

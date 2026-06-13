@@ -14,7 +14,7 @@ export const INVENTORY_ADJUSTMENTS_KEY = '_inventoryAdjustments';
 export const TABS_ADMIN = [
   { id: 'dashboard', label: '🏠 Dashboard' },
   { id: 'checkio', label: '✅ Check In/Out' },
-  { id: 'items', label: '📦 Items' },
+  { id: 'items', label: '📦 Pantry & Supplies' },
   { id: 'invadj', label: '📝 Inv. Log', powerOnly: true },
   { id: 'shopping', label: '🛒 Shopping' },
   { id: 'pricer', label: '💰 Price Updater' },
@@ -28,7 +28,7 @@ export const TABS_ADMIN = [
   { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
   { id: 'archive', label: '🗂️ Archive' },
   { id: 'history', label: '📈 Price History', powerOnly: true },
-  { id: 'margins', label: '💹 Menu Margins' },
+  { id: 'margins', label: '🍴 Menu Items (for sale)' },
   { id: 'actlog', label: '🔍 Activity Log', powerOnly: true },
   { id: 'scanbeta', label: '📄 Scan Documents' },
   { id: 'help', label: '❓ Help' },
@@ -38,7 +38,7 @@ export const TABS_ADMIN = [
 export const ALL_USER_TABS = [
   { id: 'checkio', label: '✅ Check In/Out' },
   { id: 'shopping', label: '🛒 Shopping List' },
-  { id: 'items', label: '📦 Add Items' },
+  { id: 'items', label: '📦 Pantry & Supplies' },
   { id: 'pricer', label: '💰 Price Updater' },
   { id: 'dailyfin', label: '🧾 Daily Finance' },
   { id: 'help', label: '❓ Help' },

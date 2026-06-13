@@ -360,11 +360,11 @@ Thanks!`
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 10 }}>
             {[
               { icon: '🔎', title: 'Search Everything', text: `One bar to find any invoice, customer, or scanned document. ${isMac ? '⌘K' : 'Ctrl+K'} from anywhere.`, search: true },
+              { icon: '📦', title: 'Pantry & Supplies', text: 'Things you BUY — rice, naan, chicken, plates. Track stock here.', tab: 'items' },
+              { icon: '🍴', title: 'Menu Items (for sale)', text: 'Things you SELL — tikka platter, lassi, dinner trays. Set prices & margins.', tab: 'margins' },
               { icon: '📄', title: 'Scan Documents', text: 'Drop scanner files in one folder — the computer reads and files them.', tab: 'scanbeta' },
               { icon: '🍽️', title: 'Catering Invoices', text: 'Create, print, and track invoices for events.', tab: 'catering' },
               { icon: '✅', title: 'Check In/Out', text: 'Staff QR clock-in; print pay stubs from here.', tab: 'checkio' },
-              { icon: '📊', title: 'Analytics → Reports', text: 'Monthly report, P&L, and owner profit split — one button.', tab: 'analytics' },
-              { icon: '⚙️', title: 'Settings', text: 'Backups, owners & profit shares, staff accounts, branding.', settings: true },
             ].map(c => (
               <button key={c.title} onClick={() => { if (c.settings) { onOpenSettings?.(); } else if (c.search) { onOpenSearch?.(); } else { setTab?.(c.tab); } }}
                 style={{ textAlign: 'left', background: '#fff', border: '1px solid #EED9B0', borderRadius: 8, padding: '10px 12px', cursor: 'pointer' }}>
