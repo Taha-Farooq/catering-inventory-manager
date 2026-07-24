@@ -7,7 +7,9 @@ import { BUSINESSES, PAYMENT_TERMS } from '../constants.js';
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
+import { buildCateringInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextId } from '../utils/invoiceIds.js';
 
 function Toggle({ checked, onChange, label }) {
@@ -44,7 +46,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CateringInvoices({ getInvoiceBranding, cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [], brandingMap }) {
+export default function CateringInvoices({ getInvoiceBranding, cateringInvoices, setCateringInvoices, customers, setCustomers, selectedBusiness, userRole, items = [], brandingMap, pendingOpen, onConsumePending }) {
   const isAdmin = userRole==='admin';
   const blankF = () => ({
     customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:'',
@@ -66,6 +68,14 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
   const [editingCateringId, setEditingCateringId] = useState(null);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
+  // Global search may ask us to open a specific invoice on mount.
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      const inv = cateringInvoices.find(i => i.id === pendingOpen.id);
+      if (inv) setViewInv(inv);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [payingInv, setPayingInv] = useState(null);
   const [payForm, setPayForm] = useState({ amount: '', date: today(), note: '' });
@@ -89,7 +99,34 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
       return { ...f, lineItems: l };
     });
   }
-  function selCust(id){const c=customers.find(x=>x.id===id);if(c)setForm(f=>({...f,customerId:c.id,customerName:c.name,customerPhone:c.phone||'',customerEmail:c.email||'',customerAddress:c.address||''}));else setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:''}));}
+  // Pull the most recent invoice for a given customer, used to prefill
+  // event type + business when starting a new invoice for someone she's
+  // already done business with. Saves her from re-typing the same
+  // wedding/corporate/etc. she has every Tuesday.
+  function recentInvoiceFor(custId) {
+    if (!custId) return null;
+    return [...cateringInvoices]
+      .filter(inv => inv.customerId === custId)
+      .sort((a,b) => String(b.date||b.createdAt||'').localeCompare(String(a.date||a.createdAt||'')))[0] || null;
+  }
+  function selCust(id){
+    const c=customers.find(x=>x.id===id);
+    if(c){
+      const recent = recentInvoiceFor(c.id);
+      setForm(f=>({
+        ...f,
+        customerId:c.id,
+        customerName:c.name,
+        customerPhone:c.phone||'',
+        customerEmail:c.email||'',
+        customerAddress:c.address||'',
+        eventType: f.eventType && f.eventType !== 'Catering' ? f.eventType : (recent?.eventType || f.eventType),
+        business: f.business || recent?.business || selectedBusiness,
+      }));
+    } else {
+      setForm(f=>({...f,customerId:'',customerName:'',customerPhone:'',customerEmail:'',customerAddress:''}));
+    }
+  }
 
   function calcT(){
     const fb=BUSINESSES[form.business]||BUSINESSES[selectedBusiness];
@@ -213,7 +250,13 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     logActivity('create_invoice', 'Created catering invoice ' + inv.id);
   }
 
-  function deleteInv(id){const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);showToast('Catering invoice deleted.');logActivity('delete_invoice','Deleted catering invoice '+id);}
+  function deleteInv(id){
+    const removed = cateringInvoices.find(x=>x.id===id);
+    if (removed) moveToTrash('cateringInvoices', `Catering ${id} — ${removed.customerName || ''} (${fmt$(removed.grandTotal||0)})`, removed);
+    const u=cateringInvoices.filter(x=>x.id!==id);setCateringInvoices(u);save('cateringInvoices',u);setConfirmId(null);
+    showToast('Catering invoice deleted. Restore it from Settings → Recently Deleted if needed.');
+    logActivity('delete_invoice','Deleted catering invoice '+id);
+  }
 
   function totalPaidFor(inv) { return (parseFloat(inv.deposit)||0) + (inv.payments||[]).reduce((s,p) => s+(p.amount||0), 0); }
   function balanceFor(inv) { return Math.max(0, (inv.grandTotal||0) - totalPaidFor(inv)); }
@@ -274,6 +317,23 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
     cateringInvoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.balanceDue || 0), 0),
     [cateringInvoices]
   );
+
+  // Build a single catering invoice as a professional letterhead doc.
+  function buildCateringDoc(inv) {
+    return buildCateringInvoiceDoc(inv, getInvoiceBranding(inv, brandingMap) || {});
+  }
+  function printOneCatering(inv) {
+    printHtmlDocument(buildCateringDoc(inv), `Catering Invoice ${inv.id}`);
+    logActivity('print_invoice', `Printed catering invoice ${inv.id}`);
+  }
+  // Bulk-print every visible invoice, one per page.
+  function printAllVisible() {
+    if (!visibleCatering.length) { showToast('No invoices in the current filter to print.', 'error'); return; }
+    if (visibleCatering.length > 50 && !window.confirm(`Print ${visibleCatering.length} invoices? You can narrow the date range above first if this is too many.`)) return;
+    const body = visibleCatering.map(inv => `<div style="page-break-after:always">${buildCateringDoc(inv)}</div>`).join('\n');
+    printHtmlDocument(body, `Catering invoices (${visibleCatering.length})`);
+    logActivity('print_invoices', `Bulk-printed ${visibleCatering.length} catering invoices`);
+  }
 
   function exportCsv() {
     if (!visibleCatering.length) { showToast('No invoices to export.', 'error'); return; }
@@ -356,7 +416,8 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
           </select>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
-          <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+          <Btn className="btn-outline" onClick={printAllVisible} title="Print every invoice currently shown in the list, one per page">🖨 Print all</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={()=>{setEditingCateringId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>}
         </div>
       </div>
 
@@ -436,8 +497,24 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
           <FI label="Customer Name *" value={form.customerName} onChange={e=>{
             const name=e.target.value;
             const match=customers.find(c=>c.name.toLowerCase()===name.toLowerCase());
-            if(match)setForm(f=>({...f,customerName:name,customerId:match.id,customerPhone:f.customerPhone||match.phone||'',customerEmail:f.customerEmail||match.email||'',customerAddress:f.customerAddress||match.address||''}));
-            else setForm(f=>({...f,customerName:name,customerId:''}));
+            if(match){
+              // Auto-fill contact info + suggest event type / business from
+              // the customer's most recent invoice so a repeat booking is one
+              // step instead of seven.
+              const recent = recentInvoiceFor(match.id);
+              setForm(f=>({
+                ...f,
+                customerName:name,
+                customerId:match.id,
+                customerPhone:f.customerPhone||match.phone||'',
+                customerEmail:f.customerEmail||match.email||'',
+                customerAddress:f.customerAddress||match.address||'',
+                eventType: f.eventType && f.eventType !== 'Catering' ? f.eventType : (recent?.eventType || f.eventType),
+                business: f.business || recent?.business || selectedBusiness,
+              }));
+            } else {
+              setForm(f=>({...f,customerName:name,customerId:''}));
+            }
           }} placeholder="Full name" suggestions={customers.map(c=>c.name)} />
         </div>
         <div className="grid-2 mb-3">
@@ -647,7 +724,7 @@ export default function CateringInvoices({ getInvoiceBranding, cateringInvoices,
                 );
                 return <a className="btn btn-outline btn-sm" href={`mailto:${viewInv.customerEmail}?subject=${subj}&body=${body}`}>✉ Send Reminder</a>;
               })()}
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`catering-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>printOneCatering(viewInv)}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openCateringEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>

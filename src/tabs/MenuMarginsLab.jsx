@@ -301,8 +301,12 @@ export default function MenuMarginsLab({ items, priceHistory, selectedBusiness }
 
   return (
     <div>
+      <div className="hint-card" style={{ marginBottom: 10 }}>
+        🍴 <strong>Menu Items (for sale)</strong> — things you <em>sell</em> to customers (tikka platters, lassi, dinner trays).
+        Set prices, link recipes to pantry ingredients, see live profit margins. For things you <em>buy</em> (raw ingredients, supplies), use the <strong>📦 Pantry &amp; Supplies</strong> tab.
+      </div>
       <div className="flex-between mb-3 flex-wrap gap-2">
-        <div className="section-title" style={{margin:0}}>Menu Costing & Margin Analytics</div>
+        <div className="section-title" style={{margin:0}}>Menu Items &amp; Margin Analytics</div>
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={exportMarginsCsv}>⬇ Margin CSV</Btn>
           <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>

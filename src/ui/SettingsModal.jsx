@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, useId } from 'react';
 import JSZip from 'jszip';
 import { secureGet, secureSet, secureDel } from '../utils/secureStore.js';
 import { load, save, today } from '../utils/storage.js';
+import { listTrash, restoreFromTrash, purgeTrash } from '../utils/trash.js';
+import { getStoredSyncMode, setSyncMode as setSyncModeUtil } from '../utils/mobileSync.js';
 import { logActivity } from '../utils/activity.js';
 import { documentBaseHref } from '../utils/print.js';
 import { showToast } from '../toastContext.jsx';
@@ -115,7 +117,11 @@ function LogoField({ label, fieldKey, logoFields, setLogoFields, fileRef, onFile
 }
 
 // SETTINGS MODAL (admin only)
-export default function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap }) {
+export default function SettingsModal({ open, onClose, appState, currentUser, onPermsChange, localFeatureWarning, brandingMap, uiMode = 'simple' }) {
+  // In simple mode, the advanced sections (staff session timeout, employee
+  // pay-rate registry, reset-service endpoint) start collapsed. They're never
+  // removed — just hidden behind one click.
+  const [showAdvanced, setShowAdvanced] = useState(uiMode !== 'simple');
   const { items, shopping, purchaseInv, cateringInv, transferInv, payrollInvoices,
           dailyFinanceEntries, customers, priceHist, suppliers,
           setItems, setShopping, setPurchaseInv, setCateringInv, setTransferInv,
@@ -126,6 +132,49 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
   const importRef = useRef();
   const [diagPayload, setDiagPayload] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
+
+  // Phone-sync mode toggle — persisted in storage; effective mode is also
+  // recomputed in App.jsx via refreshSyncMode after this changes.
+  const [syncModeChoice, setSyncModeChoice] = useState(() => getStoredSyncMode());
+
+  // Recently-deleted bin (soft delete). Restoring writes the record back to
+  // storage AND syncs the matching React state so no reload is needed.
+  const [trashItems, setTrashItems] = useState(() => listTrash());
+  useEffect(() => { if (open) setTrashItems(listTrash()); }, [open]);
+  function doRestore(t) {
+    const restored = restoreFromTrash(t.trashId);
+    if (!restored) { showToast('Could not restore — entry no longer exists.', 'error'); setTrashItems(listTrash()); return; }
+    const sync = {
+      cateringInvoices: setCateringInv,
+      purchaseInvoices: setPurchaseInv,
+      transferInvoices: setTransferInv,
+      customers: setCustomers,
+    }[t.kind];
+    if (sync) sync(load(t.kind, []));
+    setTrashItems(listTrash());
+    logActivity('restore_deleted', `Restored ${t.label}`);
+    showToast(`Restored: ${t.label}`);
+  }
+
+  // Owners / partners configuration (used by the Distribution Statement).
+  const [owners, setOwners] = useState(() => {
+    const raw = load('_owners', []);
+    return Array.isArray(raw) ? raw : [];
+  });
+  function persistOwners(next) {
+    setOwners(next);
+    save('_owners', next);
+  }
+  function addOwner() {
+    persistOwners([...owners, { id: crypto.randomUUID(), name: '', sharePct: 0, salary: 0 }]);
+  }
+  function updateOwner(id, patch) {
+    persistOwners(owners.map(o => o.id === id ? { ...o, ...patch } : o));
+  }
+  function removeOwner(id) {
+    persistOwners(owners.filter(o => o.id !== id));
+  }
+  const sharePctTotal = owners.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
 
   // Staff user management
   const loadStaff = () => {
@@ -766,6 +815,54 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         </div>
       </div>
 
+      {/* Phone Sync */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>📱 Phone Sync</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:12,lineHeight:1.6}}>
+          The <strong>desktop</strong> is the source of truth. It pushes a snapshot to the cloud whenever data changes.
+          The <strong>phone</strong> pulls that snapshot to view (but not edit) your invoices, customers, and items.
+          The mode is picked automatically from the screen size — override it here if needed.
+        </p>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:8,marginBottom:12}}>
+          {[
+            { v: 'auto', label: 'Automatic', hint: 'Wide screen → Desktop, phone → Mobile' },
+            { v: 'desktop', label: '🖥️ Desktop (push)', hint: 'This device is the master' },
+            { v: 'mobile', label: '📱 Mobile (read-only)', hint: 'Phone view; pulls snapshot' },
+            { v: 'off', label: '🚫 Off', hint: 'Don\'t push or pull' },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => { setSyncModeChoice(opt.v); setSyncModeUtil(opt.v); appState.refreshSyncMode?.(); }}
+              style={{
+                textAlign: 'left', padding: '10px 12px', background: syncModeChoice === opt.v ? '#FFF3DC' : '#fff',
+                border: `1.5px solid ${syncModeChoice === opt.v ? '#8B4513' : '#DEB887'}`, borderRadius: 6, cursor: 'pointer',
+              }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#5a3010' }}>{opt.label}</div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{opt.hint}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12.5, color: '#555', padding: '8px 12px', background: '#FBF6EC', borderRadius: 6 }}>
+          <div>Active mode: <strong style={{ color: '#5a3010' }}>{appState.syncMode || 'auto'}</strong></div>
+          {appState.syncStatus?.snapshotAt && (
+            <div>Last snapshot: <strong>{new Date(appState.syncStatus.snapshotAt).toLocaleString()}</strong></div>
+          )}
+          {appState.syncStatus?.lastError && (
+            <div style={{ color: '#b91c1c', marginTop: 4 }}>⚠ {appState.syncStatus.lastError}</div>
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap" style={{ marginTop: 10 }}>
+          <Btn className="btn-outline btn-sm" onClick={() => appState.onManualPush?.()} disabled={appState.syncStatus?.pushing}>
+            {appState.syncStatus?.pushing ? '⏳ Pushing…' : '⬆ Push snapshot now'}
+          </Btn>
+          <Btn className="btn-outline btn-sm" onClick={() => appState.onManualPull?.()} disabled={appState.syncStatus?.pulling}>
+            {appState.syncStatus?.pulling ? '⏳ Pulling…' : '⬇ Pull snapshot now'}
+          </Btn>
+        </div>
+        <p style={{fontSize:11.5,color:'#aaa',marginTop:10,lineHeight:1.5}}>
+          🔒 Sync transfers data through your existing admin backend over HTTPS. Credentials and per-device prefs are <strong>not</strong> included.
+          The desktop is always the source of truth — if you accidentally edit the wrong thing, the next push restores it on the phone.
+        </p>
+      </div>
+
       {/* Backup / Restore */}
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>💾 Backup &amp; Restore</div>
@@ -781,6 +878,28 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         <p style={{fontSize:11.5,color:'#aaa',marginTop:10}}>
           💡 Tip: Save backups to Google Drive, OneDrive, or email them to yourself for safekeeping.
         </p>
+      </div>
+
+      {/* Recently Deleted — soft-delete safety net */}
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6,fontSize:15}}>🗑️ Recently Deleted</div>
+        <p style={{fontSize:13,color:'#666',marginBottom:10,lineHeight:1.5}}>
+          Deleted invoices and customers stay here for 30 days. Click Restore to bring one back.
+        </p>
+        {trashItems.length === 0
+          ? <div style={{fontSize:12.5,color:'#999',padding:'8px 0'}}>Nothing in the bin.</div>
+          : trashItems.map(t => (
+            <div key={t.trashId} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'7px 10px',background:'#FBF6EC',borderRadius:6,marginBottom:6}}>
+              <div style={{fontSize:12.5,minWidth:0}}>
+                <div style={{fontWeight:600,color:'#5a3010',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.label}</div>
+                <div style={{fontSize:11,color:'#999'}}>deleted {new Date(t.deletedAt).toLocaleString()}</div>
+              </div>
+              <div style={{display:'flex',gap:6,flexShrink:0}}>
+                <Btn className="btn-primary btn-sm" onClick={()=>doRestore(t)}>↩ Restore</Btn>
+                <Btn className="btn-outline btn-sm" title="Delete permanently" onClick={()=>{ purgeTrash(t.trashId); setTrashItems(listTrash()); showToast('Permanently deleted.'); }}>✕</Btn>
+              </div>
+            </div>
+          ))}
       </div>
 
       {/* Custom Categories */}
@@ -807,7 +926,18 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         </div>
       </div>
 
+      {/* Advanced-settings toggle. Simple mode keeps the dense / power-user
+          panels collapsed until she actually wants them. */}
+      <div style={{marginBottom:12,textAlign:'center'}}>
+        <button type="button"
+          onClick={()=>setShowAdvanced(v=>!v)}
+          style={{background:'none',border:'1px solid var(--border)',borderRadius:18,padding:'6px 16px',fontSize:12.5,color:'var(--brown)',cursor:'pointer'}}>
+          {showAdvanced ? '▴ Hide advanced settings' : '▾ Show advanced settings (timeouts, pay rates, server endpoint)'}
+        </button>
+      </div>
+
       {/* Security Settings */}
+      {showAdvanced && (
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:12,fontSize:15}}>🔐 Staff Security Settings</div>
         <div style={{marginBottom:12}}>
@@ -844,9 +974,41 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           logActivity('settings_change', `Staff session timeout set to ${sessionTimeoutInput}s`);
         }}>💾 Save Timeout</Btn>
       </div>
+      )}
+
+      {/* Owners / Partners — drives the Distribution Statement in Analytics */}
+      {showAdvanced && (
+      <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>🤝 Owners &amp; Profit Distribution</div>
+        <p style={{fontSize:12.5,color:'#666',marginBottom:10,lineHeight:1.5}}>
+          List each owner / partner with their profit share (in percent) and any salary they take. The shares should add up to 100%. Used by the
+          “Distribution Statement” button in Analytics — net profit is computed for the selected period, salary drawn during the period is recognized,
+          and the remaining profit is distributed by share.
+        </p>
+        {owners.length === 0 && (
+          <div style={{padding:'12px 14px',background:'#FFF8DC',border:'1px dashed #DEB887',borderRadius:6,fontSize:12.5,color:'#7a5c20',marginBottom:10}}>
+            No owners configured yet. Add one to enable the Distribution Statement.
+          </div>
+        )}
+        {owners.map((o, idx) => (
+          <div key={o.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr auto',gap:8,alignItems:'end',marginBottom:8,padding:'10px 12px',background:'#FBF6EC',borderRadius:6}}>
+            <FI label={idx === 0 ? 'Name' : ''} value={o.name} onChange={e=>updateOwner(o.id, { name: e.target.value })} placeholder="e.g. Fatim Farooq" />
+            <FI label={idx === 0 ? 'Share %' : ''} type="number" min="0" max="100" step="0.5" value={o.sharePct} onChange={e=>updateOwner(o.id, { sharePct: e.target.value === '' ? '' : Number(e.target.value) })} />
+            <FI label={idx === 0 ? 'Salary drawn ($)' : ''} type="number" min="0" step="0.01" value={o.salary} onChange={e=>updateOwner(o.id, { salary: e.target.value === '' ? '' : Number(e.target.value) })} placeholder="Period total" />
+            <Btn className="btn-outline btn-sm" style={{marginBottom:2}} onClick={()=>removeOwner(o.id)} title="Remove this owner">✕</Btn>
+          </div>
+        ))}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
+          <Btn className="btn-outline btn-sm" onClick={addOwner}>＋ Add Owner</Btn>
+          <div style={{fontSize:12.5,color: Math.abs(sharePctTotal - 100) < 0.01 ? '#15803d' : (sharePctTotal > 0 ? '#b91c1c' : '#888')}}>
+            Total shares: <strong>{sharePctTotal.toFixed(1)}%</strong>{Math.abs(sharePctTotal - 100) >= 0.01 && sharePctTotal > 0 ? ' (must equal 100%)' : ''}
+          </div>
+        </div>
+      </div>
+      )}
 
       {/* Employee Pay Rate Registry */}
-      {Object.keys(empRegistry).length > 0 && (
+      {showAdvanced && Object.keys(empRegistry).length > 0 && (
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:4,fontSize:15}}>💼 Employee Pay Rate Registry</div>
         <p style={{fontSize:12.5,color:'#666',marginBottom:10,lineHeight:1.5}}>
@@ -1157,6 +1319,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
         </div>
       </div>
 
+      {showAdvanced && (
       <div style={{border:'1.5px solid #EED9B0',borderRadius:8,padding:16,marginBottom:20}}>
         <div style={{fontWeight:700,color:'var(--brown)',marginBottom:8,fontSize:15}}>🛡️ Reset Service Endpoint</div>
         <p style={{fontSize:13,color:'#666',lineHeight:1.6,marginBottom:10}}>
@@ -1181,6 +1344,7 @@ export default function SettingsModal({ open, onClose, appState, currentUser, on
           </div>
         )}
       </div>
+      )}
 
       <div style={{marginTop:4,textAlign:'right'}}>
         <Btn className="btn-outline" onClick={onClose}>Close</Btn>

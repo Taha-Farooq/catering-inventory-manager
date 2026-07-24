@@ -8,7 +8,9 @@ import { BUSINESSES, LOCATIONS, PURCHASE_UNITS, CASE_UNITS } from '../constants.
 import { fmt$, fmtDate, safeQty, uniqSuggestions } from '../formatters.js';
 import { save, uid, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
+import { buildPurchaseInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextId } from '../utils/invoiceIds.js';
 
 function Toggle({ checked, onChange, label }) {
@@ -42,7 +44,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [], initialSupplier, onConsumeInitialSupplier }) {
+export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices, setPurchaseInvoices, selectedBusiness, items = [], setItems, brandingMap, suppliers = [], initialSupplier, onConsumeInitialSupplier, pendingOpen, onConsumePending }) {
   const biz = BUSINESSES[selectedBusiness];
   const blankF = () => ({supplier:'',date:today(),dueDate:'',taxEnabled:false,notes:'',
     payment:{account:'',date:'',transactionId:''},
@@ -66,6 +68,13 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
   const [editingPurchaseId, setEditingPurchaseId] = useState(null);
   const [form, setForm] = useState(blankF());
   const [viewInv, setViewInv] = useState(null);
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      const inv = purchaseInvoices.find(i => i.id === pendingOpen.id);
+      if (inv) setViewInv(inv);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [stockUpdateInv, setStockUpdateInv] = useState(null);
   const [stockUpdateLoc, setStockUpdateLoc] = useState(LOCATIONS[1]);
@@ -199,7 +208,13 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
     logActivity('create_invoice', 'Created purchase invoice ' + inv.id);
   }
 
-  function deleteInv(id){const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);showToast('Purchase invoice deleted.');logActivity('delete_invoice','Deleted purchase invoice '+id);}
+  function deleteInv(id){
+    const removed = purchaseInvoices.find(x=>x.id===id);
+    if (removed) moveToTrash('purchaseInvoices', `Purchase ${id} — ${removed.supplier || ''} (${fmt$(removed.total||0)})`, removed);
+    const u=purchaseInvoices.filter(x=>x.id!==id);setPurchaseInvoices(u);save('purchaseInvoices',u);setConfirmId(null);
+    showToast('Purchase invoice deleted. Restore it from Settings → Recently Deleted if needed.');
+    logActivity('delete_invoice','Deleted purchase invoice '+id);
+  }
   function markPaid(id) {
     const inv = purchaseInvoices.find(x => x.id === id);
     const paidDate = today();
@@ -392,7 +407,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
           </select>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-outline" onClick={exportExcel}>⬇ Excel</Btn>
-          <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={()=>{setEditingPurchaseId(null);setForm(blankF());setShowForm(true);}}>+ New Invoice</Btn>}
         </div>
       </div>
 
@@ -577,7 +592,7 @@ export default function PurchaseInvoices({ getInvoiceBranding, purchaseInvoices,
               </div>
             )}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`purchase-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>{ printHtmlDocument(buildPurchaseInvoiceDoc(viewInv, getInvoiceBranding(viewInv, brandingMap) || {}), `Purchase Invoice ${viewInv.id}`); logActivity('print_invoice', `Printed purchase invoice ${viewInv.id}`); }}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewInv(null); openPurchaseEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewInv(null)}>Close</Btn>

@@ -14,8 +14,8 @@ export const INVENTORY_ADJUSTMENTS_KEY = '_inventoryAdjustments';
 export const TABS_ADMIN = [
   { id: 'dashboard', label: '🏠 Dashboard' },
   { id: 'checkio', label: '✅ Check In/Out' },
-  { id: 'items', label: '📦 Items' },
-  { id: 'invadj', label: '📝 Inv. Log' },
+  { id: 'items', label: '📦 Pantry & Supplies' },
+  { id: 'invadj', label: '📝 Inv. Log', powerOnly: true },
   { id: 'shopping', label: '🛒 Shopping' },
   { id: 'pricer', label: '💰 Price Updater' },
   { id: 'purchase', label: '📋 Purchase Inv.' },
@@ -27,10 +27,10 @@ export const TABS_ADMIN = [
   { id: 'analytics', label: '📊 Analytics' },
   { id: 'dailyfin', label: '🧾 Daily Income & Expense' },
   { id: 'archive', label: '🗂️ Archive' },
-  { id: 'history', label: '📈 Price History' },
-  { id: 'margins', label: '💹 Menu Margins' },
-  { id: 'actlog', label: '🔍 Activity Log' },
-  { id: 'scanbeta', label: '🧪 Scan DB (Beta)' },
+  { id: 'history', label: '📈 Price History', powerOnly: true },
+  { id: 'margins', label: '🍴 Menu Items (for sale)' },
+  { id: 'actlog', label: '🔍 Activity Log', powerOnly: true },
+  { id: 'scanbeta', label: '📄 Scan Documents' },
   { id: 'help', label: '❓ Help' },
 ];
 
@@ -38,7 +38,7 @@ export const TABS_ADMIN = [
 export const ALL_USER_TABS = [
   { id: 'checkio', label: '✅ Check In/Out' },
   { id: 'shopping', label: '🛒 Shopping List' },
-  { id: 'items', label: '📦 Add Items' },
+  { id: 'items', label: '📦 Pantry & Supplies' },
   { id: 'pricer', label: '💰 Price Updater' },
   { id: 'dailyfin', label: '🧾 Daily Finance' },
   { id: 'help', label: '❓ Help' },
@@ -120,9 +120,18 @@ export const LOGO_OVERRIDES_KEY = '_logoOverrides';
 /** Optional per-business contact info overrides (phone/address/email) editable in Settings. */
 export const BIZ_CONTACT_KEY = '_bizContact';
 export const FAILURE_LOG_KEY = '_failureLog';
-export const SCAN_DOC_TYPES = ['legal','tax','credit','transaction_invoice','bank','payroll','other'];
+export const SCAN_DOC_TYPES = ['transaction_invoice','tax','legal','credit','bank','payroll','medical','insurance','utility','other'];
 export const ATT_QR_QUERY_KEY = 'attToken';
 /** localStorage key for admin-configured staff check-in session timeout (seconds). */
 export const STAFF_SESSION_TIMEOUT_KEY = '_staffSessionTimeout';
 /** Default staff session timeout in seconds if not configured by admin. */
 export const DEFAULT_STAFF_SESSION_TIMEOUT = 120;
+/** Simple vs. power UI mode (see src/utils/uiMode.js). */
+export const UI_MODE_KEY = '_uiMode';
+export const UI_MODE_SIMPLE = 'simple';
+export const UI_MODE_POWER = 'power';
+export const DEFAULT_UI_MODE = UI_MODE_SIMPLE;
+/** Owners / partners configured for the profit-distribution statement.
+ *  Shape: [{ id, name, sharePct, salary }]. salary = total paid as salary in
+ *  the reporting period (subtracted from net before distribution). */
+export const OWNERS_KEY = '_owners';

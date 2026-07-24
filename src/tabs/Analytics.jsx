@@ -4,15 +4,33 @@ import { CHART_COLORS, BUSINESSES } from '../constants.js';
 import { fmt$ } from '../formatters.js';
 import { showToast } from '../toastContext.jsx';
 import { logActivity } from '../utils/activity.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { buildProfessionalDoc, docSection, docMoney, esc } from '../utils/professionalDoc.js';
+import { load, save } from '../utils/storage.js';
+import { OWNERS_KEY } from '../constants.js';
+import Modal from '../ui/Modal.jsx';
 const LazyAnalyticsCharts = lazy(() => import('../charts/AnalyticsCharts.jsx'));
 
 const fmtD = d => d.toISOString().slice(0, 10);
 
-export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries }) {
+function periodLabelFrom(from, to) {
+  if (!from && !to) return 'All time';
+  const fmtNice = s => { try { return new Date(s + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); } catch { return s; } };
+  if (from && to) return `${fmtNice(from)} – ${fmtNice(to)}`;
+  if (from) return `From ${fmtNice(from)}`;
+  return `Through ${fmtNice(to)}`;
+}
+
+export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFinanceEntries, payrollInvoices = [], brandingMap = null }) {
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
   const [preset, setPreset] = useState('');
   const [filterBiz, setFilterBiz] = useState('');
+  const [showReportsMenu, setShowReportsMenu] = useState(false);
+  // In-place owner editor: opens when Owner Profit Split is clicked but
+  // owners aren't configured (or shares don't total 100%), so she never
+  // has to dig through Settings → Advanced to use the feature.
+  const [ownerEditor, setOwnerEditor] = useState(null); // null | [{id,name,sharePct,salary}]
 
   function applyPreset(p) {
     const now = new Date();
@@ -48,6 +66,16 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     if(filterBiz&&(i.business||'')!==filterBiz)return false;
     return true;
   }),[dailyFinanceEntries,filterFrom,filterTo,filterBiz]);
+
+  // Payroll falls in the period when its pay-period start lands in range.
+  const filteredPayroll=useMemo(()=>(payrollInvoices||[]).filter(p=>{
+    const d=p.periodStart||p.periodEnd||p.createdAt||'';
+    if(filterFrom&&d<filterFrom)return false;
+    if(filterTo&&d>filterTo)return false;
+    if(filterBiz&&(p.business||'')!==filterBiz)return false;
+    return true;
+  }),[payrollInvoices,filterFrom,filterTo,filterBiz]);
+  const payrollTotal=useMemo(()=>filteredPayroll.reduce((s,p)=>s+(p.total||0),0),[filteredPayroll]);
 
   const totalRevenue=useMemo(()=>filteredCatering.reduce((s,i)=>s+(i.grandTotal||0),0),[filteredCatering]);
   const totalSpending=useMemo(()=>filteredPurchase.reduce((s,i)=>s+(i.total||0),0),[filteredPurchase]);
@@ -106,6 +134,272 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
 
   const hasData=filteredCatering.length>0||filteredPurchase.length>0;
   const isFiltered=filterFrom||filterTo||filterBiz;
+
+  function brandingForReport() {
+    if (filterBiz && brandingMap?.[filterBiz]) return brandingMap[filterBiz];
+    // Combined view: a neutral letterhead listing the three businesses.
+    return {
+      name: 'DMG Restaurant Group',
+      address: 'DeGrill · Parathas & Platters · Dera Masala Grill',
+      phone: brandingMap?.dera?.phone || '',
+      email: brandingMap?.dera?.email || '',
+      logo: brandingMap?.dera?.logo || '',
+    };
+  }
+
+  // Profit & Loss statement — the document for a partner conversation. Unlike
+  // the on-screen "Gross Profit" stat (which omits payroll), this statement
+  // includes payroll as an operating expense for the true bottom line.
+  function printProfitAndLoss() {
+    const revenue = totalRevenue + manualIncome;
+    const supplies = totalSpending;
+    const otherExp = manualExpense;
+    const totalExp = supplies + payrollTotal + otherExp;
+    const net = +(revenue - totalExp).toFixed(2);
+    const margin = revenue > 0 ? ((net / revenue) * 100).toFixed(1) + '%' : '—';
+
+    if (!filteredCatering.length && !filteredPurchase.length && !filteredDaily.length && !filteredPayroll.length) {
+      showToast('No financial data in this period to build a statement.', 'error');
+      return;
+    }
+
+    const revSection = docSection({
+      heading: 'Revenue',
+      rows: [
+        { label: 'Catering & event revenue', value: docMoney(totalRevenue), indent: true },
+        ...(manualIncome ? [{ label: 'Other income (daily ledger)', value: docMoney(manualIncome), indent: true }] : []),
+      ],
+      total: { label: 'Total Revenue', value: docMoney(revenue) },
+    });
+    const expSection = docSection({
+      heading: 'Operating Expenses',
+      rows: [
+        { label: 'Supplies & purchases', value: docMoney(supplies), indent: true },
+        { label: 'Payroll & wages', value: docMoney(payrollTotal), indent: true },
+        ...(otherExp ? [{ label: 'Other expenses (daily ledger)', value: docMoney(otherExp), indent: true }] : []),
+      ],
+      total: { label: 'Total Operating Expenses', value: docMoney(totalExp) },
+    });
+    const netSection = docSection({
+      rows: [
+        { label: 'Net margin', value: margin, muted: true },
+      ],
+      total: { label: net >= 0 ? 'NET PROFIT' : 'NET LOSS', value: docMoney(net), accent: net >= 0 ? '#15803D' : '#DC2626' },
+    });
+    const memoSection = docSection({
+      heading: 'Memoranda (not included in net profit)',
+      rows: [
+        { label: 'Outstanding receivables (unpaid invoices)', value: docMoney(outstanding), indent: true, muted: true },
+        { label: 'Sales tax collected, net of paid', value: docMoney(taxDue), indent: true, muted: true },
+        { label: 'Catering invoices in period', value: String(filteredCatering.length), indent: true, muted: true },
+        { label: 'Purchase orders in period', value: String(filteredPurchase.length), indent: true, muted: true },
+      ],
+    });
+
+    const html = buildProfessionalDoc({
+      branding: brandingForReport(),
+      docType: 'PROFIT & LOSS STATEMENT',
+      docNumber: 'PL-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: periodLabelFrom(filterFrom, filterTo),
+      bodyHtml: revSection + '<div style="height:8px"></div>' + expSection + '<div style="height:8px"></div>' + netSection + '<div style="height:14px"></div>' + memoSection,
+      footerNote: 'Prepared from catering invoices, purchase orders, payroll records, and the daily income/expense ledger. Figures reflect recorded transactions in the selected period and business scope; this statement is a management summary, not an audited financial statement.',
+      confidential: true,
+    });
+    printHtmlDocument(html, 'Profit & Loss Statement');
+    logActivity('print_report', `Printed P&L statement (${periodLabelFrom(filterFrom, filterTo)}${filterBiz ? ', ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ''})`);
+  }
+
+  // Owner / partner distribution statement. Uses the same net-profit number
+  // as the P&L; subtracts each owner's salary draw recognized during the
+  // period; distributes the remainder by share %.
+  function printDistribution() {
+    const owners = load(OWNERS_KEY, []);
+    if (!Array.isArray(owners) || owners.length === 0) {
+      // First use: set up owners right here instead of sending her to Settings.
+      setOwnerEditor([{ id: crypto.randomUUID(), name: '', sharePct: 50, salary: 0 }, { id: crypto.randomUUID(), name: '', sharePct: 50, salary: 0 }]);
+      return;
+    }
+    const sharePctTotal = owners.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
+    if (Math.abs(sharePctTotal - 100) > 0.01) {
+      showToast(`Owner shares total ${sharePctTotal.toFixed(1)}% — fix them below so they add to 100%.`, 'error');
+      setOwnerEditor(owners.map(o => ({ ...o })));
+      return;
+    }
+
+    const revenue = totalRevenue + manualIncome;
+    const expenses = totalSpending + payrollTotal + manualExpense;
+    const netProfit = +(revenue - expenses).toFixed(2);
+
+    const totalSalary = owners.reduce((s, o) => s + (Number(o.salary) || 0), 0);
+    const distributable = +(netProfit - totalSalary).toFixed(2);
+
+    const rows = owners.map(o => {
+      const share = Number(o.sharePct) || 0;
+      const salary = Number(o.salary) || 0;
+      const distribution = +((distributable * share) / 100).toFixed(2);
+      const totalComp = +(salary + distribution).toFixed(2);
+      return { name: o.name || '(unnamed)', share, salary, distribution, totalComp };
+    });
+
+    const head = `<tr style="background:#FBF6EC">
+      <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Owner</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Share</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Salary Drawn</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Profit Distribution</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:10.5px;letter-spacing:.5px;color:#8B4513;text-transform:uppercase;">Total Compensation</th>
+    </tr>`;
+    const bodyRows = rows.map(r => `<tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${r.share.toFixed(1)}%</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(r.salary))}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;color:${r.distribution >= 0 ? '#15803d' : '#b91c1c'};">${esc(docMoney(r.distribution))}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;">${esc(docMoney(r.totalComp))}</td>
+    </tr>`).join('');
+    const totalCompSum = rows.reduce((s, r) => s + r.totalComp, 0);
+    const totalRow = `<tr>
+      <td style="padding:10px;border-top:2px solid #333;font-weight:800;font-size:13px;">TOTAL</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${sharePctTotal.toFixed(1)}%</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(totalSalary))}</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(distributable))}</td>
+      <td style="padding:10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;">${esc(docMoney(totalCompSum))}</td>
+    </tr>`;
+    const table = `<table style="width:100%;border-collapse:collapse;margin-bottom:6px;">${head}${bodyRows}${totalRow}</table>`;
+
+    const summary = docSection({
+      heading: 'Period Summary',
+      rows: [
+        { label: 'Total revenue', value: docMoney(revenue), indent: true, muted: true },
+        { label: 'Total expenses (incl. payroll)', value: docMoney(expenses), indent: true, muted: true },
+        { label: 'Net profit (before owner draws)', value: docMoney(netProfit), indent: true, strong: true },
+        { label: 'Less: salaries already drawn by owners', value: docMoney(totalSalary), indent: true, muted: true },
+      ],
+      total: { label: 'Distributable Profit', value: docMoney(distributable), accent: distributable >= 0 ? '#15803D' : '#DC2626' },
+    });
+
+    // Signature block.
+    const signatures = `<div style="margin-top:32px;display:flex;gap:24px;">
+      ${rows.map(r => `<div style="flex:1;">
+        <div style="border-bottom:1px solid #333;height:36px;"></div>
+        <div style="font-size:11.5px;color:#555;margin-top:4px;">${esc(r.name)} — date</div>
+      </div>`).join('')}
+    </div>`;
+
+    const html = buildProfessionalDoc({
+      branding: brandingForReport(),
+      docType: 'OWNER DISTRIBUTION STATEMENT',
+      docNumber: 'DIST-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: periodLabelFrom(filterFrom, filterTo) + (filterBiz ? ' · ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ''),
+      bodyHtml: summary + '<div style="height:14px"></div>' + table + signatures,
+      footerNote: 'Each owner signs to acknowledge agreement with the period results. Salary drawn reflects amounts already paid as salary during the period; profit distributions are pro-rated by share. This statement is a management record, not an audited financial statement.',
+      confidential: true,
+    });
+    printHtmlDocument(html, 'Owner Distribution Statement');
+    logActivity('print_report', `Printed owner distribution statement (${periodLabelFrom(filterFrom, filterTo)})`);
+  }
+
+  // One-page "Monthly Business Report" — the document she can print every
+  // month and hand to a partner / accountant. Combines P&L, top customers,
+  // payroll summary, and sales tax in a single page.
+  function printMonthlyReport() {
+    const revenue = totalRevenue + manualIncome;
+    const expenses = totalSpending + payrollTotal + manualExpense;
+    const net = +(revenue - expenses).toFixed(2);
+    const margin = revenue > 0 ? ((net / revenue) * 100).toFixed(1) + '%' : '—';
+
+    if (!filteredCatering.length && !filteredPurchase.length && !filteredDaily.length && !filteredPayroll.length) {
+      showToast('No data in this period to report on.', 'error');
+      return;
+    }
+
+    // Mini bar chart inline (no external lib — just divs scaled to the max).
+    const customersBlock = topCustomers.length === 0 ? '' : (() => {
+      const maxV = Math.max(...topCustomers.map(c => c.total), 1);
+      const bars = topCustomers.slice(0, 5).map(c => `
+        <tr>
+          <td style="padding:4px 8px;font-size:12.5px;color:#444;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;">${esc(c.name)}</td>
+          <td style="padding:4px 8px;width:100%;">
+            <div style="background:#EFF6FF;border-radius:4px;height:14px;overflow:hidden;">
+              <div style="width:${(c.total / maxV * 100).toFixed(1)}%;background:#1D4ED8;height:14px;"></div>
+            </div>
+          </td>
+          <td style="padding:4px 8px;font-size:12.5px;font-weight:700;color:#1D4ED8;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;">${esc(docMoney(c.total))}</td>
+          <td style="padding:4px 8px;font-size:11px;color:#888;text-align:right;white-space:nowrap;">${c.count} evt${c.count!==1?'s':''}</td>
+        </tr>`).join('');
+      return `<div style="margin-top:18px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.6px;color:#1D4ED8;text-transform:uppercase;border-bottom:1.5px solid #1D4ED8;padding-bottom:4px;margin-bottom:6px;">Top Customers</div>
+        <table style="width:100%;border-collapse:collapse;">${bars}</table>
+      </div>`;
+    })();
+
+    // Payroll summary by employee.
+    const empRollup = {};
+    filteredPayroll.forEach(p => {
+      const lines = Array.isArray(p.lines) && p.lines.length ? p.lines : [{ name: p.employeeName || p.name || '(employee)', total: p.total || 0, regularHours: p.regularHours, overtimeHours: p.overtimeHours, payRate: p.hourlyRate || p.payRate }];
+      lines.forEach(l => {
+        const k = (l.name || '').toLowerCase().trim() || 'unknown';
+        if (!empRollup[k]) empRollup[k] = { name: l.name || 'Unknown', regH: 0, otH: 0, total: 0 };
+        empRollup[k].regH += Number(l.regularHours) || 0;
+        empRollup[k].otH += Number(l.overtimeHours) || 0;
+        empRollup[k].total += Number(l.total) || 0;
+      });
+    });
+    const empRows = Object.values(empRollup).sort((a, b) => b.total - a.total).slice(0, 8);
+    const payrollBlock = empRows.length === 0 ? '' : (() => {
+      const rows = empRows.map(e => `<tr>
+        <td style="padding:4px 8px;font-size:12.5px;color:#444;">${esc(e.name)}</td>
+        <td style="padding:4px 8px;font-size:12px;color:#777;text-align:right;font-variant-numeric:tabular-nums;">${e.regH.toFixed(2)}</td>
+        <td style="padding:4px 8px;font-size:12px;color:#777;text-align:right;font-variant-numeric:tabular-nums;">${e.otH.toFixed(2)}</td>
+        <td style="padding:4px 8px;font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;">${esc(docMoney(e.total))}</td>
+      </tr>`).join('');
+      return `<div style="margin-top:18px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.6px;color:#8B4513;text-transform:uppercase;border-bottom:1.5px solid #8B4513;padding-bottom:4px;margin-bottom:6px;">Payroll by Employee</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><th style="text-align:left;padding:3px 8px;font-size:10px;color:#888;letter-spacing:.4px;">EMPLOYEE</th><th style="text-align:right;padding:3px 8px;font-size:10px;color:#888;">REG HRS</th><th style="text-align:right;padding:3px 8px;font-size:10px;color:#888;">OT HRS</th><th style="text-align:right;padding:3px 8px;font-size:10px;color:#888;">GROSS PAY</th></tr>
+          ${rows}
+        </table>
+      </div>`;
+    })();
+
+    // P&L mini summary table.
+    const plMini = `<div style="margin-top:6px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.6px;color:#15803D;text-transform:uppercase;border-bottom:1.5px solid #15803D;padding-bottom:4px;margin-bottom:6px;">Profit &amp; Loss</div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:4px 8px;font-size:13px;">Total revenue</td><td style="padding:4px 8px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(revenue))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Catering invoices</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(totalRevenue))}</td></tr>
+        ${manualIncome ? `<tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Other income</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(manualIncome))}</td></tr>` : ''}
+        <tr><td style="padding:4px 8px;font-size:13px;">Total expenses</td><td style="padding:4px 8px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(expenses))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Supplies &amp; purchases</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(totalSpending))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Payroll</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(payrollTotal))}</td></tr>
+        ${manualExpense ? `<tr><td style="padding:4px 8px;font-size:13px;padding-left:20px;color:#666;">Other expenses</td><td style="padding:4px 8px;text-align:right;font-size:12.5px;color:#666;font-variant-numeric:tabular-nums;">${esc(docMoney(manualExpense))}</td></tr>` : ''}
+        <tr><td style="padding:8px;font-size:14px;font-weight:800;border-top:2px solid #333;">${net >= 0 ? 'Net profit' : 'Net loss'}</td><td style="padding:8px;text-align:right;font-size:14px;font-weight:800;border-top:2px solid #333;color:${net >= 0 ? '#15803D' : '#DC2626'};font-variant-numeric:tabular-nums;">${esc(docMoney(net))}</td></tr>
+        <tr><td style="padding:4px 8px;font-size:12px;color:#777;">Margin</td><td style="padding:4px 8px;text-align:right;font-size:12px;color:#777;font-variant-numeric:tabular-nums;">${esc(margin)}</td></tr>
+      </table>
+    </div>`;
+
+    // Key stats strip.
+    const statTile = (lbl, val, color) => `<div style="background:#FBF6EC;border:1px solid #EED9B0;border-radius:6px;padding:10px;text-align:center;">
+      <div style="font-size:18px;font-weight:800;color:${color || '#8B4513'};font-variant-numeric:tabular-nums;">${esc(val)}</div>
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-top:3px;">${esc(lbl)}</div>
+    </div>`;
+    const stats = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:14px;">
+      ${statTile('Catering invoices', String(filteredCatering.length))}
+      ${statTile('Outstanding A/R', docMoney(outstanding), outstanding > 0 ? '#b91c1c' : '#8B4513')}
+      ${statTile('Sales tax due', docMoney(taxDue), taxDue > 0 ? '#b91c1c' : '#15803d')}
+      ${statTile('Avg invoice', filteredCatering.length > 0 ? docMoney(totalRevenue / filteredCatering.length) : '—')}
+      ${statTile('Repeat customers', repeatCustomers.total > 0 ? `${repeatCustomers.pct}%` : '—')}
+    </div>`;
+
+    const html = buildProfessionalDoc({
+      branding: brandingForReport(),
+      docType: 'MONTHLY BUSINESS REPORT',
+      docNumber: 'MBR-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: periodLabelFrom(filterFrom, filterTo) + (filterBiz ? ' · ' + (BUSINESSES[filterBiz]?.name || filterBiz) : ' · All businesses'),
+      bodyHtml: plMini + stats + customersBlock + payrollBlock,
+      footerNote: 'Single-page management summary for the period. Detailed source documents (P&L statement, payroll register, sales-tax report) are available from their respective tabs.',
+    });
+    printHtmlDocument(html, 'Monthly Business Report');
+    logActivity('print_report', `Printed monthly business report (${periodLabelFrom(filterFrom, filterTo)})`);
+  }
 
   function exportExcel() {
     const wb = XLSX.utils.book_new();
@@ -182,6 +476,26 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
     <div>
       <div className="flex-between mb-3 flex-wrap gap-2">
         <div className="section-title" style={{margin:0}}>Analytics Dashboard</div>
+        <div style={{ position: 'relative' }}>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowReportsMenu(v => !v)} title="Print professional reports for the selected period">📄 Reports ▾</button>
+          {showReportsMenu && (
+            <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 50, background: '#fff', border: '1px solid #ddd', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.12)', minWidth: 250, overflow: 'hidden' }}>
+              {[
+                { icon: '📈', label: 'Monthly Business Report', hint: 'One-page summary for the period', fn: printMonthlyReport },
+                { icon: '🧾', label: 'Profit & Loss Statement', hint: 'Formal P&L on letterhead', fn: printProfitAndLoss },
+                { icon: '🤝', label: 'Owner Profit Split', hint: 'Distribution statement with signatures', fn: printDistribution },
+              ].map(item => (
+                <button key={item.label} onClick={() => { setShowReportsMenu(false); item.fn(); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid #f3f3f3', cursor: 'pointer', fontSize: 13.5 }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#FBF6EC'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                  <span style={{ marginRight: 8 }}>{item.icon}</span><strong>{item.label}</strong>
+                  <div style={{ fontSize: 11.5, color: '#888', marginLeft: 26 }}>{item.hint}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="btn btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</button>
         <button className="btn btn-outline btn-sm" onClick={exportExcel}>⬇ Excel</button>
       </div>
@@ -306,6 +620,62 @@ export default function Analytics({ cateringInvoices, purchaseInvoices, dailyFin
           />
         </Suspense>
       )}
+
+      {/* In-place owner setup for the Profit Split report */}
+      <Modal open={!!ownerEditor} onClose={() => setOwnerEditor(null)} title="🤝 Set Up Owner Profit Split" maxW={560}>
+        {ownerEditor && (() => {
+          const totalPct = ownerEditor.reduce((s, o) => s + (Number(o.sharePct) || 0), 0);
+          const pctOk = Math.abs(totalPct - 100) < 0.01;
+          const namesOk = ownerEditor.every(o => String(o.name).trim());
+          const patch = (id, p) => setOwnerEditor(list => list.map(o => o.id === id ? { ...o, ...p } : o));
+          return (
+            <div>
+              <p style={{ fontSize: 13, color: '#666', marginBottom: 12, lineHeight: 1.5 }}>
+                List each owner, their share of profits, and any salary they already took during the period.
+                The report subtracts salaries from net profit, then splits the rest by share.
+              </p>
+              {ownerEditor.map((o, idx) => (
+                <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, alignItems: 'end', marginBottom: 8, padding: '10px 12px', background: '#FBF6EC', borderRadius: 6 }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    {idx === 0 && <label>Name</label>}
+                    <input className="input" value={o.name} placeholder="e.g. Fatim Farooq" onChange={e => patch(o.id, { name: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    {idx === 0 && <label>Share %</label>}
+                    <input className="input" type="number" min="0" max="100" step="0.5" value={o.sharePct} onChange={e => patch(o.id, { sharePct: e.target.value === '' ? '' : Number(e.target.value) })} />
+                  </div>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    {idx === 0 && <label>Salary drawn ($)</label>}
+                    <input className="input" type="number" min="0" step="0.01" value={o.salary} onChange={e => patch(o.id, { salary: e.target.value === '' ? '' : Number(e.target.value) })} />
+                  </div>
+                  <button className="btn btn-outline btn-sm" style={{ marginBottom: 2 }} title="Remove" disabled={ownerEditor.length <= 1}
+                    onClick={() => setOwnerEditor(list => list.filter(x => x.id !== o.id))}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                <button className="btn btn-outline btn-sm" onClick={() => setOwnerEditor(list => [...list, { id: crypto.randomUUID(), name: '', sharePct: 0, salary: 0 }])}>＋ Add Owner</button>
+                <div style={{ fontSize: 13, color: pctOk ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+                  Shares: {totalPct.toFixed(1)}%{pctOk ? ' ✓' : ' (must equal 100%)'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-outline" onClick={() => setOwnerEditor(null)}>Cancel</button>
+                <button className="btn btn-primary" disabled={!pctOk || !namesOk}
+                  title={!namesOk ? 'Every owner needs a name' : !pctOk ? 'Shares must total 100%' : 'Save and print the report'}
+                  onClick={() => {
+                    const cleaned = ownerEditor.map(o => ({ id: o.id, name: String(o.name).trim(), sharePct: Number(o.sharePct) || 0, salary: Number(o.salary) || 0 }));
+                    save(OWNERS_KEY, cleaned);
+                    setOwnerEditor(null);
+                    logActivity('edit_owners', `Configured ${cleaned.length} owners for profit split`);
+                    printDistribution();
+                  }}>
+                  💾 Save &amp; Print Report
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 }

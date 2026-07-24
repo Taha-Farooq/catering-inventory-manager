@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useId } from 'react';
+import React, { useState, useMemo, useId, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { showToast } from '../toastContext.jsx';
 import { BrandMark } from '../ui/BrandMark.jsx';
@@ -6,7 +6,9 @@ import Modal from '../ui/Modal.jsx';
 import { fmt$, fmtDate, uniqSuggestions } from '../formatters.js';
 import { save, today } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
-import { printInvoiceById } from '../utils/print.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { moveToTrash } from '../utils/trash.js';
+import { buildTransferInvoiceDoc } from '../utils/invoiceDoc.js';
 import { nextTransferId, normalizeTransferInvoice } from '../utils/invoiceIds.js';
 
 function FI({ label, suggestions, fieldStyle, ...props }) {
@@ -29,7 +31,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function TransferInvoices({ getInvoiceBranding, transferInvoices, setTransferInvoices, items = [], brandingMap }) {
+export default function TransferInvoices({ getInvoiceBranding, transferInvoices, setTransferInvoices, items = [], brandingMap, pendingOpen, onConsumePending }) {
   const COMMISSION_RATE = 0.15;
   const transferItemListId = useId();
   const itemSuggestions = useMemo(()=>{
@@ -51,6 +53,13 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   const [showForm, setShowForm] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState(null);
   const [viewId, setViewId] = useState(null);
+  useEffect(() => {
+    if (pendingOpen?.id) {
+      const inv = transferInvoices.find(i => i.id === pendingOpen.id);
+      if (inv) setViewId(inv.id);
+      onConsumePending?.();
+    }
+  }, [pendingOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
@@ -214,12 +223,14 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
   }
 
   function deleteTransferInvoice(id) {
+    const removed = transferInvoices.find(x => x.id === id);
+    if (removed) moveToTrash('transferInvoices', `Transfer ${id} — ${removed.from || ''} → ${removed.to || ''}`, removed);
     const updated = transferInvoices.filter(x => x.id !== id);
     setTransferInvoices(updated);
     save('transferInvoices', updated);
     setConfirmId(null);
     logActivity('delete_invoice', 'Deleted transfer invoice ' + id);
-    showToast('Transfer invoice deleted.');
+    showToast('Transfer invoice deleted. Restore it from Settings → Recently Deleted if needed.');
   }
   function exportTransferExcel() {
     const byMonth = {};
@@ -291,7 +302,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
           {(filterDateFrom||filterDateTo) && <button className="btn btn-sm" style={{background:'#eee',color:'#666',borderRadius:12,padding:'2px 10px',marginBottom:0}} onClick={()=>{setFilterDateFrom('');setFilterDateTo('');}}>✕</button>}
           <Btn className="btn-outline" onClick={exportTransferExcel}>⬇ Export Excel</Btn>
           <Btn className="btn-outline" onClick={exportCsv}>⬇ CSV</Btn>
-          <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={() => (showForm ? closeTransferForm() : openNewTransferForm())}>{showForm ? 'Cancel' : '+ New Transfer Invoice'}</Btn>}
         </div>
       </div>
       <p style={{fontSize:13,color:'#666',marginBottom:12}}>
@@ -430,7 +441,7 @@ export default function TransferInvoices({ getInvoiceBranding, transferInvoices,
             </div>
             {viewInv.notes&&<div style={{marginTop:12,fontSize:13,color:'#666'}}><strong>Notes:</strong> {viewInv.notes}</div>}
             <div className="flex gap-2" style={{justifyContent:'flex-end',marginTop:16}}>
-              <Btn className="btn-outline" onClick={()=>printInvoiceById(`transfer-view-${viewInv.id}`)}>🖨 Print / Save PDF</Btn>
+              <Btn className="btn-outline" onClick={()=>{ printHtmlDocument(buildTransferInvoiceDoc(viewInv, getInvoiceBranding(viewInv, brandingMap) || {}), `Transfer Invoice ${viewInv.id}`); logActivity('print_invoice', `Printed transfer invoice ${viewInv.id}`); }}>🖨 Print / Save PDF</Btn>
               <Btn className="btn-outline" onClick={()=>copyTransferInvoice(viewInv)}>Copy</Btn>
               <Btn className="btn-secondary" onClick={()=>{const v=viewInv; setViewId(null); openTransferEdit(v);}}>Edit</Btn>
               <Btn className="btn-primary" onClick={()=>setViewId(null)}>Close</Btn>

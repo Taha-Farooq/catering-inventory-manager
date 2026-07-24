@@ -65,28 +65,29 @@ Auto-start tasks created:
 Then test:
 - `backend\windows\health-check.ps1`
 
-## Windows Auto-Start (PowerShell alternative)
+## Windows Auto-Start (alternative entry points)
 
-From PowerShell in `backend/windows`:
+If you already ran `ONE-CLICK-SETUP.cmd`, auto-start is already installed — you do
+not need to run anything else. To verify, open PowerShell and run:
 
 ```powershell
-./install-autostart.ps1
+Get-ScheduledTask -TaskName CateringAdminResetBackend*
 ```
 
-What it does:
-- installs dependencies if missing
-- creates `backend\.env` from `.env.example` if missing
-- registers a scheduled task named `CateringAdminResetBackend`
-- starts the backend automatically at user logon
+For convenience, additional double-click entry points live in `backend\windows`:
 
-Useful commands:
+- `INSTALL-AUTOSTART.cmd` — re-runs the one-click setup (installs deps + registers tasks).
+- `REMOVE-AUTOSTART.cmd` — removes the scheduled tasks.
+- `HEALTH-CHECK.cmd` — confirms the backend is responding on port 8787.
+
+These `.cmd` wrappers launch their PowerShell counterparts with
+`-ExecutionPolicy Bypass`, so you do **not** need to change your system
+execution policy. If you prefer running the `.ps1` files directly from a
+PowerShell window and get *"running scripts is disabled on this system"*,
+either use the `.cmd` wrapper, or run:
 
 ```powershell
-# check service health
-./health-check.ps1
-
-# remove auto-start task
-./remove-autostart.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-autostart.ps1
 ```
 
 Logs are written to:

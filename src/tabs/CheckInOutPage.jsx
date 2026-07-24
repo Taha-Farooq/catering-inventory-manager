@@ -7,12 +7,27 @@ import { fmt$ } from '../formatters.js';
 import { load, save } from '../utils/storage.js';
 import { logActivity } from '../utils/activity.js';
 import { printHtmlDocument } from '../utils/print.js';
+import { buildProfessionalDoc, docSection, docMoney } from '../utils/professionalDoc.js';
+import Modal from '../ui/Modal.jsx';
 
 function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline, sessionTimeLeft = 0, onAttendanceComplete }) {
+// "Week of Oct 6 – Oct 12, 2026" from a Monday yyyy-mm-dd.
+function payPeriodLabel(weekStartStr) {
+  try {
+    const start = new Date(weekStartStr + 'T00:00:00');
+    const end = new Date(start); end.setDate(end.getDate() + 6);
+    const m = { month: 'short', day: 'numeric' };
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const s = start.toLocaleDateString('en-US', m);
+    const e = end.toLocaleDateString('en-US', { ...m, year: 'numeric' });
+    return `Week of ${s} – ${e}${sameYear ? '' : ''}`;
+  } catch { return `Week of ${weekStartStr}`; }
+}
+
+export default function CheckInOutPage({ attendanceApiCall, currentUser, attendanceToken, onEnterKiosk, kioskLock, selectedBusiness, payrollInvoices, setPayrollInvoices, isOnline, sessionTimeLeft = 0, onAttendanceComplete, brandingMap = null }) {
   const isAdmin = currentUser?.role === 'admin';
   const isKioskStation = isAdmin && kioskLock;
   const [workGate, setWorkGate] = useState({ loading: !isAdmin, ok: !!isAdmin, reason: '' });
@@ -31,6 +46,49 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
   });
   const [summary, setSummary] = useState({ rows: [], active: {}, payRates: {} });
   const [rateDrafts, setRateDrafts] = useState({});
+  // Manual hours corrections: when an employee forgot to clock out (or the
+  // kiosk was down), the QR-derived hours are wrong and the stub becomes a
+  // source of arguments instead of ending them. Admin can override the
+  // week's hours with a required reason; the stub discloses the adjustment.
+  // Keyed { [weekStart]: { [username]: { hours, reason, by, at } } }.
+  const [hoursOverrides, setHoursOverrides] = useState(() => load('_payrollHoursOverrides', {}));
+  const [hoursEditor, setHoursEditor] = useState(null); // {username, displayName, hours, reason} | null
+
+  function overrideFor(username) {
+    return hoursOverrides?.[weekStart]?.[username] || null;
+  }
+  // Apply a manual override to a summary row: recompute reg/OT split and pay.
+  function withOverride(r) {
+    const ov = overrideFor(r.username);
+    if (!ov) return r;
+    const hours = Number(ov.hours) || 0;
+    const rate = Number(r.hourlyRate) || 0;
+    const regularHours = Math.min(hours, 40);
+    const overtimeHours = Math.max(0, hours - 40);
+    const weeklyPay = +(regularHours * rate + overtimeHours * rate * 1.5).toFixed(2);
+    return { ...r, hours: +hours.toFixed(2), regularHours: +regularHours.toFixed(2), overtimeHours: +overtimeHours.toFixed(2), weeklyPay, _override: ov };
+  }
+  function saveHoursOverride() {
+    const hours = Number(hoursEditor.hours);
+    const reason = String(hoursEditor.reason || '').trim();
+    if (!Number.isFinite(hours) || hours < 0 || hours > 120) { showToast('Enter valid hours (0–120).', 'error'); return; }
+    if (!reason) { showToast('A reason is required — it appears on the stub.', 'error'); return; }
+    const next = { ...hoursOverrides, [weekStart]: { ...(hoursOverrides[weekStart] || {}), [hoursEditor.username]: { hours: +hours.toFixed(2), reason, by: currentUser?.username || 'admin', at: new Date().toISOString() } } };
+    setHoursOverrides(next);
+    save('_payrollHoursOverrides', next);
+    logActivity('payroll_hours_override', `Set ${hoursEditor.username} hours to ${hours} for week ${weekStart}: ${reason}`);
+    showToast('Hours corrected. The stub will show the adjustment.');
+    setHoursEditor(null);
+  }
+  function clearHoursOverride(username) {
+    const week = { ...(hoursOverrides[weekStart] || {}) };
+    delete week[username];
+    const next = { ...hoursOverrides, [weekStart]: week };
+    setHoursOverrides(next);
+    save('_payrollHoursOverrides', next);
+    logActivity('payroll_hours_override', `Removed manual hours for ${username}, week ${weekStart}`);
+    showToast('Manual correction removed — back to recorded QR hours.');
+  }
   const [targetUser, setTargetUser] = useState('');
   const [localCache, setLocalCache] = useState(() => load('_attendanceCache', []));
   const [showLocalCache, setShowLocalCache] = useState(false);
@@ -156,7 +214,7 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
   function exportPayrollCsv() {
     const header = ['Week Start','Username','Display Name','Hours','Regular Hours','Overtime Hours','Hourly Rate','Weekly Pay','Sessions'];
     const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
-    const lines = (summary.rows || []).map(r => [
+    const lines = (summary.rows || []).map(withOverride).map(r => [
       weekStart, r.username, r.displayName || r.username, r.hours, r.regularHours, r.overtimeHours, r.hourlyRate, r.weeklyPay, r.sessions
     ].map(esc).join(','));
     const csv = [header.map(esc).join(','), ...lines].join('\n');
@@ -167,7 +225,7 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   }
   function exportPayrollPackExcel() {
-    const rows = (summary.rows || []);
+    const rows = (summary.rows || []).map(withOverride);
     const generatedDocs = rows.map((r, idx) => {
       const id = `PAY-${weekStart}-${r.username}`;
       return {
@@ -238,37 +296,72 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
     logActivity('export_xlsx', 'Exported weekly payroll pack Excel');
     showToast('Weekly salary invoices and employee docs exported.');
   }
+  function brandingForStub() {
+    const key = selectedBusiness || 'degrill';
+    if (brandingMap?.[key]) return brandingMap[key];
+    return { name: 'DMG Restaurant Group', address: '', phone: '', email: '', logo: '' };
+  }
+
+  // Build one professional pay stub (earnings statement) for an employee row.
+  function buildStubHtml(r) {
+    const rate = Number(r.hourlyRate) || 0;
+    const regH = Number(r.regularHours) || 0;
+    const otH = Number(r.overtimeHours) || 0;
+    const regPay = +(regH * rate).toFixed(2);
+    const otPay = +(otH * rate * 1.5).toFixed(2);
+    const gross = +(r.weeklyPay != null ? r.weeklyPay : regPay + otPay).toFixed(2);
+
+    const earnings = docSection({
+      heading: 'Earnings',
+      rows: [
+        { label: `Regular  (${regH.toFixed(2)} hrs × ${docMoney(rate)})`, value: docMoney(regPay), indent: true },
+        ...(otH > 0 ? [{ label: `Overtime  (${otH.toFixed(2)} hrs × ${docMoney(rate * 1.5)})`, value: docMoney(otPay), indent: true }] : []),
+      ],
+      total: { label: 'Gross Pay', value: docMoney(gross), accent: '#15803D' },
+    });
+    const detail = docSection({
+      heading: 'This Pay Period',
+      rows: [
+        { label: 'Total hours worked', value: (Number(r.hours) || (regH + otH)).toFixed(2), indent: true, muted: true },
+        { label: 'Regular hours', value: regH.toFixed(2), indent: true, muted: true },
+        { label: 'Overtime hours (paid at 1.5×)', value: otH.toFixed(2), indent: true, muted: true },
+        { label: 'Hourly rate', value: docMoney(rate), indent: true, muted: true },
+        { label: 'Shifts recorded (clock-ins)', value: String(r.sessions || 0), indent: true, muted: true },
+      ],
+    });
+
+    // Manual corrections are disclosed on the stub itself — a silent edit
+    // would undermine the document's whole purpose of ending disputes.
+    const adjustmentNote = r._override
+      ? `<div style="margin-top:12px;padding:10px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;font-size:11.5px;color:#7a5c20;">
+          <strong>Manual hours adjustment:</strong> hours for this period were set to ${Number(r._override.hours).toFixed(2)} by management.
+          Reason: ${String(r._override.reason).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+        </div>`
+      : '';
+
+    return buildProfessionalDoc({
+      branding: brandingForStub(),
+      docType: 'PAY STUB / EARNINGS STATEMENT',
+      docNumber: `PS-${weekStart}-${r.username}`,
+      periodLabel: payPeriodLabel(weekStart),
+      recipient: { title: 'Paid To', lines: [r.displayName || r.username, `@${r.username}`] },
+      bodyHtml: earnings + '<div style="height:10px"></div>' + detail + adjustmentNote,
+      footerNote: 'Hours are calculated from recorded QR check-in / check-out sessions. Overtime is paid at 1.5× for hours over 40 in the week. Questions about your pay? Speak with management.',
+    });
+  }
+
   function printSalaryInvoices() {
-    const rows = summary.rows || [];
+    const rows = (summary.rows || []).map(withOverride);
     if (!rows.length) { showToast('No payroll rows to print.', 'error'); return; }
-    const html = `
-      <div>
-        <h2 style="margin:0 0 10px;color:#8B4513;">Weekly Salary Invoices</h2>
-        <div style="margin-bottom:12px;color:#555;">Week Start: ${weekStart}</div>
-        ${rows.map((r, idx) => `
-          <div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin:0 0 10px;">
-            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-              <div>
-                <div style="font-size:16px;font-weight:700;color:#8B4513;">${r.displayName || r.username}</div>
-                <div style="font-size:12px;color:#666;">@${r.username}</div>
-              </div>
-              <div style="text-align:right;">
-                <div style="font-size:12px;color:#666;">Invoice # PAY-${weekStart}-${idx+1}</div>
-                <div style="font-size:12px;color:#666;">Generated ${new Date().toLocaleDateString()}</div>
-              </div>
-            </div>
-            <table style="margin-top:10px;width:100%;border-collapse:collapse;">
-              <tr><td style="padding:6px;border:1px solid #eee;">Regular Hours</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.regularHours || 0}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;">Overtime Hours</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.overtimeHours || 0}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;">Hourly Rate</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${fmt$(r.hourlyRate || 0)}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;">Attendance Sessions</td><td style="padding:6px;border:1px solid #eee;text-align:right;">${r.sessions || 0}</td></tr>
-              <tr><td style="padding:6px;border:1px solid #eee;font-weight:700;">Weekly Salary Due</td><td style="padding:6px;border:1px solid #eee;text-align:right;font-weight:700;">${fmt$(r.weeklyPay || 0)}</td></tr>
-            </table>
-          </div>
-        `).join('')}
-      </div>
-    `;
-    printHtmlDocument(html, `Weekly Salary Invoices ${weekStart}`);
+    const body = rows.map(r => `<div style="page-break-after:always">${buildStubHtml(r)}</div>`).join('\n');
+    printHtmlDocument(body, `Pay Stubs — ${payPeriodLabel(weekStart)}`);
+    logActivity('print_paystubs', `Printed ${rows.length} pay stubs for ${weekStart}`);
+  }
+
+  function printOneStub(r) {
+    const row = withOverride(r);
+    printHtmlDocument(buildStubHtml(row), `Pay Stub — ${row.displayName || row.username}`);
+    logActivity('print_paystub', `Printed pay stub for ${row.username} (${weekStart})`);
   }
   useEffect(() => {
     if (!qr?.url) { setQrDataUrl(''); return; }
@@ -450,17 +543,17 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
                 <Btn className="btn-outline btn-sm" onClick={loadSummary}>Refresh</Btn>
                 <Btn className="btn-success btn-sm" onClick={exportPayrollCsv}>Export CSV</Btn>
                 <Btn className="btn-success btn-sm" onClick={exportPayrollPackExcel}>Export Payroll Pack</Btn>
-                <Btn className="btn-outline btn-sm" onClick={printSalaryInvoices}>Print Salary Invoices</Btn>
+                <Btn className="btn-primary btn-sm" onClick={printSalaryInvoices}>🧾 Print Pay Stubs</Btn>
               </div>
             </div>
             <div className="tbl-wrap">
               <table>
                 <thead><tr><th>User</th><th>Hours</th><th>Regular</th><th>OT</th><th>Rate</th><th>Weekly Pay</th><th>Open Shift</th><th>Actions</th></tr></thead>
                 <tbody>
-                  {(summary.rows || []).map(r => (
-                    <tr key={r.username}>
+                  {(summary.rows || []).map(raw => { const r = withOverride(raw); return (
+                    <tr key={r.username} style={r._override ? { background: '#FFFBEB' } : undefined}>
                       <td>{r.displayName || r.username} <span style={{fontSize:11,color:'#777'}}>@{r.username}</span></td>
-                      <td>{r.hours}</td>
+                      <td>{r.hours}{r._override && <span title={`Manually corrected: ${r._override.reason}`} style={{marginLeft:4,cursor:'help'}}>✏️</span>}</td>
                       <td>{r.regularHours}</td>
                       <td>{r.overtimeHours}</td>
                       <td style={{minWidth:130}}>
@@ -472,9 +565,16 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
                       </td>
                       <td style={{fontWeight:700}}>{fmt$(r.weeklyPay)}</td>
                       <td>{summary.active?.[r.username] ? <span className="badge badge-admin">In</span> : '—'}</td>
-                      <td>{summary.active?.[r.username] && <Btn className="btn-danger btn-sm" onClick={()=>forceOut(r.username)}>Force Out</Btn>}</td>
+                      <td style={{whiteSpace:'nowrap'}}>
+                        <Btn className="btn-outline btn-sm" onClick={()=>printOneStub(raw)} title="Print this employee's pay stub">🧾 Stub</Btn>
+                        <Btn className="btn-outline btn-sm" style={{marginLeft:4}} title="Correct this week's hours (forgot to clock out, kiosk was down…)"
+                          onClick={()=>setHoursEditor({ username: r.username, displayName: r.displayName || r.username, hours: r.hours, reason: r._override?.reason || '' })}>✏️ Fix hrs</Btn>
+                        {r._override && <Btn className="btn-outline btn-sm" style={{marginLeft:4}} title="Remove the manual correction and go back to recorded QR hours"
+                          onClick={()=>clearHoursOverride(r.username)}>↩ Undo</Btn>}
+                        {summary.active?.[r.username] && <Btn className="btn-danger btn-sm" style={{marginLeft:4}} onClick={()=>forceOut(r.username)}>Force Out</Btn>}
+                      </td>
                     </tr>
-                  ))}
+                  ); })}
                   {!(summary.rows || []).length && <tr><td colSpan={8}><div className="empty-state">No attendance sessions for this week yet.</div></td></tr>}
                 </tbody>
               </table>
@@ -529,6 +629,32 @@ export default function CheckInOutPage({ attendanceApiCall, currentUser, attenda
           </div>
         </>
       )}
+
+      {/* Manual hours correction — required reason, disclosed on the stub */}
+      <Modal open={!!hoursEditor} onClose={() => setHoursEditor(null)} title={`✏️ Fix hours — ${hoursEditor?.displayName || ''}`} maxW={460}>
+        {hoursEditor && (
+          <div>
+            <p style={{ fontSize: 13, color: '#666', marginBottom: 12, lineHeight: 1.5 }}>
+              Use this when the recorded hours are wrong — someone forgot to clock out, or the kiosk was down.
+              The correction applies to the week of <strong>{weekStart}</strong> and is printed on the pay stub with your reason.
+            </p>
+            <div className="field">
+              <label>Total hours for the week</label>
+              <input className="input" type="number" min="0" max="120" step="0.25" value={hoursEditor.hours}
+                onChange={e => setHoursEditor(h => ({ ...h, hours: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>Reason (required — appears on the stub)</label>
+              <input className="input" placeholder="e.g. Forgot to clock out Tuesday; left at 9pm" value={hoursEditor.reason}
+                onChange={e => setHoursEditor(h => ({ ...h, reason: e.target.value }))} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <Btn className="btn-outline" onClick={() => setHoursEditor(null)}>Cancel</Btn>
+              <Btn className="btn-primary" onClick={saveHoursOverride}>💾 Save Correction</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

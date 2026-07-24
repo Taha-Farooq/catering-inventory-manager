@@ -59,7 +59,7 @@ function Btn({ className='', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole, purchaseInvoices = [] }) {
+export default function ItemDatabase({ items, setItems, priceHistory, setPriceHistory, userRole, purchaseInvoices = [], readOnly = false }) {
   const isAdmin = userRole === 'admin';
   const locQtyBlank = Object.fromEntries(LOCATIONS.map(l => [l.toLowerCase(), '']));
   const BLANK = {name:'',category:'Produce',upc:'',unit:'lb',caseSize:'',notes:'',sellers:[{name:'',price:''}],currentQty:'',minQty:'',locQty:{...locQtyBlank},locMinQty:{...locQtyBlank}};
@@ -436,8 +436,12 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
 
   return (
     <div>
+      <div className="hint-card" style={{ marginBottom: 10 }}>
+        📦 <strong>Pantry &amp; Supplies</strong> — things you <em>buy</em> (rice, chicken, naan, plates).
+        Track stock here and pick from this list when shopping. For things you <em>sell</em> to customers (menu items, prices, margins), use the <strong>🍴 Menu Items</strong> tab.
+      </div>
       <div className="flex-between mb-4 flex-wrap gap-2">
-        <div className="section-title" style={{margin:0}}>Item Database ({items.length})</div>
+        <div className="section-title" style={{margin:0}}>Pantry &amp; Supplies ({items.length})</div>
         <div className="flex gap-2 flex-wrap">
           {isAdmin && <Btn className="btn-outline" onClick={cleanupInternalSellers}>🧹 Clean Seller List</Btn>}
           {isAdmin && (
@@ -450,7 +454,7 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
               <Btn className="btn-outline" onClick={downloadImportTemplate} title="Download a blank CSV template with the correct column headers">📋 Template</Btn>
             </>
           )}
-          <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>
+          {!readOnly && <Btn className="btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>＋ Add New Item</Btn>}
         </div>
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -472,7 +476,20 @@ export default function ItemDatabase({ items, setItems, priceHistory, setPriceHi
       )}
 
       {filtered.length===0
-        ? <div className="card empty-state">{items.length===0?'No items yet. Click "Add Item" to get started.':'No items match your search.'}</div>
+        ? (items.length === 0 ? (
+            <div className="card empty-state" style={{padding:'40px 24px',color:'#7a5c20'}}>
+              <div style={{fontSize:48,marginBottom:12}}>📦</div>
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginBottom:6}}>Your item catalog is empty</div>
+              <div style={{fontSize:14,lineHeight:1.6,maxWidth:420,margin:'0 auto 16px'}}>
+                This is where you keep every ingredient and supply you order — sellers, prices, units, stock per location. Once you add a few, shopping lists and invoices get a lot faster.
+              </div>
+              {userRole === 'admin' && (
+                <button className="btn btn-primary" onClick={()=>{setForm(blank());setEditId(null);setPurchaseSuggest(null);setShowForm(true);}}>+ Add your first item</button>
+              )}
+            </div>
+          ) : (
+            <div className="card empty-state">No items match your search.</div>
+          ))
         : (
           <>
           {selectedIds.size > 0 && (

@@ -4,8 +4,13 @@ import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import pdfParse from 'pdf-parse';
+// SECURITY (docs/SECURITY_REVIEW.md A12): pdf-parse@1.1.1 was unmaintained.
+// pdf-parse-fork is the maintained drop-in replacement.
+import pdfParse from 'pdf-parse-fork';
+import { aiEnabled, aiModel, aiProvider, extractDocumentAI } from './scanAi.js';
 
 dotenv.config();
 
@@ -21,11 +26,26 @@ const STORE_DIR = path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(STORE_DIR, 'used-reset-tokens.json');
 const USERS_FILE = path.join(STORE_DIR, 'credentials.json');
 const SCAN_DB_FILE = path.join(STORE_DIR, 'scan-db.json');
+const SYNC_FILE = path.join(STORE_DIR, 'sync-snapshot.json');
+const SYNC_MAX_BYTES = Number(process.env.SYNC_MAX_BYTES || 25 * 1024 * 1024);
 const SCAN_POLL_MS = Number(process.env.SCAN_POLL_MS || 8000);
 const SCAN_MIN_FILE_AGE_MS = Number(process.env.SCAN_MIN_FILE_AGE_MS || 3000);
 const ATTENDANCE_FILE = path.join(STORE_DIR, 'attendance-db.json');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://taha-farooq.github.io/catering-inventory-manager/';
 const ATT_QR_TTL_SEC = Number(process.env.ATTENDANCE_QR_TTL_SEC || 60);
+const SESSION_TTL = process.env.SESSION_TTL || '30d';
+const BCRYPT_COST = Number(process.env.BCRYPT_COST || 10);
+const TIMEZONE = process.env.TIMEZONE || 'America/New_York';
+// SECURITY (docs/SECURITY_REVIEW.md A11): when set, scan inboxPath /
+// libraryPath must live under this root. Refuses paths escaping via `..`
+// or pointing outside the allowlist. Empty string = disabled (legacy
+// behavior, useful only for dev).
+const SCAN_ROOT = String(process.env.SCAN_ROOT || '').trim();
+// SECURITY (A12): cap a single PDF parse to avoid OOM / DoS via malicious
+// PDFs. Files larger than this are skipped (logged as a failure). Per-file
+// parse wall-clock cap also applied via Promise.race below.
+const SCAN_MAX_PDF_BYTES = Number(process.env.SCAN_MAX_PDF_BYTES || 50 * 1024 * 1024);
+const SCAN_PARSE_TIMEOUT_MS = Number(process.env.SCAN_PARSE_TIMEOUT_MS || 30000);
 
 if (!JWT_SECRET || JWT_SECRET.length < 24) {
   console.error('ADMIN_RESET_JWT_SECRET is missing or too short.');
@@ -52,6 +72,51 @@ if (!fs.existsSync(ATTENDANCE_FILE)) fs.writeFileSync(ATTENDANCE_FILE, JSON.stri
   updatedAt: new Date().toISOString()
 }, null, 2));
 
+// SECURITY (docs/SECURITY_REVIEW.md A9): write JSON via temp+rename so a
+// crash mid-write can never leave a truncated credentials/attendance/scan
+// file. The rename is atomic on the same filesystem.
+function writeJsonAtomic(filePath, data) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, filePath);
+}
+
+// SECURITY (A6): server stores bcrypt(client_sha256). The client still sends
+// a SHA-256 hex string (no bcrypt in the browser, no UI change). Legacy
+// stored hashes (64 hex chars) are accepted once via constant-time compare,
+// then upgraded to bcrypt on first successful login.
+const LEGACY_HEX_RE = /^[a-f0-9]{64}$/i;
+function isBcryptHash(s) {
+  return typeof s === 'string' && /^\$2[aby]\$/.test(s);
+}
+function constantTimeEqualsString(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
+async function verifyHashAgainstStored(clientHash, storedHash) {
+  if (!clientHash || !storedHash) return false;
+  if (isBcryptHash(storedHash)) {
+    try { return await bcrypt.compare(String(clientHash), storedHash); }
+    catch { return false; }
+  }
+  if (LEGACY_HEX_RE.test(storedHash)) {
+    return constantTimeEqualsString(String(clientHash).toLowerCase(), storedHash.toLowerCase());
+  }
+  return false;
+}
+async function ensureHashUpgraded(users, username, clientHash) {
+  const u = users[username];
+  if (!u || isBcryptHash(u.password)) return;
+  u.password = await bcrypt.hash(String(clientHash), BCRYPT_COST);
+  writeUsers(users);
+  console.log(`[auth] Upgraded ${username} password storage to bcrypt`);
+}
+
 function readUsedStore() {
   try {
     return JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
@@ -60,7 +125,7 @@ function readUsedStore() {
   }
 }
 function writeUsedStore(store) {
-  fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
+  writeJsonAtomic(STORE_FILE, store);
 }
 function markUsed(jti, requestId, approver) {
   const store = readUsedStore();
@@ -84,7 +149,7 @@ function readUsers() {
   }
 }
 function writeUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  writeJsonAtomic(USERS_FILE, users);
 }
 function sanitizeCredentials(input) {
   const src = (input && typeof input === 'object') ? input : {};
@@ -101,6 +166,32 @@ function sanitizeCredentials(input) {
     };
   }
   return out;
+}
+
+// SECURITY (A6): incoming sync payload is from the client where hashes are
+// SHA-256 hex. Persist them as bcrypt so credentials.json on disk never
+// contains the same string the client sends. If a user already has a
+// matching bcrypt stored (i.e., the client is re-syncing a hash that
+// bcrypt-compares to what we already have), keep the existing bcrypt to
+// avoid pointless rehashing.
+async function bcryptifyForStorage(cleaned, existing) {
+  for (const [username, rec] of Object.entries(cleaned)) {
+    const incoming = String(rec.password);
+    if (isBcryptHash(incoming)) {
+      continue; // client somehow sent a bcrypt hash (e.g., backup restore) — accept as-is
+    }
+    const prev = existing[username]?.password;
+    if (prev && isBcryptHash(prev)) {
+      try {
+        if (await bcrypt.compare(incoming, prev)) {
+          rec.password = prev; // same password, keep existing bcrypt
+          continue;
+        }
+      } catch {}
+    }
+    rec.password = await bcrypt.hash(incoming, BCRYPT_COST);
+  }
+  return cleaned;
 }
 function readAttendanceDb() {
   try {
@@ -119,32 +210,66 @@ function readAttendanceDb() {
 }
 function writeAttendanceDb(db) {
   db.updatedAt = new Date().toISOString();
-  fs.writeFileSync(ATTENDANCE_FILE, JSON.stringify(db, null, 2));
+  writeJsonAtomic(ATTENDANCE_FILE, db);
 }
-function verifyAnyUserFromRequest(req) {
+// SECURITY (A1): prefer Bearer session JWT. Fall back to x-auth-hash for
+// rolling-update compatibility — once all clients are on the new code we
+// can drop the fallback. The fallback now uses bcrypt-compare under the
+// hood so the stored credential is no longer the same string as what's
+// transmitted.
+async function verifyAnyUserFromRequest(req) {
+  const authHeader = String(req.headers['authorization'] || '');
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded.mode !== 'session') return { ok: false, error: 'Invalid token mode' };
+      const users = readUsers();
+      const u = users[decoded.sub];
+      if (!u) return { ok: false, error: 'Unknown user' };
+      const role = decoded.role || u.role || (decoded.sub === 'admin' ? 'admin' : 'user');
+      return { ok: true, username: decoded.sub, role };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Invalid session token' };
+    }
+  }
   const username = String(req.headers['x-auth-user'] || req.body?.auth?.username || '').trim().toLowerCase();
   const passwordHash = String(req.headers['x-auth-hash'] || req.body?.auth?.passwordHash || '').trim();
   if (!username || !passwordHash) return { ok: false, error: 'Missing auth' };
   const users = readUsers();
   const u = users[username];
   if (!u) return { ok: false, error: 'Unknown user' };
-  if (u.password !== passwordHash) return { ok: false, error: 'Invalid auth hash' };
+  const ok = await verifyHashAgainstStored(passwordHash, u.password);
+  if (!ok) return { ok: false, error: 'Invalid auth hash' };
   const role = u.role || (username === 'admin' ? 'admin' : 'user');
   return { ok: true, username, role };
 }
-function authUser(req, res, next) {
-  const auth = verifyAnyUserFromRequest(req);
+async function authUser(req, res, next) {
+  const auth = await verifyAnyUserFromRequest(req);
   if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
   req.authUser = auth;
   return next();
 }
+// SECURITY/CORRECTNESS (A19): payroll weeks roll over at NY local Monday,
+// not UTC. The old version mixed local getDay() with UTC toISOString() and
+// classified Sunday-evening NY shifts into the next week. We compute the
+// week start entirely in TIMEZONE (default America/New_York) so DST-safe.
+const _ISO_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit'
+});
+const _WKDAY_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: TIMEZONE, weekday: 'short'
+});
+const _WKDAY_OFFSET = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
 function weekStartISO(dateLike) {
   const d = new Date(dateLike || Date.now());
-  const day = d.getDay();
-  const diff = (day + 6) % 7;
-  d.setDate(d.getDate() - diff);
-  d.setHours(0,0,0,0);
-  return d.toISOString().slice(0, 10);
+  const localDate = _ISO_FMT.format(d);
+  const weekday = _WKDAY_FMT.format(d);
+  const offset = _WKDAY_OFFSET[weekday] ?? 0;
+  const [y, m, day] = localDate.split('-').map(Number);
+  const base = new Date(Date.UTC(y, m - 1, day));
+  base.setUTCDate(base.getUTCDate() - offset);
+  return base.toISOString().slice(0, 10);
 }
 function hoursBetween(startIso, endIso) {
   const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
@@ -168,7 +293,7 @@ function readScanDb() {
 }
 function writeScanDb(db) {
   db.updatedAt = new Date().toISOString();
-  fs.writeFileSync(SCAN_DB_FILE, JSON.stringify(db, null, 2));
+  writeJsonAtomic(SCAN_DB_FILE, db);
 }
 function scanActivity(db, message, extra = {}) {
   db.activity.push({ id: crypto.randomUUID(), at: new Date().toISOString(), message, ...extra });
@@ -178,8 +303,12 @@ function scanFailure(db, filePath, error) {
   db.failures.push({ id: crypto.randomUUID(), at: new Date().toISOString(), filePath, error: String(error?.message || error || 'Unknown error') });
   if (db.failures.length > 500) db.failures = db.failures.slice(-500);
 }
+const SCAN_DOC_TYPE_SET = new Set(['transaction_invoice', 'tax', 'legal', 'credit', 'bank', 'payroll', 'medical', 'insurance', 'utility', 'other']);
 function normalizeDocType(raw) {
   const s = String(raw || '').toLowerCase();
+  // Exact enum values (AI extraction, dropdown corrections) pass through.
+  if (SCAN_DOC_TYPE_SET.has(s)) return s;
+  // Fuzzy keyword fallback for free-text input.
   if (s.includes('legal')) return 'legal';
   if (s.includes('tax')) return 'tax';
   if (s.includes('credit')) return 'credit';
@@ -187,6 +316,9 @@ function normalizeDocType(raw) {
   if (s.includes('transaction')) return 'transaction_invoice';
   if (s.includes('bank')) return 'bank';
   if (s.includes('payroll')) return 'payroll';
+  if (s.includes('medical') || s.includes('doctor') || s.includes('hospital')) return 'medical';
+  if (s.includes('insurance')) return 'insurance';
+  if (s.includes('utilit') || s.includes('electric') || s.includes('water bill')) return 'utility';
   return 'other';
 }
 function monthLabel(dateObj) {
@@ -235,23 +367,44 @@ function detectSender(filename, text) {
   const guess = path.basename(filename, path.extname(filename)).replace(/[_-]+/g, ' ').trim();
   return guess || 'Unknown Sender';
 }
+const SCAN_EXTS = /\.(pdf|jpe?g|png|webp)$/i;
+const SCAN_MEDIA_TYPES = { '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 function collectPdfFiles(dir, out = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const ent of entries) {
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) collectPdfFiles(full, out);
-    else if (ent.isFile() && /\.pdf$/i.test(ent.name)) out.push(full);
+    else if (ent.isFile() && SCAN_EXTS.test(ent.name)) out.push(full);
   }
   return out;
 }
 async function extractPdfTextSafe(filePath) {
   try {
+    const stat = fs.statSync(filePath);
+    if (stat.size > SCAN_MAX_PDF_BYTES) {
+      return '';
+    }
     const data = fs.readFileSync(filePath);
-    const parsed = await pdfParse(data);
+    // SECURITY (A12): hard cap on parse wall-clock so a malformed PDF can't
+    // stall the scan loop. The single-file timeout falls through to an empty
+    // string and the file gets re-tried (or marked needs_review) on next pass.
+    const parsed = await Promise.race([
+      pdfParse(data),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('pdf parse timeout')), SCAN_PARSE_TIMEOUT_MS)),
+    ]);
     return String(parsed?.text || '').slice(0, 50000);
   } catch {
     return '';
   }
+}
+function isPathUnderScanRoot(p) {
+  if (!SCAN_ROOT) return true;
+  try {
+    const abs = path.resolve(p);
+    const root = path.resolve(SCAN_ROOT);
+    const rel = path.relative(root, abs);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch { return false; }
 }
 function getUniqueTargetPath(targetPath) {
   if (!fs.existsSync(targetPath)) return targetPath;
@@ -279,20 +432,14 @@ function moveFileSafe(src, dst) {
     throw e;
   }
 }
-function verifyAdminFromRequest(req) {
-  const username = String(req.headers['x-auth-user'] || req.body?.auth?.username || '').trim().toLowerCase();
-  const passwordHash = String(req.headers['x-auth-hash'] || req.body?.auth?.passwordHash || '').trim();
-  if (!username || !passwordHash) return { ok: false, error: 'Missing admin auth' };
-  const users = readUsers();
-  const u = users[username];
-  if (!u) return { ok: false, error: 'Unknown user' };
-  if (u.password !== passwordHash) return { ok: false, error: 'Invalid auth hash' };
-  const role = u.role || (username === 'admin' ? 'admin' : 'user');
-  if (role !== 'admin') return { ok: false, error: 'Admin only' };
-  return { ok: true, username };
+async function verifyAdminFromRequest(req) {
+  const auth = await verifyAnyUserFromRequest(req);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Missing admin auth' };
+  if (auth.role !== 'admin') return { ok: false, error: 'Admin only' };
+  return { ok: true, username: auth.username };
 }
-function adminOnly(req, res, next) {
-  const auth = verifyAdminFromRequest(req);
+async function adminOnly(req, res, next) {
+  const auth = await verifyAdminFromRequest(req);
   if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
   req.adminUser = auth.username;
   return next();
@@ -326,18 +473,36 @@ async function processScanOnce() {
           scanActivity(db, 'Duplicate detected; skipping import', { filePath, existingId: duplicate.id });
           continue;
         }
-        const text = await extractPdfTextSafe(filePath);
         const baseName = path.basename(filePath);
-        const typeInfo = detectDocType(baseName, text);
+        const ext = path.extname(baseName).toLowerCase();
+        const mediaType = SCAN_MEDIA_TYPES[ext] || 'application/pdf';
+
+        // AI-first: Claude reads scanned PDFs and photos natively, which the
+        // legacy pdf-parse + regex path cannot (image-only PDFs yield no
+        // text). Falls back to the regex path if AI is disabled or fails.
+        let ai = null;
+        if (aiEnabled()) {
+          ai = await extractDocumentAI(fs.readFileSync(filePath), mediaType, baseName);
+          if (!ai) scanActivity(db, 'AI extraction failed; using keyword fallback', { filePath });
+        }
+
+        const text = ext === '.pdf' ? await extractPdfTextSafe(filePath) : '';
+        const typeInfo = ai
+          ? { docType: normalizeDocType(ai.docType), confidence: ai.confidence }
+          : detectDocType(baseName, text);
         const docType = typeInfo.docType;
-        const sender = detectSender(baseName, text);
-        const businessTag = detectBusiness(`${baseName}\n${text}`);
-        const dt = new Date(st.mtimeMs || Date.now());
+        const sender = ai ? ai.sender : detectSender(baseName, text);
+        const businessTag = ai ? ai.businessTag : detectBusiness(`${baseName}\n${text}`);
+
+        // File under the date printed ON the document when AI found one.
+        // A pile of old paper all scanned today gets today's mtime — the
+        // document's own date is what matters for the Year/Month folders.
+        const dt = ai?.docDate ? new Date(ai.docDate + 'T12:00:00') : new Date(st.mtimeMs || Date.now());
         const year = String(dt.getFullYear());
         const month = monthLabel(dt);
         const folder = path.join(libraryPath, year, month, docType);
         if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
-        const targetName = `${dt.toISOString().slice(0, 10)}__${slugSafe(sender, 'sender')}__${slugSafe(docType, 'other')}__${slugSafe(path.basename(baseName, '.pdf'), 'scan')}.pdf`;
+        const targetName = `${dt.toISOString().slice(0, 10)}__${slugSafe(sender, 'sender')}__${slugSafe(docType, 'other')}__${slugSafe(path.basename(baseName, ext), 'scan')}${ext}`;
         const targetPath = moveFileSafe(filePath, path.join(folder, targetName));
         const doc = {
           id: crypto.randomUUID(),
@@ -347,13 +512,18 @@ async function processScanOnce() {
           businessTag,
           year,
           month,
+          docDate: ai?.docDate || null,
+          totalAmount: ai?.totalAmount ?? null,
+          referenceNumber: ai?.referenceNumber || null,
+          summary: ai?.summary || '',
+          extractedBy: ai ? 'ai' : 'keywords',
           fileHash,
           fileName: path.basename(targetPath),
           filePath: targetPath,
           sourcePath: filePath,
-          textPreview: text.slice(0, 1200),
-          confidence: text ? typeInfo.confidence : 0.45,
-          status: (text && typeInfo.confidence >= 0.75) ? 'classified' : 'needs_review',
+          textPreview: ai?.summary || text.slice(0, 1200),
+          confidence: ai ? ai.confidence : (text ? typeInfo.confidence : 0.45),
+          status: (ai ? ai.confidence >= 0.75 : (text && typeInfo.confidence >= 0.75)) ? 'classified' : 'needs_review',
           notes: ''
         };
         db.docs.push(doc);
@@ -381,7 +551,21 @@ function refreshScanTimer() {
 }
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+// Render (and most reverse proxies) sit in front of us; trust X-Forwarded-For
+// so express-rate-limit keys per real client IP, not Render's edge.
+app.set('trust proxy', 1);
+// The scan-upload route carries base64 documents (phone photos, scanned
+// PDFs) and needs a much larger body cap than the rest of the API. It is
+// registered with its own parser BEFORE the global 256kb parser; everything
+// else stays tight.
+const scanUploadParser = express.json({ limit: '40mb' });
+const syncSnapshotParser = express.json({ limit: '25mb' });
+const defaultJsonParser = express.json({ limit: '256kb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/scan/upload') return scanUploadParser(req, res, next);
+  if (req.path === '/api/sync/snapshot') return syncSnapshotParser(req, res, next);
+  return defaultJsonParser(req, res, next);
+});
 app.use(cors({
   origin(origin, cb) {
     if (!origin) return cb(null, true);
@@ -390,6 +574,18 @@ app.use(cors({
     return cb(new Error(`Origin not allowed: ${origin}`));
   }
 }));
+
+// SECURITY (A5): friendly rate limit on auth + reset endpoints. Tuned so a
+// real user who mistypes their password a few times never gets blocked.
+// Limits apply per source IP across a 15-minute window.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many attempts. Please wait a moment and try again.' },
+  skipSuccessfulRequests: true
+});
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'admin-reset-backend' });
@@ -400,30 +596,65 @@ app.get('/api/auth/status', (_req, res) => {
   res.json({ ok: true, hasUsers: Object.keys(users).length > 0, userCount: Object.keys(users).length });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { username, passwordHash } = req.body || {};
   if (!username || !passwordHash) return res.status(400).json({ ok: false, error: 'username and passwordHash required' });
   const users = readUsers();
   const key = String(username).trim().toLowerCase();
   const u = users[key];
   if (!u) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
-  if (u.password !== passwordHash) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+  const ok = await verifyHashAgainstStored(passwordHash, u.password);
+  if (!ok) return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+
+  // Transparent migration: legacy plain-SHA-256 storage gets upgraded to
+  // bcrypt on first successful login (SECURITY_REVIEW.md A6).
+  await ensureHashUpgraded(users, key, passwordHash);
+
+  const role = u.role || (key === 'admin' ? 'admin' : 'user');
+  const token = jwt.sign({ sub: key, role, mode: 'session' }, JWT_SECRET, { expiresIn: SESSION_TTL });
+
+  // SECURITY (A2): no credentialsSnapshot. Each session sees only itself.
+  // The client recomputes the local SHA-256 from the password the user just
+  // typed for its offline-fallback cache; nothing about other users leaks.
   return res.json({
     ok: true,
+    token,
     user: {
       username: key,
-      role: u.role || (key === 'admin' ? 'admin' : 'user'),
+      role,
       displayName: u.displayName || key,
       permissions: u.permissions || []
-    },
-    credentialsSnapshot: users
+    }
   });
 });
 
-app.post('/api/auth/sync', (req, res) => {
+app.post('/api/auth/sync', async (req, res) => {
+  // SECURITY (docs/SECURITY_REVIEW.md A0): this endpoint overwrites the entire
+  // users file. Require admin auth unless the file is empty (first-run starter
+  // ZIP bootstrap). The bootstrap window only exists between deploy and the
+  // first valid sync — keep it short by uploading the starter ZIP immediately
+  // after creating the service.
+  const existingUsers = readUsers();
+  const isBootstrap = Object.keys(existingUsers).length === 0;
+
+  if (!isBootstrap) {
+    const auth = await verifyAdminFromRequest(req);
+    if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
+  }
+
   const { credentials } = req.body || {};
   const cleaned = sanitizeCredentials(credentials);
   if (!Object.keys(cleaned).length) return res.status(400).json({ ok: false, error: 'No valid credentials to sync' });
+
+  if (isBootstrap && !Object.values(cleaned).some(u => u.role === 'admin')) {
+    return res.status(400).json({ ok: false, error: 'Bootstrap sync must include at least one admin user' });
+  }
+
+  if (isBootstrap) {
+    console.warn(`[auth/sync] BOOTSTRAP: writing initial user file with ${Object.keys(cleaned).length} users.`);
+  }
+
+  await bcryptifyForStorage(cleaned, existingUsers);
   writeUsers(cleaned);
   return res.json({ ok: true, userCount: Object.keys(cleaned).length });
 });
@@ -597,15 +828,91 @@ app.get('/api/scan/status', adminOnly, (_req, res) => {
     counts: { total: db.docs.length, needsReview, failures: db.failures.length },
     recentFailures: db.failures.slice(-10).reverse(),
     recentActivity: db.activity.slice(-15).reverse(),
-    pollMs: SCAN_POLL_MS
+    pollMs: SCAN_POLL_MS,
+    ai: { enabled: aiEnabled(), provider: aiProvider(), model: aiEnabled() ? aiModel() : null }
+  });
+});
+
+// Direct upload from the browser — lets the admin photograph documents on a
+// phone or drag PDFs into the web app, with no folder watcher required.
+// Files are written into the configured inbox and run through the same
+// pipeline (AI extraction, dedupe, foldering) as watcher-discovered files.
+app.post('/api/scan/upload', adminOnly, async (req, res) => {
+  const db = readScanDb();
+  const inboxPath = String(db.config?.inboxPath || '').trim();
+  if (!inboxPath) {
+    return res.status(400).json({ ok: false, error: 'Set the Inbox folder in scanner config first.' });
+  }
+  if (!fs.existsSync(inboxPath)) fs.mkdirSync(inboxPath, { recursive: true });
+
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ ok: false, error: 'No files in upload.' });
+  if (files.length > 20) return res.status(400).json({ ok: false, error: 'Upload at most 20 files at a time.' });
+
+  const saved = [];
+  for (const f of files) {
+    const rawName = String(f?.name || 'scan');
+    const ext = path.extname(rawName).toLowerCase();
+    if (!SCAN_EXTS.test(rawName)) {
+      return res.status(400).json({ ok: false, error: `Unsupported file type: ${rawName}. Use PDF, JPG, PNG, or WEBP.` });
+    }
+    let buf;
+    try {
+      buf = Buffer.from(String(f?.dataBase64 || ''), 'base64');
+    } catch {
+      return res.status(400).json({ ok: false, error: `Could not decode ${rawName}.` });
+    }
+    if (!buf.length) return res.status(400).json({ ok: false, error: `${rawName} is empty.` });
+    if (buf.length > SCAN_MAX_PDF_BYTES) {
+      return res.status(400).json({ ok: false, error: `${rawName} is too large.` });
+    }
+    const safeBase = slugSafe(path.basename(rawName, ext), 'scan');
+    const target = getUniqueTargetPath(path.join(inboxPath, `upload__${safeBase}${ext}`));
+    fs.writeFileSync(target, buf);
+    // Backdate mtime so the min-file-age guard doesn't delay processing.
+    const aged = new Date(Date.now() - SCAN_MIN_FILE_AGE_MS - 1000);
+    fs.utimesSync(target, aged, aged);
+    saved.push(path.basename(target));
+  }
+  scanActivity(db, `Uploaded ${saved.length} document(s) from the web app`, { by: req.adminUser });
+  writeScanDb(db);
+
+  // Process immediately so the uploader sees results in one round trip.
+  await processScanOnce();
+  const after = readScanDb();
+  return res.json({
+    ok: true,
+    uploaded: saved.length,
+    counts: { total: after.docs.length, needsReview: after.docs.filter(d => d.status === 'needs_review').length },
+    recent: after.docs.slice(-saved.length).reverse().map(d => ({
+      id: d.id, sender: d.sender, docType: d.docType, businessTag: d.businessTag,
+      docDate: d.docDate, totalAmount: d.totalAmount, summary: d.summary,
+      status: d.status, fileName: d.fileName, extractedBy: d.extractedBy,
+    })),
   });
 });
 
 app.post('/api/scan/config', adminOnly, (req, res) => {
   const db = readScanDb();
   const { inboxPath, libraryPath, enabled } = req.body || {};
-  if (typeof inboxPath === 'string') db.config.inboxPath = inboxPath.trim();
-  if (typeof libraryPath === 'string') db.config.libraryPath = libraryPath.trim();
+  if (typeof inboxPath === 'string') {
+    const trimmed = inboxPath.trim();
+    // SECURITY (A11): require paths under SCAN_ROOT when configured. This
+    // prevents an authenticated admin (or anyone with the admin session token)
+    // from setting the scanner at, say, %USERPROFILE%\Documents to slurp every
+    // PDF on the machine.
+    if (trimmed && !isPathUnderScanRoot(trimmed)) {
+      return res.status(400).json({ ok: false, error: `inboxPath must live under ${SCAN_ROOT || '(SCAN_ROOT not configured)'}` });
+    }
+    db.config.inboxPath = trimmed;
+  }
+  if (typeof libraryPath === 'string') {
+    const trimmed = libraryPath.trim();
+    if (trimmed && !isPathUnderScanRoot(trimmed)) {
+      return res.status(400).json({ ok: false, error: `libraryPath must live under ${SCAN_ROOT || '(SCAN_ROOT not configured)'}` });
+    }
+    db.config.libraryPath = trimmed;
+  }
   if (typeof enabled === 'boolean') db.config.enabled = enabled;
   scanActivity(db, 'Updated scan configuration', { by: req.adminUser });
   writeScanDb(db);
@@ -702,7 +1009,55 @@ app.post('/api/scan/import', adminOnly, (req, res) => {
   return res.json({ ok: true, total: db.docs.length });
 });
 
-app.post('/api/admin-reset/validate', (req, res) => {
+// ── Mobile sync ──
+// One JSON snapshot of the admin's localStorage app data (invoices,
+// customers, items, etc.). The desktop pushes on save (debounced) and
+// the phone pulls on login / refresh. Admin role only — the snapshot
+// can contain financial info the phone-side employees never see.
+// Credentials are NOT included in the snapshot; those flow through
+// /api/auth/*. Source of truth remains localStorage on the desktop —
+// this file is a mirror that lets her see the same data on her phone.
+function readSync() {
+  try { return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8')); }
+  catch { return null; }
+}
+function writeSync(payload) {
+  writeJsonAtomic(SYNC_FILE, payload);
+}
+app.post('/api/sync/snapshot', adminOnly, (req, res) => {
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') {
+    return res.status(400).json({ ok: false, error: 'data object required' });
+  }
+  // Cheap size guard — the JSON parser cap already enforces 25MB, but
+  // measure post-parse so a payload of 25MB of `[null,null,…]` doesn't
+  // succeed silently.
+  const serialized = JSON.stringify(data);
+  if (Buffer.byteLength(serialized, 'utf8') > SYNC_MAX_BYTES) {
+    return res.status(413).json({ ok: false, error: 'Snapshot exceeds maximum size' });
+  }
+  const snapshot = {
+    data,
+    snapshotAt: new Date().toISOString(),
+    by: req.adminUser,
+    sizeBytes: Buffer.byteLength(serialized, 'utf8'),
+    version: 1,
+  };
+  writeSync(snapshot);
+  return res.json({ ok: true, snapshotAt: snapshot.snapshotAt, sizeBytes: snapshot.sizeBytes });
+});
+app.get('/api/sync/snapshot', adminOnly, (_req, res) => {
+  const snap = readSync();
+  if (!snap) return res.status(404).json({ ok: false, error: 'No snapshot pushed yet from the desktop.' });
+  return res.json({ ok: true, ...snap });
+});
+app.get('/api/sync/status', adminOnly, (_req, res) => {
+  const snap = readSync();
+  if (!snap) return res.json({ ok: true, snapshotAt: null, sizeBytes: 0, by: null });
+  return res.json({ ok: true, snapshotAt: snap.snapshotAt, sizeBytes: snap.sizeBytes || 0, by: snap.by || null });
+});
+
+app.post('/api/admin-reset/validate', authLimiter, (req, res) => {
   const { token, requestId } = req.body || {};
   if (!token || !requestId) return res.status(400).json({ valid: false, error: 'token and requestId are required' });
 
@@ -710,10 +1065,14 @@ app.post('/api/admin-reset/validate', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (decoded.requestId !== requestId) return res.status(401).json({ valid: false, error: 'requestId mismatch' });
     if (isUsed(decoded.jti)) return res.status(401).json({ valid: false, error: 'token already used' });
-
+    // SECURITY (A8): legacy tokens (pre-username-binding) had no `sub` claim.
+    // Tolerate them but default to "admin" so existing in-flight links keep
+    // working through the rolling deploy. New tokens carry sub explicitly.
+    const targetUser = String(decoded.sub || 'admin').trim().toLowerCase();
     return res.json({
       valid: true,
       requestId: decoded.requestId,
+      username: targetUser,
       source: decoded.source || 'email',
       expiresAt: decoded.exp ? decoded.exp * 1000 : null
     });
@@ -722,7 +1081,7 @@ app.post('/api/admin-reset/validate', (req, res) => {
   }
 });
 
-app.post('/api/admin-reset/complete', (req, res) => {
+app.post('/api/admin-reset/complete', authLimiter, async (req, res) => {
   const { token, requestId, approver, newPasswordHash } = req.body || {};
   if (!token || !requestId || !approver || !newPasswordHash) {
     return res.status(400).json({ ok: false, error: 'token, requestId, approver, newPasswordHash required' });
@@ -736,9 +1095,22 @@ app.post('/api/admin-reset/complete', (req, res) => {
     if (decoded.requestId !== requestId) return res.status(401).json({ ok: false, error: 'requestId mismatch' });
     if (isUsed(decoded.jti)) return res.status(401).json({ ok: false, error: 'token already used' });
 
+    // SECURITY (A3 + A8): actually write the new password on the server, bound
+    // to the username from the JWT. Pre-A3 this endpoint only marked the JTI
+    // used and trusted the client to persist the new hash — that was
+    // structurally broken because the client and server could diverge.
+    const targetUser = String(decoded.sub || 'admin').trim().toLowerCase();
+    const users = readUsers();
+    if (!users[targetUser]) {
+      return res.status(400).json({ ok: false, error: `User '${targetUser}' does not exist on this server` });
+    }
+    users[targetUser].password = await bcrypt.hash(String(newPasswordHash), BCRYPT_COST);
+    writeUsers(users);
+
     markUsed(decoded.jti, requestId, approver);
     const auditId = createAuditId();
-    return res.json({ ok: true, auditId });
+    console.log(`[admin-reset] ${targetUser} password reset complete (audit ${auditId}, approver=${approver})`);
+    return res.json({ ok: true, auditId, username: targetUser });
   } catch (e) {
     return res.status(401).json({ ok: false, error: e.message || 'invalid token' });
   }

@@ -5,6 +5,10 @@ import Confirm from '../ui/Confirm.jsx';
 import { BUSINESSES } from '../constants.js';
 import { fmt$, fmtDate } from '../formatters.js';
 import { logActivity, logFailure, today } from '../tabUtils.js';
+import { printHtmlDocument } from '../utils/print.js';
+import { buildProfessionalDoc, docSection, docMoney, esc } from '../utils/professionalDoc.js';
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 const LazyDailyFinanceCharts = lazy(() => import('../charts/DailyFinanceCharts.jsx'));
 
@@ -28,7 +32,7 @@ function Btn({ className = '', children, ...p }) {
   return <button className={`btn ${className}`} {...p}>{children}</button>;
 }
 
-export default function DailyIncomeExpense({ entries, setEntries, selectedBusiness, save }) {
+export default function DailyIncomeExpense({ entries, setEntries, selectedBusiness, save, brandingMap = null }) {
   const importRef = useRef();
   const [form, setForm] = useState(() => ({
     date: today(),
@@ -148,6 +152,80 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
     logActivity('delete_item', `Deleted daily finance row`);
     showToast('Entry deleted.');
     setPendingDeleteId(null);
+  }
+
+  // Professional sales-tax report, broken out by business (each files
+  // separately at its own rate). This is the document for the tax preparer.
+  function printTaxReport() {
+    if (!filtered.length) { showToast('No entries in this period to report on.', 'error'); return; }
+
+    // Aggregate per business present in the filtered set.
+    const byBiz = {};
+    filtered.forEach(r => {
+      const b = r.business || 'unknown';
+      if (!byBiz[b]) byBiz[b] = { collected: 0, paid: 0, days: 0 };
+      byBiz[b].collected += +(r.salesTaxCollected || 0);
+      byBiz[b].paid += +(r.taxPaid || 0);
+      byBiz[b].days += 1;
+    });
+
+    const periodLabel = (() => {
+      const mName = monthF ? MONTH_NAMES[parseInt(monthF, 10) - 1] : '';
+      if (monthF && yearF) return `${mName} ${yearF}`;
+      if (yearF) return `Year ${yearF}`;
+      if (monthF) return `${mName} (all years)`;
+      return 'All recorded entries';
+    })();
+
+    // Multi-column breakdown table (business · collected · paid · due).
+    const headRow = `<tr style="background:#FBF6EC">
+      <th style="text-align:left;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">BUSINESS</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">TAX COLLECTED</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">TAX PAID</th>
+      <th style="text-align:right;padding:7px 10px;border-bottom:1.5px solid #8B4513;font-size:11px;letter-spacing:.5px;color:#8B4513;">NET DUE</th>
+    </tr>`;
+    const bizRows = Object.entries(byBiz).map(([b, v]) => {
+      const due = +(v.collected - v.paid).toFixed(2);
+      const name = BUSINESSES[b]?.name || b;
+      const rate = BUSINESSES[b]?.taxRate != null ? ` (${(BUSINESSES[b].taxRate * 100).toFixed(3)}%)` : '';
+      return `<tr>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:13px;">${esc(name)}<span style="color:#999;font-size:11px;">${esc(rate)}</span></td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(v.collected))}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(v.paid))}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;">${esc(docMoney(due))}</td>
+      </tr>`;
+    }).join('');
+    const totalDue = +(totals.salesTaxCollected - totals.taxPaid).toFixed(2);
+    const totalRow = `<tr>
+      <td style="padding:9px 10px;border-top:2px solid #333;font-weight:800;font-size:13px;">TOTAL</td>
+      <td style="padding:9px 10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(totals.salesTaxCollected))}</td>
+      <td style="padding:9px 10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;">${esc(docMoney(totals.taxPaid))}</td>
+      <td style="padding:9px 10px;border-top:2px solid #333;text-align:right;font-weight:800;font-size:14px;color:#8B4513;font-variant-numeric:tabular-nums;">${esc(docMoney(totalDue))}</td>
+    </tr>`;
+    const table = `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">${headRow}${bizRows}${totalRow}</table>`;
+
+    const dueCallout = `<div style="margin-top:14px;padding:12px 16px;background:${totalDue > 0 ? '#FEF2F2' : '#F0FDF4'};border:1px solid ${totalDue > 0 ? '#FCA5A5' : '#86EFAC'};border-radius:8px;">
+      <span style="font-size:13px;color:#444;">Net sales tax owed to the state for this period:</span>
+      <span style="font-size:18px;font-weight:800;color:${totalDue > 0 ? '#b91c1c' : '#15803d'};margin-left:8px;">${esc(docMoney(totalDue))}</span>
+    </div>`;
+
+    const bizScope = bizF ? (BUSINESSES[bizF]?.name || bizF) : 'All businesses';
+    const branding = (bizF && brandingMap?.[bizF]) ? brandingMap[bizF] : {
+      name: 'DMG Restaurant Group', address: 'DeGrill · Parathas & Platters · Dera Masala Grill',
+      phone: brandingMap?.dera?.phone || '', email: brandingMap?.dera?.email || '', logo: brandingMap?.dera?.logo || '',
+    };
+
+    const html = buildProfessionalDoc({
+      branding,
+      docType: 'SALES TAX REPORT',
+      docNumber: 'TAX-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      periodLabel: `${periodLabel} · ${bizScope}`,
+      bodyHtml: table + dueCallout,
+      footerNote: 'Compiled from the daily income/expense ledger. Tax collected and tax paid are as recorded by the operator. Verify against point-of-sale records before filing. Rates shown are the configured per-business rates.',
+      confidential: true,
+    });
+    printHtmlDocument(html, 'Sales Tax Report');
+    logActivity('print_report', `Printed sales tax report (${periodLabel}, ${bizScope})`);
   }
 
   function toExcelRows(rows) {
@@ -276,6 +354,7 @@ export default function DailyIncomeExpense({ entries, setEntries, selectedBusine
         <div className="flex gap-2">
           <Btn className="btn-outline btn-sm" onClick={() => importRef.current?.click()}>⬆ Upload Excel (2025/2026)</Btn>
           <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => { importExcel(e.target.files?.[0]); e.target.value = ''; }} />
+          <Btn className="btn-primary btn-sm" onClick={printTaxReport} title="Print a professional sales-tax report (by business) for the selected month/year">🧾 Tax Report</Btn>
           <Btn className="btn-outline btn-sm" onClick={exportCsv}>⬇ CSV</Btn>
           <Btn className="btn-success btn-sm" onClick={exportExcel}>⬇ Excel</Btn>
         </div>

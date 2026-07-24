@@ -1,6 +1,7 @@
 import Confirm from '../ui/Confirm.jsx';
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import QuickPickerModal from '../ui/QuickPickerModal.jsx';
 import { LOCATIONS, PURCHASE_UNITS, CASE_UNITS } from '../constants.js';
 import { showToast } from '../toastContext.jsx';
 import { reportError } from '../errors.js';
@@ -21,6 +22,42 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
   const [showClearListConfirm, setShowClearListConfirm] = useState(false);
   const [shoppingLoc, setShoppingLoc] = useState(() => load('_shoppingLoc', LOCATIONS[1]));
   const [boughtIds, setBoughtIds] = useState(new Set());
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Bulk add from the quick-picker. Items already on the list bump their
+  // quantity instead of double-adding; new items get a fresh entry with
+  // the chosen unit and qty.
+  function addManyFromPicker(entries) {
+    let next = [...shoppingList];
+    let added = 0;
+    let bumped = 0;
+    for (const { item, qty, unit } of entries) {
+      const sellerList = Array.isArray(item.sellers) ? item.sellers : [];
+      const sel = sellerList[0] || { name: '', price: null };
+      const idx = next.findIndex(s => s.itemId === item.id && s.selectedSeller === sel.name);
+      if (idx >= 0) {
+        next[idx] = { ...next[idx], quantity: (Number(next[idx].quantity) || 0) + qty, unit };
+        bumped++;
+      } else {
+        next.push({
+          id: uid(),
+          itemId: item.id,
+          itemName: item.name,
+          unit,
+          upc: item.upc || '',
+          selectedSeller: sel.name,
+          price: sel.price,
+          quantity: qty,
+          sellers: sellerList,
+        });
+        added++;
+      }
+    }
+    setShoppingList(next);
+    save('shoppingList', next);
+    logActivity('add_shopping_bulk', `Quick-picker added ${added} new, bumped ${bumped} existing`);
+    showToast(`Added ${added} new item${added !== 1 ? 's' : ''}${bumped ? `, bumped ${bumped}` : ''}.`);
+  }
 
   function toggleBought(id) {
     setBoughtIds(prev => {
@@ -299,6 +336,7 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
               {LOCATIONS.map(l=><option key={l}>{l}</option>)}
             </select>
           </label>
+          <Btn className="btn-primary btn-sm" onClick={() => setPickerOpen(true)} title="Scroll through every pantry item, check what you need">📋 Quick-pick</Btn>
           <Btn className="btn-outline btn-sm" onClick={addLowStockItems} title={`Add items low at ${shoppingLoc}`}>⚠ Low Stock ({shoppingLoc})</Btn>
           {setPurchaseInvoices && <Btn className="btn-outline btn-sm" onClick={createPurchaseInvoices} title="Create one purchase invoice per supplier from this list">📋 Create Invoices</Btn>}
           <Btn className="btn-outline" onClick={printList}>🖨 Print</Btn>
@@ -348,7 +386,15 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
       </div>
 
       {shoppingList.length===0
-        ? <div className="card empty-state">Search for an item above and click to add it to your shopping list.</div>
+        ? (
+            <div className="card empty-state" style={{padding:'36px 24px',color:'#7a5c20'}}>
+              <div style={{fontSize:48,marginBottom:12}}>🛒</div>
+              <div style={{fontWeight:700,fontSize:18,color:'var(--brown)',marginBottom:6}}>Your shopping list is empty</div>
+              <div style={{fontSize:14,lineHeight:1.6,maxWidth:420,margin:'0 auto'}}>
+                Type an item name above and add it, or use <strong>⚠ Low Stock</strong> to auto-fill items that are below their reorder point.
+              </div>
+            </div>
+          )
         : (
           <>
             <div className="card" style={{padding:0}}>
@@ -477,6 +523,14 @@ export default function ShoppingList({ items, shoppingList, setShoppingList, pur
         confirmClass="btn-danger"
         onConfirm={confirmClearAll}
         onCancel={() => setShowClearListConfirm(false)}
+      />
+      <QuickPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        items={items}
+        shoppingList={shoppingList}
+        shoppingLoc={shoppingLoc}
+        onConfirm={addManyFromPicker}
       />
     </div>
   );

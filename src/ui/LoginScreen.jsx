@@ -138,7 +138,8 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         role: remote.user.role,
         name: remote.user.displayName,
         permissions: remote.user.permissions || DEFAULT_USER_PERMS,
-        authHash: String(remembered.authHash || '')
+        authHash: String(remembered.authHash || ''),
+        sessionToken: remote.token || null,
       });
     }).catch(() => setLoading(false));
   }, []);
@@ -165,6 +166,9 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       setStarterLoading(false);
       if (loadedCredentials) {
         const creds = load('credentials', {});
+        // First-run bootstrap: server allows unauthenticated sync only when its
+        // users file is empty. Subsequent syncs from this device will carry the
+        // logged-in admin's auth via App.jsx and handleLogin paths below.
         const syncResult = await syncCredentialsToBackend(creds, authApiBase);
         if (!syncResult.ok) {
           logFailure({ area:'setup', action:'sync_credentials_backend', error:syncResult.error });
@@ -217,10 +221,13 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         if (stored === saltedHash) {
           activeHash = saltedHash;
         } else if (stored === legacyHash) {
-          // Legacy unsalted hash matched — upgrade stored hash and sync to backend
+          // Legacy unsalted hash matched — upgrade stored hash and sync to backend.
+          // Use legacyHash for the sync auth: backend (if reachable and populated)
+          // still has the legacy hash too; succeeds for admin, silently 403s for
+          // non-admin staff and lets backend catch up the next time admin syncs.
           const upgraded = { ...creds, [key]: { ...creds[key], password: saltedHash } };
           save('credentials', upgraded);
-          syncCredentialsToBackend(upgraded, authApiBase).catch(() => {});
+          syncCredentialsToBackend(upgraded, authApiBase, { username: key, passwordHash: legacyHash }).catch(() => {});
           activeHash = saltedHash;
         }
         if (!activeHash) { setLoading(false); setErr('Invalid username or password.'); return; }
@@ -244,11 +251,14 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         if (legacyRemote.ok && legacyRemote.user) {
           remote = legacyRemote;
           activeHash = legacyHash;
-          // Upgrade backend to salted hash immediately
+          // Upgrade backend to salted hash immediately. Authenticate the sync
+          // with the legacy hash we just proved valid; succeeds for admin,
+          // 403s for non-admin (backend stays on legacy for them — see
+          // docs/SECURITY_REVIEW.md A0).
           const freshCreds = load('credentials', {});
           freshCreds[key] = { ...(freshCreds[key] || {}), password: saltedHash };
           save('credentials', freshCreds);
-          syncCredentialsToBackend(freshCreds, authApiBase).catch(() => {});
+          syncCredentialsToBackend(freshCreds, authApiBase, { username: key, passwordHash: legacyHash }).catch(() => {});
         }
       }
       if (!remote.ok || !remote.user) {
@@ -266,8 +276,28 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
       if (!useCentralAuth) { setUseCentralAuth(true); setNeedsSetup(false); setServerRetrying(false); }
       if (rememberDevice) save('_rememberedCheckinLogin', { username: remote.user.username, authHash: activeHash });
       else save('_rememberedCheckinLogin', null);
+
+      // SECURITY (A2): the server no longer returns credentialsSnapshot, so we
+      // patch our own entry into local creds for offline fallback. Other users'
+      // hashes are intentionally not stored on this device.
+      const localCredsAfter = load('credentials', {}) || {};
+      localCredsAfter[remote.user.username] = {
+        password: activeHash,
+        role: remote.user.role,
+        displayName: remote.user.displayName,
+        permissions: remote.user.permissions || DEFAULT_USER_PERMS,
+      };
+      save('credentials', localCredsAfter);
+
       setTimeout(() => {
-        onLogin({ username: remote.user.username, role: remote.user.role, name: remote.user.displayName, permissions: remote.user.permissions || DEFAULT_USER_PERMS, authHash: activeHash });
+        onLogin({
+          username: remote.user.username,
+          role: remote.user.role,
+          name: remote.user.displayName,
+          permissions: remote.user.permissions || DEFAULT_USER_PERMS,
+          authHash: activeHash,
+          sessionToken: remote.token || null,
+        });
       }, 400);
     } catch (e2) {
       logFailure({ area:'login', action:'handle_login_exception', error:e2 });
@@ -296,15 +326,20 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
     if (!creds.admin) creds.admin = { role:'admin', displayName:'Administrator', password:'' };
     creds.admin.password = await hashPwd(resetPwd);
     save('credentials', creds);
-    const syncResult = await syncCredentialsToBackend(creds, authApiBase);
-    if (!syncResult.ok) {
-      logFailure({ area:'login', action:'quick_admin_reset_sync', error:syncResult.error });
-    }
-    pushAuditEvent('admin_password_reset', 'Quick reset completed from login screen');
+    // No backend sync here — the central server requires admin auth (which the
+    // reset code alone can't satisfy) and accepting a "knows the reset code"
+    // proof at the server is a separate endpoint we haven't built yet. If
+    // central auth is in use, the user must follow up with a proper signed
+    // reset link via the manager. See docs/SECURITY_REVIEW.md A0 / A3.
+    pushAuditEvent('admin_password_reset', 'Quick reset completed (local only)');
     setResetCode('');
     setResetPwd('');
     setResetPwdC('');
-    setResetMsg('Admin password reset complete. You can now sign in with the new password.');
+    if (useCentralAuth) {
+      setResetMsg('Admin password reset on this device. Central server NOT updated — request a signed reset link from your manager to update the server.');
+    } else {
+      setResetMsg('Admin password reset complete. You can now sign in with the new password.');
+    }
   }
 
   return (
@@ -366,33 +401,48 @@ export default function LoginScreen({ onLogin, bootWarnings, online }) {
         </form>
 
         <button type="button" onClick={()=>setShowForgot(f=>!f)} style={{background:'none',border:'none',color:'var(--brown)',fontSize:13,cursor:'pointer',textDecoration:'underline',display:'block',textAlign:'center',marginTop:12,width:'100%'}}>
-          Forgot your password?
+          Need help signing in?
         </button>
         {showForgot && (
-          <div style={{background:'#FFF8DC',borderRadius:8,padding:'14px 16px',marginTop:8,border:'1px solid #DEB887',fontSize:13,lineHeight:1.8}}>
-            <div>🔐 <strong>Admin password:</strong> To reset, email{' '}
-              <a href="mailto:fatimfarooq@yahoo.com" style={{color:'var(--brown)',fontWeight:700}}>fatimfarooq@yahoo.com</a>
+          <div style={{background:'#FFF8DC',borderRadius:8,padding:'14px 16px',marginTop:8,border:'1px solid #DEB887',fontSize:13.5,lineHeight:1.6}}>
+            {/* Primary path: one obvious action that handles 95% of cases */}
+            <div style={{fontWeight:700,color:'var(--brown)',marginBottom:6}}>Forgot your password?</div>
+            <div style={{color:'#6b4b20',marginBottom:10}}>
+              Email your manager and they'll send you a one-time secure reset link.
             </div>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8}} onClick={()=>requestAdminResetEmail('login_forgot_password')}>
-              ✉️ Send Admin Password Reset Request
+            <Btn className="btn-primary" style={{width:'100%',marginBottom:14}} onClick={()=>requestAdminResetEmail('login_forgot_password')}>
+              ✉ Email manager for a reset link
             </Btn>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8,marginLeft:8}} onClick={()=>setShowQuickReset(v=>!v)}>
-              🔐 Quick Admin Reset
-            </Btn>
-            <div>👤 <strong>Staff password:</strong> Ask your admin — they can reset it from the ⚙ Settings panel once logged in.</div>
-            <Btn className="btn-outline btn-sm" style={{marginTop:8,marginLeft:8}} onClick={downloadFailureLog}>
-              ⬇ Download Failure Log
-            </Btn>
+
+            {/* Secondary path: collapse the reset-code form behind a single toggle */}
+            <button type="button"
+              onClick={()=>setShowQuickReset(v=>!v)}
+              style={{background:'none',border:'none',color:'var(--brown)',fontSize:13,cursor:'pointer',textDecoration:'underline',padding:0}}>
+              {showQuickReset ? '▾ I have a reset code' : '▸ I have a reset code from my manager'}
+            </button>
             {showQuickReset && (
               <form onSubmit={handleQuickAdminReset} style={{marginTop:10,paddingTop:10,borderTop:'1px solid #E7CFA6'}}>
                 <FI label="Reset Code" type="password" value={resetCode} onChange={e=>{setResetCode(e.target.value);setResetErr('');}} placeholder="Manager reset code" />
-                <FI label="New Admin Password" type="password" value={resetPwd} onChange={e=>{setResetPwd(e.target.value);setResetErr('');}} placeholder="Min 6 characters" />
+                <FI label="New Password" type="password" value={resetPwd} onChange={e=>{setResetPwd(e.target.value);setResetErr('');}} placeholder="Min 6 characters" />
                 <FI label="Confirm New Password" type="password" value={resetPwdC} onChange={e=>{setResetPwdC(e.target.value);setResetErr('');}} placeholder="Re-enter password" />
                 {resetErr && <div style={{background:'#fee2e2',color:'#991b1b',padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:12.5}}>{resetErr}</div>}
                 {resetMsg && <div style={{background:'#dcfce7',color:'#166534',padding:'8px 12px',borderRadius:5,marginBottom:10,fontSize:12.5}}>{resetMsg}</div>}
-                <button type="submit" className="btn btn-primary btn-sm">Save New Admin Password</button>
+                <button type="submit" className="btn btn-primary btn-sm">Save new password</button>
               </form>
             )}
+
+            {/* Staff hint — small, not alarming */}
+            <div style={{marginTop:14,paddingTop:10,borderTop:'1px solid #E7CFA6',color:'#7a5c20',fontSize:12.5}}>
+              Staff: ask your manager to reset your password from the Settings panel after they sign in.
+            </div>
+
+            {/* Tertiary: diagnostics tucked at the bottom, small */}
+            <div style={{marginTop:8,textAlign:'right'}}>
+              <button type="button" onClick={downloadFailureLog}
+                style={{background:'none',border:'none',color:'#999',fontSize:11.5,cursor:'pointer',textDecoration:'underline'}}>
+                Download diagnostics for support
+              </button>
+            </div>
           </div>
         )}
 

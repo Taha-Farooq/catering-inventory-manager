@@ -81,7 +81,17 @@
     /* ── Grids ── */
     .grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
     .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
-    @media(max-width:600px){ .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+    @media(max-width:600px){
+      .grid-2,.grid-3 { grid-template-columns: 1fr; }
+      /* Bigger tap targets on phones — Apple recommends ≥44pt, Material ≥48dp */
+      .btn { padding: 10px 14px; font-size: 14.5px; min-height: 40px; }
+      .btn-sm { padding: 7px 10px; font-size: 13px; min-height: 36px; }
+      .input { padding: 10px 12px; font-size: 16px; /* 16px prevents iOS zoom on focus */ }
+      .tab-btn { padding: 9px 12px; font-size: 13px; }
+      /* Tables tend to overflow horizontally on phones — scroll instead of squish */
+      .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .card { padding: 14px 12px; }
+    }
 
     /* ── Badges ── */
     .badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11.5px; font-weight: 600; }
@@ -189,6 +199,27 @@
 
     /* ── Animations ── */
     @keyframes fadeInUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+
+    /* ── Simple UI mode (Chunk 3) ──
+       Defaults are mom-friendly: slightly larger fonts in the main work
+       area, calmer empty states, no shrinking on the stat cards. Power
+       mode reverts to the legacy compact density. */
+    body.ui-simple .content-area { font-size: 15.5px; }
+    body.ui-simple .section-title { font-size: 22px; }
+    body.ui-simple th, body.ui-simple td { font-size: 14.5px; padding: 11px 14px; }
+    body.ui-simple .card { padding: clamp(14px, 2vw, 22px); }
+    body.ui-simple .stat-val { font-size: clamp(22px, 3vw, 30px); }
+    body.ui-simple .stat-lbl { font-size: 12px; letter-spacing: .3px; text-transform: none; color: #7a5c20; }
+    body.ui-simple .empty-state { color: #8a7256; font-size: 16px; }
+    body.ui-simple .hint-card { font-size: 13.5px; }
+    body.ui-simple .btn { padding: 9px 16px; font-size: 14px; }
+    body.ui-simple .btn-sm { padding: 5px 11px; font-size: 12.5px; }
+    body.ui-simple .input { padding: 10px 12px; font-size: 14.5px; }
+    body.ui-simple label { font-size: 13px; }
+    /* Calmer header in simple mode — single warm tone instead of gradient hop. */
+    body.ui-simple .app-header { background: var(--brown-md); }
+    body.ui-simple .group-bar { background: #4a240b; }
+    body.ui-simple .tab-bar { background: #5a2c0e; }
 
     /* ── Print ── */
     @media print {

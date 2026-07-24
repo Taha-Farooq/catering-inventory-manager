@@ -35,6 +35,7 @@ import {
   getAuthStatus,
   loginViaBackend,
   syncCredentialsToBackend,
+  authFromCurrentUser,
   scanApiCall,
   attendanceApiCall,
   requestAdminResetEmail,
@@ -77,6 +78,9 @@ import PriceHistory from './tabs/PriceHistory.jsx';
 import PriceUpdater from './tabs/PriceUpdater.jsx';
 import Confirm from './ui/Confirm.jsx';
 import Modal from './ui/Modal.jsx';
+import GlobalSearch from './ui/GlobalSearch.jsx';
+import MobileReadOnlyBanner from './ui/MobileReadOnlyBanner.jsx';
+import { getSyncMode, schedulePush, pullSnapshot, fetchSyncStatus, isReadOnly, shouldShowMobileFirstHint, dismissMobileFirstHint } from './utils/mobileSync.js';
 import {
   BUSINESSES,
   TABS_ADMIN,
@@ -105,7 +109,10 @@ import {
   ATT_QR_QUERY_KEY,
   STAFF_SESSION_TIMEOUT_KEY,
   DEFAULT_STAFF_SESSION_TIMEOUT,
+  UI_MODE_SIMPLE,
+  UI_MODE_POWER,
 } from './constants.js';
+import { getUiMode, setUiMode as persistUiMode, applyBodyClass } from './utils/uiMode.js';
 import {
   fmt$,
   fmtBytes,
@@ -133,7 +140,7 @@ function getInvoiceBranding(inv, brandingMap) {
   if (inv?._type === 'transfer' || inv?.invoiceType === 'pp_transfer') return b.transfer;
   return b[inv?.business] || { mark: 'INV', name: 'Invoice', location: '' };
 }
-function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchive }) {
+function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchive, uiMode }) {
   const hasResetCode = !!load(ADMIN_RESET_CODE_KEY, '');
   const creds = load('credentials', {});
   const hasStarterData = !!creds?.admin && itemsCount > 0;
@@ -142,6 +149,14 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
   const doneCount = [hasStarterData, hasResetCode, hasBackup].filter(Boolean).length;
   const allDone = doneCount === 3;
   if (allDone) return null;
+  const simple = uiMode === UI_MODE_SIMPLE;
+
+  // What's the next thing she should do? Just the first unchecked step.
+  const nextStep = !hasStarterData
+    ? { label: 'Import starter data', sub: 'Add admin login + items', cta: 'Open Settings → Backup', go: onOpenSettings }
+    : !hasResetCode
+    ? { label: 'Set a Quick Reset Code', sub: 'So you can recover if you forget your password', cta: 'Open Settings', go: onOpenSettings }
+    : { label: 'Export your first backup', sub: 'Keeps your data safe', cta: 'Open Settings → Backup', go: onOpenSettings };
 
   return (
     <div className="card" style={{border:'1.5px solid #EED9B0',background:'#fffdf8'}}>
@@ -149,19 +164,30 @@ function SetupQuickActions({ itemsCount, onOpenSettings, onGoTransfer, onGoArchi
         <div style={{fontWeight:800,color:'var(--brown)',fontSize:16}}>✅ First-Time Setup Checklist</div>
         <span className="badge badge-user">{doneCount}/3 complete</span>
       </div>
-      <div style={{fontSize:13,color:'#6b4b20',marginBottom:10}}>Complete these once to reduce support issues.</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr',gap:6,fontSize:13,marginBottom:12}}>
         <div>{hasStarterData ? '✅' : '⬜'} Starter data imported (admin + items available)</div>
         <div>{hasResetCode ? '✅' : '⬜'} Quick Reset Code configured (Settings → Admin Credentials)</div>
         <div>{hasBackup ? '✅' : '⬜'} At least one backup exported</div>
       </div>
-      <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:8}}>⚡ Quick Actions</div>
-      <div className="flex gap-2 flex-wrap">
-        <Btn className="btn-primary btn-sm" onClick={onOpenSettings}>⚙ Open Settings</Btn>
-        <Btn className="btn-outline btn-sm" onClick={onGoTransfer}>🚚 Go to Transfer Invoices</Btn>
-        <Btn className="btn-outline btn-sm" onClick={onGoArchive}>🗂 Open Archive</Btn>
-        <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Download Failure Log</Btn>
-      </div>
+      {simple ? (
+        // In simple mode: one obvious action — what to do next — and nothing else.
+        <div style={{background:'#FFF8DC',border:'1px solid #E7CFA6',borderRadius:8,padding:'10px 12px'}}>
+          <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:2}}>Next: {nextStep.label}</div>
+          <div style={{fontSize:12.5,color:'#7a5c20',marginBottom:8}}>{nextStep.sub}</div>
+          <Btn className="btn-primary btn-sm" onClick={nextStep.go}>{nextStep.cta}</Btn>
+        </div>
+      ) : (
+        // Power mode: keep the original 4-button toolkit.
+        <>
+          <div style={{fontWeight:700,color:'var(--brown)',fontSize:14,marginBottom:8}}>⚡ Quick Actions</div>
+          <div className="flex gap-2 flex-wrap">
+            <Btn className="btn-primary btn-sm" onClick={onOpenSettings}>⚙ Open Settings</Btn>
+            <Btn className="btn-outline btn-sm" onClick={onGoTransfer}>🚚 Go to Transfer Invoices</Btn>
+            <Btn className="btn-outline btn-sm" onClick={onGoArchive}>🗂 Open Archive</Btn>
+            <Btn className="btn-outline btn-sm" onClick={downloadFailureLog}>⬇ Download Failure Log</Btn>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -273,6 +299,48 @@ function App() {
   const brandingMap = useMemo(() => mergeBrandingWithOverrides(logoOverrides, bizContact), [logoOverrides, bizContact]);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  // Global search: open via Cmd/Ctrl+K from anywhere or the Dashboard button.
+  // When a result is clicked it sets pendingOpen, which the destination tab
+  // consumes once and clears (so it doesn't re-open on re-renders).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState(null); // {kind, id, tab, query}
+  function handleSearchOpen(target) {
+    if (target?.tab) setTab(target.tab);
+    setPendingOpen(target);
+  }
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Mobile sync: desktop pushes localStorage snapshots, phone pulls them.
+  // The mode is auto-picked by screen width (wide ⇒ desktop, narrow ⇒
+  // mobile) and overridable from Settings. Admin-only — staff phones
+  // never see any of this.
+  const [syncMode, setSyncModeState] = useState(() => getSyncMode());
+  const [readOnly, setReadOnly] = useState(() => isReadOnly());
+  const [syncStatus, setSyncStatus] = useState({ snapshotAt: null, pulling: false, pushing: false, lastError: '' });
+  function refreshSyncMode() {
+    setSyncModeState(getSyncMode());
+    setReadOnly(isReadOnly());
+  }
+  // Re-detect on screen-size changes — laptop docked to a big monitor,
+  // phone rotated, etc. Cheap and prevents an awkward "you said this
+  // was a phone an hour ago" mismatch.
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(min-width:1024px)');
+    const handler = () => refreshSyncMode();
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, []);
+
   const [navGroup, setNavGroup] = useState('ops');
   const [items, setItems] = useState(()=>load('items',[]));
   const [shopping, setShopping] = useState(()=>migrateShoppingList(load('shoppingList',[])));
@@ -309,6 +377,15 @@ function App() {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [confirmKiosk, setConfirmKiosk] = useState(false);
   const [confirmClearCorrupt, setConfirmClearCorrupt] = useState(false);
+  const [uiMode, setUiMode] = useState(() => getUiMode());
+  useEffect(() => { applyBodyClass(uiMode); }, [uiMode]);
+  function toggleUiMode() {
+    const next = uiMode === UI_MODE_SIMPLE ? UI_MODE_POWER : UI_MODE_SIMPLE;
+    persistUiMode(next);
+    setUiMode(next);
+    showToast(next === UI_MODE_SIMPLE ? 'Switched to simple mode' : 'Switched to power mode — all controls visible', 'success');
+  }
+  const isSimple = uiMode === UI_MODE_SIMPLE;
   const [profile, setProfile] = useState(()=> {
     const u = load('_session', null);
     return u ? getProfile(u.username) : { displayName:'Staff User', icon:'👤' };
@@ -428,7 +505,7 @@ function App() {
     if (!currentUser || currentUser.role !== 'admin') return;
     const creds = load('credentials', {});
     if (!creds || !Object.keys(creds).length) return;
-    syncCredentialsToBackend(creds, loadAdminResetApiBase()).then(result => {
+    syncCredentialsToBackend(creds, loadAdminResetApiBase(), authFromCurrentUser(currentUser)).then(result => {
       if (!result.ok) {
         logFailure({ area:'app', action:'admin_login_sync_credentials', error:result.error });
       }
@@ -556,7 +633,15 @@ function App() {
   }
 
   const isAdmin = currentUser.role === 'admin';
-  const TABS = (isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id));
+  // Simple mode hides power-user tabs (Inv. Log, Price History, Activity
+  // Log) from the nav to cut clutter; the tabs still exist and power mode
+  // restores them. If the active tab gets hidden, the effect below bounces
+  // to Dashboard.
+  const TABS = ((isAdmin && kioskLock) ? TABS_ADMIN.filter(t=>t.id==='checkio') : isAdmin ? TABS_ADMIN : ALL_USER_TABS.filter(t => userPerms.includes(t.id)))
+    .filter(t => !(isSimple && t.powerOnly));
+  useEffect(() => {
+    if (isAdmin && isSimple && TABS_ADMIN.find(t => t.id === tab)?.powerOnly) setTab('dashboard');
+  }, [isSimple, tab, isAdmin]);
   const navGroups = useMemo(() => {
     const allowed = new Set(TABS.map(t => t.id));
     const src = (isAdmin && kioskLock)
@@ -592,7 +677,80 @@ function App() {
     setSuppliers,
     logoOverrides, setLogoOverrides,
     bizContact, setBizContact,
+    // Mobile sync surface, used by SettingsModal's "📱 Phone Sync" section
+    // and consumed by tab components for read-only enforcement.
+    syncMode, refreshSyncMode, readOnly, syncStatus, setSyncStatus,
+    onManualPush: () => doPush(true),
+    onManualPull: () => doPull(true),
   };
+
+  // ── Mobile sync wiring ────────────────────────────────────────────────
+  // Desktop mode: every save() pushes a debounced snapshot. We watch the
+  // big data slices and reschedule on any change.
+  async function doPush(showToastOnSuccess = false) {
+    if (!isAdmin || !online) return;
+    setSyncStatus(s => ({ ...s, pushing: true, lastError: '' }));
+    try {
+      const { pushSnapshot } = await import('./utils/mobileSync.js');
+      const res = await pushSnapshot(attendanceApiCall, currentUser);
+      if (res.ok) {
+        setSyncStatus(s => ({ ...s, pushing: false, snapshotAt: res.data?.snapshotAt || new Date().toISOString() }));
+        if (showToastOnSuccess) showToast('Pushed snapshot to phone-sync cloud.', 'success');
+      } else {
+        setSyncStatus(s => ({ ...s, pushing: false, lastError: res.error || 'Push failed' }));
+        if (showToastOnSuccess) showToast(`Push failed: ${res.error || 'unknown'}`, 'error');
+      }
+    } catch (e) {
+      setSyncStatus(s => ({ ...s, pushing: false, lastError: String(e?.message || e) }));
+    }
+  }
+  async function doPull(showToastOnSuccess = false) {
+    if (!isAdmin || !online) return;
+    setSyncStatus(s => ({ ...s, pulling: true, lastError: '' }));
+    try {
+      const res = await pullSnapshot(attendanceApiCall, currentUser);
+      if (res.ok) {
+        setSyncStatus(s => ({ ...s, pulling: false, snapshotAt: res.data?.snapshotAt }));
+        if (showToastOnSuccess) showToast(`Refreshed (${res.applied} sections updated). Reloading…`);
+        // Hydrate React state from the just-applied localStorage.
+        setItems(load('items', []));
+        setShopping(load('shoppingList', []));
+        setPurchaseInv(load('purchaseInvoices', []));
+        setCateringInv(load('cateringInvoices', []));
+        setTransferInv(load('transferInvoices', []));
+        setPayrollInvoices(load('payrollInvoices', []));
+        setDailyFinanceEntries(load('_dailyFinanceEntries', []));
+        setCustomers(load('customers', []));
+        setSuppliers(load('_suppliers', []));
+        setPriceHist(load('priceHistory', []));
+      } else {
+        setSyncStatus(s => ({ ...s, pulling: false, lastError: res.error || 'Pull failed' }));
+        if (showToastOnSuccess) showToast(`Refresh failed: ${res.error || 'unknown'}`, 'error');
+      }
+    } catch (e) {
+      setSyncStatus(s => ({ ...s, pulling: false, lastError: String(e?.message || e) }));
+    }
+  }
+
+  // Desktop auto-push on data change. We watch the big slices; the
+  // schedulePush debounce coalesces rapid edits into a single push.
+  useEffect(() => {
+    if (!isAdmin || syncMode !== 'desktop' || !online) return;
+    schedulePush(attendanceApiCall, currentUser, 2500);
+  }, [items, cateringInv, purchaseInv, transferInv, payrollInvoices, customers, suppliers, dailyFinanceEntries, priceHist, isAdmin, syncMode, online]);
+
+  // Mobile auto-pull on first mount after login. Also fetch status.
+  useEffect(() => {
+    if (!isAdmin || syncMode !== 'mobile' || !online) return;
+    let cancelled = false;
+    (async () => {
+      const status = await fetchSyncStatus(attendanceApiCall, currentUser);
+      if (cancelled) return;
+      if (status.ok) setSyncStatus(s => ({ ...s, snapshotAt: status.data?.snapshotAt }));
+      await doPull(false);
+    })();
+    return () => { cancelled = true; };
+  }, [isAdmin, syncMode, online, currentUser?.username]);
 
   function handleClearCorruptKeys() {
     const keys = [...storageCorruptKeys];
@@ -635,6 +793,12 @@ function App() {
 
   return (
     <div id="app-shell">
+      {isAdmin && <MobileReadOnlyBanner
+        syncMode={syncMode}
+        syncStatus={syncStatus}
+        onRefresh={() => doPull(true)}
+        onOpenSettings={() => setShowSettings(true)}
+      />}
       <div className="app-header no-print">
         <div className="header-row">
           <div>
@@ -650,6 +814,12 @@ function App() {
                 value={biz} onChange={e=>handleBizChange(e.target.value)}>
                 {Object.entries(BUSINESSES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
               </select>
+            )}
+            {isAdmin && !kioskLock && (
+              <Btn className="btn-ghost btn-sm" onClick={toggleUiMode}
+                title={isSimple ? 'Simple mode hides advanced controls. Click to show everything.' : 'Power mode shows every control. Click for the calmer view.'}>
+                {isSimple ? '✨ Simple' : '🔧 Power'}
+              </Btn>
             )}
             {isAdmin && !kioskLock && <Btn className="btn-ghost btn-sm" onClick={()=>setShowSettings(true)}>⚙ Settings</Btn>}
             <div
@@ -701,22 +871,26 @@ function App() {
         <BrowserCapsBanner warnings={bootWarnings} />
         {!storageEnvOk && (
           <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#9a3412'}}>
-            <strong>DMG-E010:</strong> Browser storage is not available or blocked. The app cannot save changes reliably. Allow site data / exit strict private browsing, then refresh.
+            {isSimple
+              ? <>This browser isn’t saving your data right now. Turn off strict private browsing or allow this site to save data, then refresh the page.</>
+              : <><strong>DMG-E010:</strong> Browser storage is not available or blocked. The app cannot save changes reliably. Allow site data / exit strict private browsing, then refresh.</>
+            }
           </div>
         )}
         {storageQuotaWarn && (
           <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#92400e'}}>
-            <strong>DMG-E011:</strong> Device storage for this site is nearly full
-            {storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null && (
-              <> ({fmtBytes(storageQuotaWarn.usageBytes)} / {fmtBytes(storageQuotaWarn.quotaBytes)})</>
-            )}
-            . Export a backup from Settings, then remove old invoices or clear other sites’ data.
+            {isSimple
+              ? <>You’re running low on browser storage{storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null ? <> ({fmtBytes(storageQuotaWarn.usageBytes)} of {fmtBytes(storageQuotaWarn.quotaBytes)} used)</> : null}. Open <strong>Settings → Backup</strong> to save your data, then clear out old invoices.</>
+              : <><strong>DMG-E011:</strong> Device storage for this site is nearly full{storageQuotaWarn.usageBytes != null && storageQuotaWarn.quotaBytes != null ? <> ({fmtBytes(storageQuotaWarn.usageBytes)} / {fmtBytes(storageQuotaWarn.quotaBytes)})</> : null}. Export a backup from Settings, then remove old invoices or clear other sites’ data.</>
+            }
           </div>
         )}
         {!!storageCorruptKeys.length && (
           <div style={{background:'#fefce8',border:'1px solid #fde047',borderRadius:8,padding:'10px 12px',marginBottom:12,fontSize:13,color:'#713f12'}}>
-            <strong>DMG-E012:</strong> Some saved data could not be read (keys: {storageCorruptKeys.join(', ')}).
-            Export a backup if possible, then remove the bad keys.
+            {isSimple
+              ? <>Some saved data couldn’t be read. Export a backup first if you can, then click the button below to remove the unreadable entries — the rest of your data stays safe.</>
+              : <><strong>DMG-E012:</strong> Some saved data could not be read (keys: {storageCorruptKeys.join(', ')}). Export a backup if possible, then remove the bad keys.</>
+            }
             {' '}
             <button type="button" className="btn btn-outline btn-sm" style={{marginLeft:8}} onClick={handleClearCorruptKeys}>Remove unreadable keys</button>
           </div>
@@ -733,33 +907,48 @@ function App() {
               onOpenSettings={()=>setShowSettings(true)}
               onGoTransfer={()=>goToTab('transfer')}
               onGoArchive={()=>goToTab('archive')}
+              uiMode={uiMode}
             />
           </div>
         )}
-        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} />}
-        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} />}
+        {tab==='dashboard' && isAdmin && <Dashboard items={items} purchaseInvoices={purchaseInv} cateringInvoices={cateringInv} payrollInvoices={payrollInvoices} setTab={setTab} shoppingList={shopping} setShoppingList={setShopping} onOpenSettings={()=>setShowSettings(true)} onOpenSearch={()=>setSearchOpen(true)} />}
+        {tab==='items'     && <ItemDatabase     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} userRole={currentUser.role} purchaseInvoices={purchaseInv} readOnly={readOnly} />}
         {tab==='invadj'    && isAdmin && <InventoryAdjustments items={items} setItems={setItems} />}
         {tab==='shopping'  && <ShoppingList     items={items} shoppingList={shopping} setShoppingList={setShopping} purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} />}
-        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={staffAttToken || attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} sessionTimeLeft={staffSessionTimer} onAttendanceComplete={handleAttendanceComplete} />}
+        {tab==='checkio'   && <CheckInOutPage currentUser={currentUser} attendanceToken={staffAttToken || attendanceParams?.token || ''} onEnterKiosk={enterKioskMode} kioskLock={kioskLock} selectedBusiness={biz} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} isOnline={online} attendanceApiCall={attendanceApiCall} sessionTimeLeft={staffSessionTimer} onAttendanceComplete={handleAttendanceComplete} brandingMap={brandingMap} />}
         {tab==='pricer'    && <PriceUpdater     items={items} setItems={setItems} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
-        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} />}
-        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
-        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} />}
-        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} />}
+        {tab==='purchase'  && isAdmin && <PurchaseInvoices purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} selectedBusiness={biz} items={items} setItems={setItems} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} suppliers={suppliers} initialSupplier={purchasePreset} onConsumeInitialSupplier={()=>setPurchasePreset(null)} pendingOpen={pendingOpen?.kind==='purchase'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
+        {tab==='transfer'  && isAdmin && <TransferInvoices transferInvoices={transferInv} setTransferInvoices={setTransferInv} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='transfer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
+        {tab==='catering'  && isAdmin && <CateringInvoices cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} customers={customers} setCustomers={setCustomers} selectedBusiness={biz} userRole={currentUser.role} items={items} brandingMap={brandingMap} getInvoiceBranding={getInvoiceBranding} pendingOpen={pendingOpen?.kind==='catering'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
+        {tab==='customers' && isAdmin && <CustomerManagement customers={customers} setCustomers={setCustomers} cateringInvoices={cateringInv} save={save} brandingMap={brandingMap} selectedBusiness={biz} pendingOpen={pendingOpen?.kind==='customer'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} readOnly={readOnly} />}
         {tab==='suppliers' && isAdmin && <SupplierManagement suppliers={suppliers} setSuppliers={setSuppliers} items={items} purchaseInvoices={purchaseInv} onCreateInvoice={name=>{setPurchasePreset(name);setTab('purchase');}} />}
-        {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} />}
-        {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} save={save} />}
+        {tab==='analytics' && isAdmin && <Analytics cateringInvoices={cateringInv} purchaseInvoices={purchaseInv} dailyFinanceEntries={dailyFinanceEntries} payrollInvoices={payrollInvoices} brandingMap={brandingMap} />}
+        {tab==='dailyfin'  && <DailyIncomeExpense entries={dailyFinanceEntries} setEntries={setDailyFinanceEntries} selectedBusiness={biz} save={save} brandingMap={brandingMap} />}
         {tab==='payroll'   && isAdmin && <PayrollInvoices payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} selectedBusiness={biz} brandingMap={brandingMap} />}
         {tab==='archive'   && isAdmin && <InvoiceArchive purchaseInvoices={purchaseInv} setPurchaseInvoices={setPurchaseInv} cateringInvoices={cateringInv} setCateringInvoices={setCateringInv} transferInvoices={transferInv} setTransferInvoices={setTransferInv} payrollInvoices={payrollInvoices} setPayrollInvoices={setPayrollInvoices} userRole={currentUser.role} brandingMap={brandingMap} selectedBusiness={biz} getInvoiceBranding={getInvoiceBranding} />}
         {tab==='history'   && isAdmin && <PriceHistory items={items} priceHistory={priceHist} setPriceHistory={setPriceHist} />}
         {tab==='margins'   && isAdmin && <MenuMarginsLab items={items} priceHistory={priceHist} selectedBusiness={biz} />}
         {tab==='actlog'    && isAdmin && <ActivityLog save={save} />}
-        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} isOnline={online} scanApiCall={scanApiCall} hashPwd={hashPwd} />}
+        {tab==='scanbeta'  && isAdmin && <ScanDatabaseBeta currentUser={currentUser} onAuthHashSaved={handleScannerAuthHash} isOnline={online} scanApiCall={scanApiCall} hashPwd={hashPwd} pendingOpen={pendingOpen?.kind==='scan'?pendingOpen:null} onConsumePending={()=>setPendingOpen(null)} />}
         {tab==='help'      && <HelpCenter currentUser={currentUser} corruptKeys={storageCorruptKeys} onRepairStorageKey={handleRepairStorageKey} />}
       </div>
 
       {/* ── Modals ── */}
-      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} brandingMap={brandingMap} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
+      <SettingsModal open={showSettings} onClose={()=>setShowSettings(false)} appState={appState} currentUser={currentUser} localFeatureWarning={localFeatureWarning} brandingMap={brandingMap} uiMode={uiMode} onPermsChange={(perms, uname)=>{ if(uname===currentUser.username) setUserPerms(perms); }} />
+      <GlobalSearch
+        open={searchOpen}
+        onClose={()=>setSearchOpen(false)}
+        onOpen={handleSearchOpen}
+        items={items}
+        cateringInvoices={cateringInv}
+        purchaseInvoices={purchaseInv}
+        transferInvoices={transferInv}
+        customers={customers}
+        suppliers={suppliers}
+        currentUser={currentUser}
+        isOnline={online}
+        scanApiCall={scanApiCall}
+      />
       <ProfileModal open={showProfile} onClose={()=>setShowProfile(false)} username={currentUser.username} profile={profile} onSave={handleProfileSave} />
 
       <Confirm
